@@ -1,0 +1,11 @@
+.atl/
+.openspec/
+openspec/
+build/
+dist/
+tmp/
+.tmp/
+bin/
+coverage/
+.DS_Store
+*.log

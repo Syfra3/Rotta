@@ -1,0 +1,108 @@
+# Uncle Bob Workflow — State Machine
+# Managed by the Craftsman Lead (Orchestrator).
+# Workspace files are the source of truth for durable artifacts.
+
+states:
+  - draft_spec
+  - hard_spec_review
+  - gherkin_review
+  - tdd_red
+  - tdd_green
+  - refactor
+  - review
+  - mutation_testing
+  - remediation
+  - complete
+  - escalated
+
+transitions:
+  draft_spec:
+    next: hard_spec_review
+    requires:
+      - specs/draft.md
+    agent: spec-mode
+
+  hard_spec_review:
+    next: gherkin_review
+    requires:
+      - specs/hard_spec.md
+      - human_approval: hard_spec
+    agent: spec-mode
+
+  gherkin_review:
+    next: tdd_red
+    requires:
+      - "features/*.feature"
+      - specs/.approved
+      - human_approval: gherkin
+    agent: spec-mode
+
+  tdd_red:
+    next: tdd_green
+    requires:
+      - specs/.approved
+    agent: implementation-mode
+
+  tdd_green:
+    next: refactor
+    requires: []
+    agent: implementation-mode
+
+  refactor:
+    next: tdd_red          # next scenario
+    next_on_complete: review  # all scenarios done
+    requires: []
+    agent: implementation-mode
+
+  review:
+    next: complete
+    fail: remediation
+    escalate: escalated
+    requires:
+      - specs/.implementation-complete
+      - reports/traceability.json
+      - reports/test-results.xml
+    agent: review-mode
+
+  mutation_testing:
+    pass: complete
+    fail: remediation
+    requires:
+      - reports/mutation.json
+    agent: review-mode
+
+  remediation:
+    next: tdd_red
+    requires: []
+    agent: implementation-mode
+
+  complete:
+    terminal: true
+    requires:
+      - reports/judge_report.md
+      - reports/mutation.json
+
+  escalated:
+    terminal: false
+    requires_human: true
+    resumes_at: review
+
+# Artifact sources of truth
+artifacts:
+  workspace:
+    - specs/draft.md
+    - specs/hard_spec.md
+    - "features/*.feature"
+    - specs/.approved
+    - specs/.implementation-complete
+    - ".uncle-bob/tdd-log.md"
+  reports:
+    - reports/traceability.json
+    - reports/test-results.xml
+    - reports/coverage.xml
+    - reports/mutation.json
+    - reports/complexity.json
+    - reports/judge_report.md
+
+# State file location
+state_file: .uncle-bob/state.yaml

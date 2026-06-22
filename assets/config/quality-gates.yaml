@@ -1,0 +1,57 @@
+# Uncle Bob Workflow — Quality Gates
+# Thresholds are read by Review Mode.
+# Override per-project or per-risk-level.
+
+defaults:
+  changed_line_coverage: 0.90
+  critical_path_branch_coverage: 0.95
+  mutation_score: 0.80
+  surviving_critical_mutations: 0
+  cyclomatic_complexity_max: 10
+  circular_dependencies: 0
+  forbidden_import_violations: 0
+  unauthorized_files_changed: 0
+
+# Override thresholds for high-risk domains
+critical_domains:
+  - pattern: "auth/**"
+    mutation_score: 0.90
+    changed_line_coverage: 0.95
+  - pattern: "payments/**"
+    mutation_score: 0.90
+    changed_line_coverage: 0.95
+  - pattern: "security/**"
+    mutation_score: 0.95
+    changed_line_coverage: 0.98
+
+# Mutation testing scope
+mutation_testing:
+  scope: changed_modules    # "changed_modules" | "full" | "none"
+  full_suite_in_ci: true    # run full mutation in nightly CI
+  exempt_patterns:
+    - "**/*_generated.go"
+    - "**/mock_*.go"
+    - "**/testdata/**"
+
+# Gates severity
+severity:
+  hard:                           # returns to TDD on failure
+    - scenario_traceability
+    - tests_passing
+    - changed_line_coverage
+    - critical_path_branch_coverage
+    - mutation_score
+    - surviving_critical_mutations
+    - circular_dependencies
+    - forbidden_import_violations
+    - typecheck_lint_security
+  warn:                           # escalates to human on failure
+    - cyclomatic_complexity
+    - unauthorized_files_changed
+    - file_size_limit
+
+# File and function size limits
+size_limits:
+  max_file_lines: 500
+  max_function_lines: 50
+  max_cyclomatic_complexity: 10
