@@ -18,14 +18,6 @@ This project works with the following agents:
 - `bob-impl` (`assets/agents/bob-impl.md`)
 - `bob-review` (`assets/agents/bob-review.md`)
 
-## Repository conventions
-
-- Keep workflow state and generated helpers out of version control when possible.
-- This repo ignores:
-  - `.atl/`
-  - `openspec/` and `.openspec/`
-  - `build/` (and common generated folders like `dist/`, `tmp/`, `coverage/`)
-
 ## Quick start
 
 1. Initialize Go module dependencies and build as needed with standard Go tooling.
