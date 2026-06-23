@@ -1,0 +1,177 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-and-upload:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            platform: linux-amd64
+          - goos: linux
+            goarch: arm64
+            platform: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            platform: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            platform: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            platform: windows-amd64
+            ext: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${{ needs.release-please.outputs.tag_name }}"
+          BINARY_NAME="uncle-bob${{ matrix.ext }}"
+
+          go build \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -trimpath \
+            -o "${BINARY_NAME}" \
+            ./cmd/uncle-bob
+
+          ARCHIVE_NAME="bob-workflow-${{ needs.release-please.outputs.version }}-${{ matrix.platform }}.tar.gz"
+          tar czf "${ARCHIVE_NAME}" "${BINARY_NAME}"
+
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          else
+            shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: |
+            bob-workflow-*.tar.gz
+            bob-workflow-*.sha256
+
+  update-homebrew-tap:
+    needs: [release-please, build-and-upload]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: Syfra3/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          REPO="Syfra3/bob-workflow"
+          PACKAGE="bob-workflow"
+          FORMULA="Formula/${PACKAGE}.rb"
+
+          if [ ! -f "$FORMULA" ]; then
+            mkdir -p "$(dirname \"$FORMULA\")"
+            cat > "$FORMULA" <<'EOF'
+  class BobWorkflow < Formula
+    desc "Contract-driven development orchestrator with Uncle Bob workflow"
+    homepage "https://github.com/Syfra3/bob-workflow"
+    version "${VERSION}"
+    license "Apache-2.0"
+
+    on_macos do
+      if Hardware::CPU.arm?
+        url "https://github.com/Syfra3/bob-workflow/releases/download/v#{version}/bob-workflow-#{version}-darwin-arm64.tar.gz"
+        sha256 "TODO_DARWIN_ARM64"
+      else
+        url "https://github.com/Syfra3/bob-workflow/releases/download/v#{version}/bob-workflow-#{version}-darwin-amd64.tar.gz"
+        sha256 "TODO_DARWIN_AMD64"
+      end
+    end
+
+    on_linux do
+      if Hardware::CPU.intel?
+        url "https://github.com/Syfra3/bob-workflow/releases/download/v#{version}/bob-workflow-#{version}-linux-amd64.tar.gz"
+        sha256 "TODO_LINUX_AMD64"
+      else
+        url "https://github.com/Syfra3/bob-workflow/releases/download/v#{version}/bob-workflow-#{version}-linux-arm64.tar.gz"
+        sha256 "TODO_LINUX_ARM64"
+      end
+    end
+
+    def install
+      bin.install "uncle-bob"
+    end
+
+    test do
+      assert_match version.to_s, shell_output("#{bin}/uncle-bob --version")
+    end
+  end
+  EOF
+          fi
+
+          declare -A CHECKSUMS
+          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            URL="https://github.com/${REPO}/releases/download/v${VERSION}/${PACKAGE}-${VERSION}-${platform}.tar.gz.sha256"
+            SHA256=$(curl -sL "$URL" | awk '{print $1}')
+            if [ -z "$SHA256" ]; then
+              echo "ERROR: Could not fetch checksum for ${platform}"
+              exit 1
+            fi
+            CHECKSUMS[$platform]="$SHA256"
+            echo "${platform}: ${SHA256}"
+          done
+
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA"
+          sed -i "/darwin-arm64\.tar\.gz\"/{n; s/sha256 \".*\"/sha256 \"${CHECKSUMS[darwin-arm64]}\"/}" "$FORMULA"
+          sed -i "/darwin-amd64\.tar\.gz\"/{n; s/sha256 \".*\"/sha256 \"${CHECKSUMS[darwin-amd64]}\"/}" "$FORMULA"
+          sed -i "/linux-arm64\.tar\.gz\"/{n; s/sha256 \".*\"/sha256 \"${CHECKSUMS[linux-arm64]}\"/}" "$FORMULA"
+          sed -i "/linux-amd64\.tar\.gz\"/{n; s/sha256 \".*\"/sha256 \"${CHECKSUMS[linux-amd64]}\"/}" "$FORMULA"
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/bob-workflow.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: update bob-workflow to v${VERSION}"
+          git push
