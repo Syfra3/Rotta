@@ -3,6 +3,67 @@
 `bob-workflow` is a contract-driven development orchestrator for Uncle Bob style execution:
 hard spec → Gherkin → TDD → review.
 
+## Workflow decision map
+
+The workflow protects reviewer time by separating contract approval, TDD
+implementation, objective evidence review, and final human judgment.
+
+```mermaid
+flowchart TD
+    A[Feature request] --> B[Phase 1: Draft]
+    B --> C{Open questions?}
+    C -- Yes --> D[Ask one critical question batch]
+    D --> B
+    C -- No --> E[Phase 2: Spec + Gherkin]
+
+    E --> F{Human approves Gherkin contract?}
+    F -- No --> E
+    F -- Yes --> G[Phase 3: TDD implementation]
+
+    G --> H[Implement one approved scenario]
+    H --> I{All approved scenarios implemented?}
+    I -- No --> G
+    I -- Yes --> J[Mark implementation complete]
+
+    J --> K[Phase 4: bob-review]
+    K --> L{TUI-generated gates available?}
+    L -- No --> M[Stop: GATE_CONFIG_MISSING]
+    M --> N[Regenerate or confirm gates in TUI]
+    N --> K
+
+    L -- Yes --> O[Load .uncle-bob/quality-gates.yaml]
+    O --> P[Collect evidence: traceability, tests, coverage, mutation, architecture, static analysis]
+    P --> Q{Any HARD gate failed?}
+    Q -- Yes --> R[Return to TDD with specific remediation]
+    R --> G
+
+    Q -- No --> S{WARN gate or critical risk?}
+    S -- Yes --> T[Escalate to human with evidence]
+    T --> U{Exception approved?}
+    U -- No --> R
+    U -- Yes --> V[Eligible for final human review]
+
+    S -- No --> V
+    V --> W{Semantic/design/risk review passes?}
+    W -- No --> R
+    W -- Yes --> X[Feature complete / PR-ready]
+```
+
+### Decision points
+
+| Step | Decision | Owner | Outcome |
+|------|----------|-------|---------|
+| Draft | Are there unresolved questions? | Orchestrator + human | Clarify before specs |
+| Spec | Is the Gherkin contract approved? | Human | Approval unlocks TDD |
+| TDD | Are all approved scenarios implemented? | `bob-impl` | Completion unlocks review |
+| Review config | Are TUI-generated gates available? | `bob-review` | Missing config stops review |
+| Objective gates | Did any active HARD gate fail? | `bob-review` | Failure returns to TDD |
+| Risk gates | Did WARN gates or critical risks appear? | `bob-review` + human | Human exception or remediation |
+| Final review | Is the work semantically correct and design-fit? | Human | Pass means PR-ready |
+
+Objective gates make AI-generated code eligible for review. They do not replace
+final human approval.
+
 ## What this repository includes
 
 - `bin/uncle-bob` — CLI entrypoint.
