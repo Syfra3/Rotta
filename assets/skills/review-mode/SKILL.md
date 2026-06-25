@@ -39,23 +39,18 @@ If any precondition fails, STOP and report. Do NOT evaluate gates against incomp
 
 ## Quality Gates
 
-Evaluate every gate. Gates marked **HARD** will return the workflow to Implementation Mode on failure. Gates marked **WARN** escalate to human if they fail.
+Evaluate active gates in the order defined by the TUI-generated workflow file.
+The generated file is the source of truth for gate names, thresholds, severity,
+and remediation policy.
 
-| Gate | Threshold | Severity | Action on Fail |
-|------|-----------|----------|----------------|
-| Scenario-to-test mapping | 100% of approved SCN IDs | HARD | Return to TDD |
-| Test suite passing | 100% | HARD | Return to TDD |
-| Changed-line coverage | ≥ 90% | HARD | Return to TDD |
-| Critical-path branch coverage | ≥ 95% | HARD | Return to TDD |
-| Mutation score (changed modules) | ≥ 80% (default) / ≥ 90% (critical) | HARD | Return to TDD |
-| Surviving critical mutations | 0 | HARD | Return to TDD |
-| Cyclomatic complexity | ≤ 10 per function | WARN | Human escalation |
-| Circular dependencies | 0 | HARD | Return to TDD |
-| Forbidden imports / layer violations | 0 | HARD | Return to TDD |
-| Typecheck / lint / security | 0 blocking errors | HARD | Return to TDD |
-| Unauthorized files changed | 0 | WARN | Human escalation |
+Expected source: `.uncle-bob/quality-gates.yaml`.
 
-Thresholds are read from `.uncle-bob/quality-gates.yaml`. If the file does not exist, use the table defaults above.
+If `.uncle-bob/quality-gates.yaml` is missing, stale, unreadable, or does not
+define the required objective gates: STOP. Report `GATE_CONFIG_MISSING` to the
+orchestrator and ask the user to regenerate/confirm the gates in the TUI.
+
+Do not silently fall back to hardcoded thresholds. First HARD failure stops the
+evaluation and returns to TDD.
 
 ---
 

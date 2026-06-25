@@ -102,6 +102,19 @@ Task("bob-impl", { scenario_id, feature_file, project, ancora_topic: "bob-workfl
 Task("bob-review", { approved_scn_ids, project, ancora_topic: "bob-workflow/{project}/judge-report" })
 ```
 
+**AI-generated code metrics gate**: `bob-review` must load the active quality
+gate thresholds from the TUI-generated workflow file, not from hardcoded values
+in this orchestrator prompt. The generated gates are the source of truth.
+
+If the generated gate file is missing, stale, or unreadable: stop and ask the
+user to regenerate/confirm gates in the TUI before review. Do not silently fall
+back to embedded defaults.
+
+If any active objective gate fails: return to Phase 3 with specific remediation.
+If all active objective gates pass: the work is eligible for human review, not
+automatically approved. Final approval still requires semantic correctness,
+design fit, meaningful tests, and risk-boundary review.
+
 If gates fail: return to Phase 3 with specific remediation. If gates pass: feature complete.
 
 ---

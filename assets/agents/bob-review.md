@@ -47,23 +47,18 @@ If any precondition fails: STOP. Report to orchestrator with exact reason.
 
 ## Quality Gates
 
-Evaluate in order. First HARD failure stops the evaluation and returns to TDD.
+Evaluate active gates in the order defined by the TUI-generated workflow file.
+The generated file is the source of truth for gate names, thresholds, severity,
+and remediation policy.
 
-| Gate | Threshold | Severity |
-|------|-----------|----------|
-| Scenario-to-test mapping | 100% of approved SCN IDs | HARD |
-| Test suite passing | 100% | HARD |
-| Changed-line coverage | ≥ 90% | HARD |
-| Critical-path branch coverage | ≥ 95% | HARD |
-| Mutation score (changed modules) | ≥ 80% default / ≥ 90% critical | HARD |
-| Surviving critical mutations | 0 | HARD |
-| Cyclomatic complexity | ≤ 10 per function | WARN |
-| Circular dependencies | 0 | HARD |
-| Forbidden imports / layer violations | 0 | HARD |
-| Typecheck / lint / security | 0 blocking errors | HARD |
-| Unauthorized files changed | 0 | WARN |
+Expected source: `.uncle-bob/quality-gates.yaml`.
 
-Read thresholds from `.uncle-bob/quality-gates.yaml` if it exists; fall back to the table above.
+If `.uncle-bob/quality-gates.yaml` is missing, stale, unreadable, or does not
+define the required objective gates: STOP. Report `GATE_CONFIG_MISSING` to the
+orchestrator and ask the user to regenerate/confirm the gates in the TUI.
+
+Do not silently fall back to hardcoded thresholds. First HARD failure stops the
+evaluation and returns to TDD.
 
 ---
 
