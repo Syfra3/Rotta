@@ -1,4 +1,4 @@
-# Uncle Bob Workflow — State Machine
+# Clean Workflow — State Machine
 # Managed by the Craftsman Lead (Orchestrator).
 # Workspace files are the source of truth for durable artifacts.
 
@@ -95,7 +95,7 @@ artifacts:
     - "features/*.feature"
     - specs/.approved
     - specs/.implementation-complete
-    - ".uncle-bob/tdd-log.md"
+    - ".clean-workflow/tdd-log.md"
   reports:
     - reports/traceability.json
     - reports/test-results.xml
@@ -105,4 +105,4 @@ artifacts:
     - reports/judge_report.md
 
 # State file location
-state_file: .uncle-bob/state.yaml
+state_file: .clean-workflow/state.yaml

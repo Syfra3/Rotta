@@ -59,7 +59,7 @@
   "packages": {
     ".": {
       "release-type": "go",
-      "package-name": "bob-workflow",
+      "package-name": "clean-workflow",
       "changelog-path": "CHANGELOG.md"
     }
   }

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Syfra3/uncle-bob-workflow/assets"
+	"github.com/Syfra3/clean-workflow/assets"
 )
 
 // agentEntry defines one OpenCode agent entry for opencode.json.
@@ -22,51 +22,51 @@ type agentEntry struct {
 	modeFlag    func(opts Options) bool
 }
 
-// bobAgents defines all four Bob workflow agents in dependency order.
+// cleanAgents defines all four Clean Workflow agents in dependency order.
 // The orchestrator is always installed; sub-agents depend on mode selection.
-var bobAgents = []agentEntry{
+var cleanAgents = []agentEntry{
 	{
-		key:         "bob-orchestrator",
-		description: "Uncle Bob Workflow — Senior Architect Orchestrator",
+		key:         "clean-orchestrator",
+		description: "Clean-Orchestrator — Senior Architect Orchestrator",
 		mode:        "primary",
 		hidden:      false,
 		tools:       map[string]bool{"bash": true, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Uncle Bob workflow orchestrator (Senior Architect). Do NOT be a sub-agent executor. Read your full instructions at ~/.config/opencode/skills/bob-orchestrator/SKILL.md and follow them exactly.",
-		assetPath:   "agents/bob-orchestrator.md",
-		skillName:   "bob-orchestrator",
+		prompt:      "You are Clean-Orchestrator, the Clean Workflow orchestrator (Senior Architect). Do NOT be a sub-agent executor. Read your full instructions at ~/.config/opencode/skills/clean-orchestrator/SKILL.md and follow them exactly.",
+		assetPath:   "agents/clean-orchestrator.md",
+		skillName:   "clean-orchestrator",
 		modeFlag:    func(_ Options) bool { return true }, // always install
 	},
 	{
-		key:         "bob-spec",
-		description: "Uncle Bob — Spec Partner + Gherkin Author",
+		key:         "clean-spec",
+		description: "Clean Workflow — Spec Partner + Gherkin Author",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": false, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Bob Spec sub-agent (Spec Partner + Gherkin Author). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/bob-spec/SKILL.md and follow them exactly.",
-		assetPath:   "agents/bob-spec.md",
-		skillName:   "bob-spec",
+		prompt:      "You are the Clean Spec sub-agent (Spec Partner + Gherkin Author). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/clean-spec/SKILL.md and follow them exactly.",
+		assetPath:   "agents/clean-spec.md",
+		skillName:   "clean-spec",
 		modeFlag:    func(o Options) bool { return o.InstallSpec },
 	},
 	{
-		key:         "bob-impl",
-		description: "Uncle Bob — TDD Craftsman",
+		key:         "clean-impl",
+		description: "Clean Workflow — TDD Craftsman",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Bob Implementation sub-agent (TDD Craftsman). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/bob-impl/SKILL.md and follow them exactly.",
-		assetPath:   "agents/bob-impl.md",
-		skillName:   "bob-impl",
+		prompt:      "You are the Clean Implementation sub-agent (TDD Craftsman). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/clean-impl/SKILL.md and follow them exactly.",
+		assetPath:   "agents/clean-impl.md",
+		skillName:   "clean-impl",
 		modeFlag:    func(o Options) bool { return o.InstallImpl },
 	},
 	{
-		key:         "bob-review",
-		description: "Uncle Bob — Judge (Metrics-based Quality Auditor)",
+		key:         "clean-review",
+		description: "Clean Workflow — Judge (Metrics-based Quality Auditor)",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": true},
-		prompt:      "You are the Bob Review sub-agent (Judge). Do NOT delegate to other agents. You review evidence, not code. Read your full instructions at ~/.config/opencode/skills/bob-review/SKILL.md and follow them exactly.",
-		assetPath:   "agents/bob-review.md",
-		skillName:   "bob-review",
+		prompt:      "You are the Clean Review sub-agent (Judge). Do NOT delegate to other agents. You review evidence, not code. Read your full instructions at ~/.config/opencode/skills/clean-review/SKILL.md and follow them exactly.",
+		assetPath:   "agents/clean-review.md",
+		skillName:   "clean-review",
 		modeFlag:    func(o Options) bool { return o.InstallReview },
 	},
 }
@@ -91,7 +91,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		agentMap = map[string]interface{}{}
 	}
 
-	for _, a := range bobAgents {
+	for _, a := range cleanAgents {
 		if !a.modeFlag(opts) {
 			continue
 		}
