@@ -54,15 +54,15 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.tag }}"
           VERSION="${TAG#v}"
-          BINARY_NAME="uncle-bob${{ matrix.ext }}"
+          BINARY_NAME="clean-workflow${{ matrix.ext }}"
 
           go build \
             -ldflags="-s -w -X main.version=${TAG}" \
             -trimpath \
             -o "${BINARY_NAME}" \
-            ./cmd/uncle-bob
+            ./cmd/clean-workflow
 
-          ARCHIVE_NAME="bob-workflow-${VERSION}-${{ matrix.platform }}.tar.gz"
+          ARCHIVE_NAME="clean-workflow-${VERSION}-${{ matrix.platform }}.tar.gz"
           tar czf "${ARCHIVE_NAME}" "${BINARY_NAME}"
 
           if command -v sha256sum &>/dev/null; then
@@ -76,5 +76,5 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag }}
           files: |
-            bob-workflow-*.tar.gz
-            bob-workflow-*.sha256
+            clean-workflow-*.tar.gz
+            clean-workflow-*.sha256

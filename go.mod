@@ -1,4 +1,4 @@
-module github.com/Syfra3/uncle-bob-workflow
+module github.com/Syfra3/clean-workflow
 
 go 1.25.0
 

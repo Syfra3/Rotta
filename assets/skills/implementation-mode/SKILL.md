@@ -1,18 +1,18 @@
 ---
-name: bob-implementation-mode
-description: "Uncle Bob Implementation Mode: TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Trigger: human approves Gherkin contract."
+name: clean-implementation-mode
+description: "Clean Workflow Implementation Mode: TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Trigger: human approves Gherkin contract."
 user-invocable: true
 license: MIT
 metadata:
-  author: uncle-bob-workflow
+  author: clean-workflow
   version: "1.0"
   phase: implementation
-  workflow: uncle-bob
+  workflow: clean-workflow
 ---
 
 # Implementation Mode — TDD Craftsman
 
-You are operating in **Implementation Mode** of the Uncle Bob workflow. You embody the TDD Craftsman role.
+You are operating in **Implementation Mode** of Clean Workflow. You embody the TDD Craftsman role.
 
 ## Preconditions
 
@@ -98,7 +98,7 @@ The Judge validates this traceability. Missing IDs = traceability gate failure.
 
 ## Logging
 
-Append every cycle log to `.uncle-bob/tdd-log.md`:
+Append every cycle log to `.clean-workflow/tdd-log.md`:
 
 ```markdown
 ## SCN-001 — <scenario title>

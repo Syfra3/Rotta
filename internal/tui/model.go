@@ -1,4 +1,4 @@
-// Package tui implements the Bubbletea terminal UI for the Uncle Bob workflow installer.
+// Package tui implements the Bubbletea terminal UI for the Clean Workflow installer.
 //
 // Patterns (Gentleman Bubbletea):
 // - Screen constants as iota
@@ -10,7 +10,7 @@
 package tui
 
 import (
-	"github.com/Syfra3/uncle-bob-workflow/internal/installer"
+	"github.com/Syfra3/clean-workflow/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -114,9 +114,9 @@ func New() Model {
 		ProjectInput:   ti,
 		SelectedModes:  [3]bool{true, true, true},
 		UseDefaults:    true,
-		AncoraCursor:   0,    // default to "Install + configure"
+		AncoraCursor:   0, // default to "Install + configure"
 		SetupAncora:    true,
-		ConfirmCursor:  1,    // default to "Install", not "Cancel"
+		ConfirmCursor:  1, // default to "Install", not "Cancel"
 		InstallSpinner: sp,
 	}
 }

@@ -1,4 +1,4 @@
-// Package installer handles writing Uncle Bob workflow files to the target tool.
+// Package installer handles writing Clean Workflow files to the target tool.
 package installer
 
 import (
@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Syfra3/uncle-bob-workflow/assets"
+	"github.com/Syfra3/clean-workflow/assets"
 )
 
 // Options configures what and where to install.
 type Options struct {
 	Target          string // "claude-code" | "opencode" | "both"
-	ProjectPath     string // project root; config files land here under .uncle-bob/
+	ProjectPath     string // project root; config files land here under .clean-workflow/
 	InstallSpec     bool
 	InstallImpl     bool
 	InstallReview   bool
@@ -86,11 +86,11 @@ func resolveProjectPath(path, home string) string {
 	return path
 }
 
-// installConfig writes state-machine.yaml and quality-gates.yaml to <project>/.uncle-bob/
+// installConfig writes state-machine.yaml and quality-gates.yaml to <project>/.clean-workflow/
 func installConfig(projectPath string) ([]string, error) {
-	dir := filepath.Join(projectPath, ".uncle-bob")
+	dir := filepath.Join(projectPath, ".clean-workflow")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("cannot create .uncle-bob dir: %w", err)
+		return nil, fmt.Errorf("cannot create .clean-workflow dir: %w", err)
 	}
 
 	configs := map[string]string{
@@ -112,7 +112,7 @@ func installConfig(projectPath string) ([]string, error) {
 	return files, nil
 }
 
-// copySkillsToDir copies selected SKILL.md files into skillsDir/uncle-bob/<mode>/
+// copySkillsToDir copies selected SKILL.md files into skillsDir/clean-workflow/<mode>/
 func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 	type modeEntry struct {
 		enabled bool
@@ -130,7 +130,7 @@ func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 		if !m.enabled {
 			continue
 		}
-		dst := filepath.Join(skillsDir, "uncle-bob", m.name)
+		dst := filepath.Join(skillsDir, "clean-workflow", m.name)
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return nil, fmt.Errorf("cannot create dir %s: %w", dst, err)
 		}

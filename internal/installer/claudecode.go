@@ -19,7 +19,7 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 		return nil, err
 	}
 
-	// Add tool permissions for uncle-bob skills to settings.json
+	// Add tool permissions for clean-workflow skills to settings.json
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	if err := addClaudeCodePermissions(settingsPath); err != nil {
 		// Non-fatal: user can add permissions manually
@@ -29,7 +29,7 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 	return files, nil
 }
 
-// addClaudeCodePermissions injects uncle-bob skill triggers into the
+// addClaudeCodePermissions injects clean-workflow skill triggers into the
 // Claude Code settings.json permissions.allow list.
 func addClaudeCodePermissions(settingsPath string) error {
 	settings := map[string]interface{}{}
@@ -49,9 +49,9 @@ func addClaudeCodePermissions(settingsPath string) error {
 	allow, _ := permissions["allow"].([]interface{})
 
 	newEntries := []string{
-		"mcp__uncle_bob__spec_mode",
-		"mcp__uncle_bob__implementation_mode",
-		"mcp__uncle_bob__review_mode",
+		"mcp__clean_workflow__spec_mode",
+		"mcp__clean_workflow__implementation_mode",
+		"mcp__clean_workflow__review_mode",
 	}
 
 	existing := make(map[string]bool)

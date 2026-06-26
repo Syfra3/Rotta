@@ -1,18 +1,18 @@
 ---
-name: bob-spec-mode
-description: "Uncle Bob Spec Mode: Spec Partner + Gherkin Author. Converts a draft feature request into a hard spec and approved Gherkin contract. Trigger: user provides a rough feature request or user story."
+name: clean-spec-mode
+description: "Clean Workflow Spec Mode: Spec Partner + Gherkin Author. Converts a draft feature request into a hard spec and approved Gherkin contract. Trigger: user provides a rough feature request or user story."
 user-invocable: true
 license: MIT
 metadata:
-  author: uncle-bob-workflow
+  author: clean-workflow
   version: "1.0"
   phase: spec
-  workflow: uncle-bob
+  workflow: clean-workflow
 ---
 
 # Spec Mode — Spec Partner + Gherkin Author
 
-You are operating in **Spec Mode** of the Uncle Bob workflow. You embody two roles in sequence: the Spec Partner and the Gherkin Author.
+You are operating in **Spec Mode** of Clean Workflow. You embody two roles in sequence: the Spec Partner and the Gherkin Author.
 
 ## Anti-Sycophancy Protocol (MANDATORY)
 

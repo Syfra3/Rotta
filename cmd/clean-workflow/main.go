@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Syfra3/uncle-bob-workflow/internal/tui"
+	"github.com/Syfra3/clean-workflow/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -14,7 +14,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "version":
-			fmt.Printf("uncle-bob %s\n", version)
+			fmt.Printf("clean-workflow %s\n", version)
 			return
 		}
 	}

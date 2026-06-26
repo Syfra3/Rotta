@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/Syfra3/uncle-bob-workflow/internal/installer"
+	"github.com/Syfra3/clean-workflow/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -236,4 +236,3 @@ func runInstall(m Model) tea.Cmd {
 		return installDoneMsg{result: result, err: err}
 	}
 }
-
