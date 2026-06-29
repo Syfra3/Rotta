@@ -20,6 +20,7 @@ type Options struct {
 	InstallReview   bool
 	UseDefaultGates bool
 	SetupAncora     bool // whether to install/configure Ancora memory
+	SetupVela       bool // whether to install/configure Vela graph intelligence
 }
 
 // Result describes what was installed.
@@ -28,6 +29,8 @@ type Result struct {
 	Files           []string
 	AncoraInstalled bool   // true if Ancora binary was installed during this run
 	AncoraBin       string // resolved path to the ancora binary
+	VelaInstalled   bool   // true if Vela binary was installed during this run
+	VelaBin         string // resolved path to the vela binary
 }
 
 // Install runs the full installation and returns a summary.
@@ -71,6 +74,16 @@ func Install(opts Options) (*Result, error) {
 		result.Files = append(result.Files, ar.Files...)
 		result.AncoraInstalled = ar.Installed
 		result.AncoraBin = ar.BinPath
+	}
+
+	if opts.SetupVela {
+		vr, err := SetupVela(opts, home, projectPath)
+		if err != nil {
+			return nil, fmt.Errorf("vela setup: %w", err)
+		}
+		result.Files = append(result.Files, vr.Files...)
+		result.VelaInstalled = vr.Installed
+		result.VelaBin = vr.BinPath
 	}
 
 	return result, nil
@@ -138,7 +151,7 @@ func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 			if walkErr != nil || d.IsDir() {
 				return walkErr
 			}
-			data, err := assets.FS.ReadFile(path)
+			data, err := readRenderedAsset(path, opts)
 			if err != nil {
 				return err
 			}

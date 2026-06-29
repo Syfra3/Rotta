@@ -28,6 +28,7 @@ const (
 	ScreenModeSelect
 	ScreenQualityGates
 	ScreenAncora
+	ScreenVela
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -77,6 +78,10 @@ type Model struct {
 	AncoraCursor int  // 0=Install+configure, 1=Skip
 	SetupAncora  bool // resolved choice
 
+	// Vela graph intelligence
+	VelaCursor int  // 0=Install+configure, 1=Skip
+	SetupVela  bool // resolved choice
+
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
 
@@ -116,6 +121,8 @@ func New() Model {
 		UseDefaults:    true,
 		AncoraCursor:   0, // default to "Install + configure"
 		SetupAncora:    true,
+		VelaCursor:     0, // default to "Install + configure"
+		SetupVela:      true,
 		ConfirmCursor:  1, // default to "Install", not "Cancel"
 		InstallSpinner: sp,
 	}

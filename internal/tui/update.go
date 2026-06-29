@@ -61,6 +61,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateQualityGates(msg)
 	case ScreenAncora:
 		return m.updateAncora(msg)
+	case ScreenVela:
+		return m.updateVela(msg)
 	case ScreenConfirm:
 		return m.updateConfirm(msg)
 	case ScreenSuccess, ScreenError:
@@ -182,9 +184,29 @@ func (m Model) updateAncora(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.SetupAncora = m.AncoraCursor == 0
 		m.PrevScreen = ScreenAncora
-		m.Screen = ScreenConfirm
+		m.Screen = ScreenVela
 	case "esc", "b":
 		m.Screen = ScreenQualityGates
+	}
+	return m, nil
+}
+
+func (m Model) updateVela(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.VelaCursor < 1 {
+			m.VelaCursor++
+		}
+	case "k", "up":
+		if m.VelaCursor > 0 {
+			m.VelaCursor--
+		}
+	case "enter", " ":
+		m.SetupVela = m.VelaCursor == 0
+		m.PrevScreen = ScreenVela
+		m.Screen = ScreenConfirm
+	case "esc", "b":
+		m.Screen = ScreenAncora
 	}
 	return m, nil
 }
@@ -207,7 +229,7 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenInstalling
 		return m, tea.Batch(m.InstallSpinner.Tick, runInstall(m))
 	case "esc", "b":
-		m.Screen = ScreenQualityGates
+		m.Screen = ScreenVela
 	}
 	return m, nil
 }
@@ -231,6 +253,7 @@ func runInstall(m Model) tea.Cmd {
 			InstallReview:   m.SelectedModes[2],
 			UseDefaultGates: m.UseDefaults,
 			SetupAncora:     m.SetupAncora,
+			SetupVela:       m.SetupVela,
 		}
 		result, err := installer.Install(opts)
 		return installDoneMsg{result: result, err: err}
