@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/Syfra3/clean-workflow/assets"
 )
 
 // agentEntry defines one OpenCode agent entry for opencode.json.
@@ -101,7 +99,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		if err := os.MkdirAll(skillDir, 0o755); err != nil {
 			return nil, fmt.Errorf("cannot create skill dir %s: %w", skillDir, err)
 		}
-		data, err := assets.FS.ReadFile(a.assetPath)
+		data, err := readRenderedAsset(a.assetPath, opts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", a.assetPath, err)
 		}

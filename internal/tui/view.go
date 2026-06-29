@@ -23,6 +23,8 @@ func (m Model) View() string {
 		return m.viewQualityGates()
 	case ScreenAncora:
 		return m.viewAncora()
+	case ScreenVela:
+		return m.viewVela()
 	case ScreenConfirm:
 		return m.viewConfirm()
 	case ScreenInstalling:
@@ -156,6 +158,43 @@ func (m Model) viewAncora() string {
 	return appStyle.Render(b.String())
 }
 
+func (m Model) viewVela() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Vela — Optional Graph Intelligence") + "\n\n")
+
+	b.WriteString(sectionStyle.Render("What Vela does") + "\n")
+	b.WriteString(menuItemStyle.Render("  Extracts local code graphs for structural, dependency, and impact questions") + "\n")
+	b.WriteString(menuItemStyle.Render("  Provides vela_* graph tools when graph data exists and is fresh") + "\n")
+	b.WriteString(menuItemStyle.Render("  Enriches workflow exploration with facts, provenance, confidence, and source") + "\n\n")
+
+	b.WriteString(sectionStyle.Render("Workflow boundary") + "\n")
+	b.WriteString(menuItemStyle.Render("  Clean Workflow still controls phases, gates, and delegation") + "\n")
+	b.WriteString(menuItemStyle.Render("  Vela is advisory graph intelligence, not the workflow controller") + "\n")
+	if m.SetupAncora {
+		b.WriteString(menuItemStyle.Render("  Ancora remains the primary MCP surface; Vela graph tools are exposed through Ancora when available") + "\n\n")
+	} else {
+		b.WriteString(menuItemStyle.Render("  Vela is configured as a standalone MCP graph server") + "\n\n")
+	}
+
+	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("If Vela is missing, the installer tries Homebrew. If unavailable, install Vela from source and rerun setup.") + "\n\n")
+
+	options := []struct{ label, desc string }{
+		{"Install + configure Vela", "Install binary if needed, initialize the project graph, and configure graph instructions/MCP"},
+		{"Skip", "Do not set up Vela — agents will use normal code exploration only"},
+	}
+	for i, opt := range options {
+		if m.VelaCursor == i {
+			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
+			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
+		} else {
+			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
+		}
+	}
+
+	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
 func (m Model) viewQualityGates() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Quality Gates Configuration") + "\n\n")
@@ -222,7 +261,13 @@ func (m Model) viewConfirm() string {
 	if !m.SetupAncora {
 		ancora = "skip"
 	}
-	b.WriteString(labelStyle.Render("Ancora memory:") + " " + valueStyle.Render(ancora) + "\n\n")
+	b.WriteString(labelStyle.Render("Ancora memory:") + " " + valueStyle.Render(ancora) + "\n")
+
+	vela := "yes (install + configure)"
+	if !m.SetupVela {
+		vela = "skip"
+	}
+	b.WriteString(labelStyle.Render("Vela graph:") + " " + valueStyle.Render(vela) + "\n\n")
 
 	b.WriteString(sectionStyle.Render("Files to create") + "\n")
 	if m.Target == "claude-code" || m.Target == "both" {
@@ -258,6 +303,15 @@ func (m Model) viewConfirm() string {
 		}
 		if m.Target == "opencode" || m.Target == "both" {
 			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.jsonc  (mcp.ancora)") + "\n")
+		}
+	}
+	if m.SetupVela {
+		b.WriteString(menuItemStyle.Render("  <project>/.vela/graph.db  (initialized, not extracted)") + "\n")
+		if !m.SetupAncora && (m.Target == "claude-code" || m.Target == "both") {
+			b.WriteString(menuItemStyle.Render("  ~/.claude/vela-mcp.json") + "\n")
+		}
+		if !m.SetupAncora && (m.Target == "opencode" || m.Target == "both") {
+			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (mcp.vela)") + "\n")
 		}
 	}
 	b.WriteString("\n")

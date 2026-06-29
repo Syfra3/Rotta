@@ -1,5 +1,5 @@
 ---
-description: "Clean Workflow — TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Logs each cycle to Ancora."
+description: "Clean Workflow — TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Logs each cycle."
 mode: subagent
 hidden: true
 color: "#FFD4B8"
@@ -73,17 +73,17 @@ Missing traceability IDs = quality gate failure in Review Mode.
 
 ---
 
-## Ancora: State Index per Cycle (not the full log)
+## State Index per Cycle (not the full log)
 
 The file `.clean-workflow/tdd-log.md` IS the source of truth — append the full cycle detail there.
-Ancora holds only the compact state index (what the Judge needs to locate and verify):
+If Ancora is enabled by the generated integration instructions for this installation, it holds only the compact state index (what the Judge needs to locate and verify):
 
 ```
 ancora_save (upsert same topic_key):
   title: "clean-workflow/{project}/tdd — SCN-<NNN> complete"
   type: pattern
   scope: project
-  topic_key: <ancora_topic passed by orchestrator>
+  topic_key: clean-workflow/{project}/tdd-log
   content:
     log_file: .clean-workflow/tdd-log.md        ← pointer to full log
     completed_scenarios: [SCN-001, SCN-002] ← cumulative list
@@ -93,7 +93,7 @@ ancora_save (upsert same topic_key):
     files_changed: [<test file>, <source file>]
 ```
 
-The Judge reads `.clean-workflow/tdd-log.md` directly for traceability — Ancora tells it where that file is and which scenarios are done.
+The Judge reads `.clean-workflow/tdd-log.md` directly for traceability. If Ancora is disabled, do not call memory tools; the log file itself is the only state index.
 
 ---
 
@@ -107,7 +107,7 @@ When the assigned scenario completes all three phases:
    SCN-NNN COMPLETE
    Test: TestSCN<NNN>_<name> — PASS
    Files changed: <list>
-   TDD log saved to Ancora: <topic_key>
+   TDD log updated: .clean-workflow/tdd-log.md
    Ready for next scenario or Review Mode.
    ```
 
@@ -120,5 +120,5 @@ When the assigned scenario completes all three phases:
 - Mark a scenario complete until its test is GREEN and refactored.
 - Modify `specs/hard_spec.md` or `.feature` files.
 - Add functionality beyond what the current failing test demands.
-- Skip the Ancora log — the Judge needs it.
+- Skip the TDD log — the Judge needs it.
 - Ignore a failing test in the existing suite to make your new test pass.
