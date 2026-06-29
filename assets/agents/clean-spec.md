@@ -40,7 +40,7 @@ Never lead with validation. Never say "great idea" or "this makes sense." State 
 1. Run the adversarial pre-mortem, hidden assumption audit, and edge case sweep.
 2. Identify what information is still missing. Report these as blockers to the orchestrator if they cannot be inferred from context.
 3. Write `specs/hard_spec.md` using the required template below.
-4. Save the spec to Ancora using the topic key passed by the orchestrator.
+4. Maintain the workflow state index. If Ancora is enabled, save it using the topic key passed by the orchestrator.
 
 **Hard spec template** (all sections mandatory — none may be empty):
 
@@ -84,13 +84,13 @@ Never lead with validation. Never say "great idea" or "this makes sense." State 
 <low | medium | high | critical> — Justification: ...
 ```
 
-**After writing:** Save a STATE INDEX (not the content) to Ancora:
+**After writing:** Save a STATE INDEX (not the content). If Ancora is enabled by the generated integration instructions for this installation, save this compact pointer state to Ancora:
 ```
 ancora_save:
   title: "clean-workflow/{project}/spec — hard spec written"
   type: decision
   scope: project
-  topic_key: <ancora_topic passed by orchestrator>
+  topic_key: clean-workflow/{project}/spec
   content:
     file: specs/hard_spec.md        ← pointer only, never the file content
     approval_status: pending
@@ -99,7 +99,7 @@ ancora_save:
     req_ids: [REQ-001, REQ-002, ...]
 ```
 
-The file `specs/hard_spec.md` IS the source of truth. Ancora holds the state index.
+The file `specs/hard_spec.md` IS the source of truth. If Ancora is disabled, do not call memory tools; keep the state index in workspace workflow files only.
 
 ---
 
@@ -120,7 +120,7 @@ The file `specs/hard_spec.md` IS the source of truth. Ancora holds the state ind
 - [ ] Every scenario has a unique `@SCN-NNN` tag.
 - [ ] Every scenario maps to at least one `@REQ-NNN` tag.
 
-**After writing `.feature` files:** Update the Ancora state index — pointers only, never file content:
+**After writing `.feature` files:** Update the state index — pointers only, never file content. If Ancora is enabled by the generated integration instructions for this installation, save this compact pointer state to Ancora:
 ```
 ancora_save (upsert same topic_key):
   content:

@@ -50,34 +50,11 @@ No unqualified praise. If something works, explain exactly why it works. If some
 
 ---
 
-## Workflow State (Ancora)
+## Workflow State
 
-**Rule**: workspace files are the source of truth. Ancora holds the state index — pointers to files and compact status. Never store artifact content in Ancora.
+**Rule**: workspace files are the source of truth. If Ancora is enabled for this installation, it holds only the state index — pointers to files and compact status. Never store artifact content in memory tools.
 
-At session start, recover state before anything else:
-```
-1. ancora_context                               — check recent session history
-2. ancora_search "clean-workflow/{project}/state" — find prior run state
-3. ancora_get {id}                              — load full state if found
-```
-
-Save every phase transition (state index only):
-```
-ancora_save:
-  title: "clean-workflow/{project} → {new_phase}"
-  type: decision
-  scope: project
-  topic_key: "clean-workflow/{project}/state"
-  content:
-    phase: <current phase>
-    spec_file: specs/hard_spec.md          ← pointer, never content
-    feature_files: [features/*.feature]    ← pointer, never content
-    approved_scn_ids: [SCN-001, ...]
-    tdd_log: .clean-workflow/tdd-log.md         ← pointer, never content
-    judge_report: reports/judge_report.md  ← pointer, never content
-    risk_level: <low|medium|high|critical>
-    pending_questions: <count>
-```
+If the generated integration instructions for this installation enable Ancora, follow that section for state recovery and compact state-index saves. If they disable Ancora, never call memory tools; keep the same phase/status pointers in workspace workflow files only.
 
 ---
 
@@ -88,18 +65,18 @@ Receive feature request. Run adversarial pre-mortem. Ask critical questions in O
 
 ### Phase 2 — Spec + Gherkin → `clean-spec`
 ```
-Task("clean-spec", { draft, clarifications, project, ancora_topic: "clean-workflow/{project}/spec" })
+Task("clean-spec", { draft, clarifications, project, state_ref: "specs/hard_spec.md + features/*.feature" })
 ```
 **Gate**: present spec summary. Do NOT advance without explicit human approval. Refuse if Open Questions are unresolved.
 
 ### Phase 3 — TDD → `clean-impl` (one scenario per call)
 ```
-Task("clean-impl", { scenario_id, feature_file, project, ancora_topic: "clean-workflow/{project}/tdd-log" })
+Task("clean-impl", { scenario_id, feature_file, project, state_ref: ".clean-workflow/tdd-log.md" })
 ```
 
 ### Phase 4 — Review → `clean-review`
 ```
-Task("clean-review", { approved_scn_ids, project, ancora_topic: "clean-workflow/{project}/judge-report" })
+Task("clean-review", { approved_scn_ids, project, state_ref: "reports/judge_report.md" })
 ```
 
 **AI-generated code metrics gate**: `clean-review` must load the active quality
