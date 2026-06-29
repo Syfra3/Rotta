@@ -1,5 +1,5 @@
 ---
-description: "Clean Workflow — Judge. Metrics-based quality auditor. No line-by-line code review. Reads evidence, not code. Saves verdict to Ancora."
+description: "Clean Workflow — Judge. Metrics-based quality auditor. No line-by-line code review. Reads evidence, not code. Saves verdict."
 mode: subagent
 hidden: true
 color: "#FF9EB8"
@@ -39,7 +39,7 @@ Before evaluating any gate:
 - [ ] `specs/.implementation-complete` exists.
 - [ ] All tests currently pass (run the suite now).
 - [ ] `features/*.feature` files are unchanged since approval.
-- [ ] Ancora TDD log exists for all approved SCN IDs (search: `<ancora_topic>`).
+- [ ] `.clean-workflow/tdd-log.md` exists for all approved SCN IDs. If Ancora is enabled, its state index also points to that log.
 
 If any precondition fails: STOP. Report to orchestrator with exact reason.
 
@@ -124,17 +124,17 @@ judge_decision:
 
 ---
 
-## Ancora: Save the State Index (not the full verdict)
+## Save the State Index (not the full verdict)
 
 The file `reports/judge_report.md` IS the source of truth — write the full verdict there.
-Ancora holds only the state index:
+If Ancora is enabled by the generated integration instructions for this installation, it holds only the state index:
 
 ```
 ancora_save:
   title: "clean-workflow/{project}/review — {status}"
   type: decision
   scope: project
-  topic_key: <ancora_topic passed by orchestrator>
+  topic_key: clean-workflow/{project}/judge-report
   content:
     report_file: reports/judge_report.md   ← pointer only
     status: pass | fail | escalate

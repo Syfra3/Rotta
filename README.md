@@ -38,6 +38,8 @@ After installing generated opencode or Claude Code config, restart the coding ag
 | `clean-review` | Sub-agent for objective quality evidence and review gates |
 | `.clean-workflow/state-machine.yaml` | Workflow phase model for installed projects |
 | `.clean-workflow/quality-gates.yaml` | Review thresholds used by the review phase |
+| Ancora (optional) | Persistent memory for compact workflow state indexes and recovery pointers |
+| Vela (optional) | Local graph extraction/retrieval for structural, dependency, and impact questions |
 
 Generated files are written for the selected target:
 
@@ -46,6 +48,15 @@ Generated files are written for the selected target:
 | opencode | Agent entries in `~/.config/opencode/opencode.json` and skill files under `~/.config/opencode/skills/` |
 | Claude Code | Skills under `~/.claude/skills/clean-workflow/` and MCP permissions in `~/.claude/settings.json` |
 | Both | Installs both integrations and the project config files |
+
+During the TUI setup, Ancora and Vela are independent choices. You can install neither, Ancora only, Vela only, or both.
+
+- If Ancora is skipped, generated instructions use workspace files as the only state source and do not require `ancora_*` tools.
+- If Vela is skipped, generated instructions use normal code exploration and do not require `vela_*` tools.
+- If Vela is enabled, generated instructions treat it as optional graph intelligence only. Clean Workflow still controls phases, gates, and delegation.
+- If both are enabled, Ancora remains the primary memory surface while Vela provides graph retrieval through available `vela_*` tools.
+
+Vela setup initializes project graph storage but does not assume graph data is already fresh for a new codebase. Generated agents are instructed to check or trigger graph extraction before relying on Vela for dependency, impact, path, or architecture answers, and to report low-confidence or incomplete graph coverage back to the orchestrator.
 
 ## Compatible Coding Agents
 
