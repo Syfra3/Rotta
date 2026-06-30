@@ -6,20 +6,20 @@ class Rotta < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
       sha256 "TODO_DARWIN_ARM64"
     else
-      url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
+      url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
       sha256 "TODO_DARWIN_AMD64"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-amd64.tar.gz"
+      url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-linux-amd64.tar.gz"
       sha256 "TODO_LINUX_AMD64"
     else
-      url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-arm64.tar.gz"
+      url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-linux-arm64.tar.gz"
       sha256 "TODO_LINUX_ARM64"
     end
   end

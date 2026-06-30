@@ -70,16 +70,32 @@ detect_platform() {
 }
 
 get_latest_version() {
-  log_info "Fetching latest rotta version"
+  log_info "Fetching latest rotta version" >&2
   local latest
-  latest=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": "\([^\"]*\)".*/\1/p' | head -n1)
+  latest=$(curl -s "https://api.github.com/repos/${REPO}/releases" | sed -n 's/.*"tag_name": "\(rotta-v[^\"]*\)".*/\1/p' | head -n1)
 
   if [ -z "${latest}" ]; then
-    log_error "Unable to detect latest release from GitHub"
+    log_error "Unable to detect latest rotta-v release from GitHub"
     exit 1
   fi
 
   echo "${latest}"
+}
+
+normalize_release_tag() {
+  local input="$1"
+
+  case "${input}" in
+    rotta-v*) echo "${input}" ;;
+    v*) echo "rotta-${input}" ;;
+    *) echo "rotta-v${input}" ;;
+  esac
+}
+
+version_number_from_tag() {
+  local tag="$1"
+  tag="${tag#rotta-v}"
+  echo "${tag#v}"
 }
 
 verify_checksum() {
@@ -88,9 +104,9 @@ verify_checksum() {
 
   local checksum_url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}.sha256"
   local expected
-  expected=$(curl -sL "${checksum_url}" | awk '{print $1}')
+  expected=$(curl -fsSL "${checksum_url}" 2>/dev/null | awk '{print $1}' || true)
 
-  if [ -z "${expected}" ]; then
+  if [[ ! "${expected}" =~ ^[a-fA-F0-9]{64}$ ]]; then
     log_warn "No checksum file found for ${asset}; skipping checksum check"
     return
   fi
@@ -113,7 +129,8 @@ verify_checksum() {
 
 download_and_install() {
   local platform="$1"
-  local version_number="${VERSION#v}"
+  local version_number
+  version_number=$(version_number_from_tag "${VERSION}")
   local archive="${PACKAGE}-${version_number}-${platform}.tar.gz"
   local url="https://github.com/${REPO}/releases/download/${VERSION}/${archive}"
   local tmp_dir="$(mktemp -d)"
@@ -190,6 +207,8 @@ main() {
 
   if [ "${VERSION}" = "latest" ]; then
     VERSION=$(get_latest_version)
+  else
+    VERSION=$(normalize_release_tag "${VERSION}")
   fi
 
   if [ -z "${VERSION}" ]; then
