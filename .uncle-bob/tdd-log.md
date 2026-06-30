@@ -347,3 +347,22 @@
   - `make fmt-check`
   - `make lint`
   - `git diff --check`
+
+## SCN-013 — Namespaced workflow-policy artifacts do not overwrite an existing active contract
+
+### RED
+- Added `TestSCN013_NamespacedWorkflowPolicyArtifactsDoNotOverwriteExistingActiveContract` for `REQ-011 → REQ-020 → SCN-013`.
+- The test creates existing active installer recovery contract files at `specs/hard_spec.md` and `features/installer_recovery.feature`, generates the workflow artifact lifecycle contract, and asserts the legacy files remain byte-for-byte unchanged while namespaced outputs are written.
+- Focused command: `go test ./internal/workflow -run TestSCN013_NamespacedWorkflowPolicyArtifactsDoNotOverwriteExistingActiveContract -count=1`.
+- Expected failure observed before production code:
+  - `undefined: GenerateNamespacedWorkflowPolicyArtifacts`
+  - `undefined: WorkflowPolicyArtifactRequest`
+
+### GREEN
+- Added `GenerateNamespacedWorkflowPolicyArtifacts`, `WorkflowPolicyArtifactRequest`, and `WorkflowPolicyArtifacts` to write workflow-policy contracts to `specs/<contract_id>.md` and `features/<contract_id>.feature`.
+- Added a fail-fast guard for generated paths that would collide with supplied legacy active contract paths.
+- Focused command passed: `go test ./internal/workflow -run TestSCN013_NamespacedWorkflowPolicyArtifactsDoNotOverwriteExistingActiveContract -count=1`.
+
+### REFACTOR
+- Formatted the workflow package with `gofmt` and kept generation behavior scoped to namespaced artifact path creation plus legacy overwrite protection.
+- Full test suite stayed green: `go test ./...`.
