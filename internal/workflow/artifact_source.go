@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var errStopFeatureSearch = fmt.Errorf("stop feature search")
+
 type ContractSourceStatus struct {
 	Authoritative              bool
 	SpecTracked                bool
@@ -22,6 +24,26 @@ const ContractCleanupTrack ContractCleanupActionKind = "track"
 type ContractCleanupAction struct {
 	Path string
 	Kind ContractCleanupActionKind
+}
+
+type WorkflowArtifactLifecycleKind string
+
+const WorkflowArtifactActiveRegressionContract WorkflowArtifactLifecycleKind = "active_regression_contract"
+
+type WorkflowArtifactLifecycleInput struct {
+	Path        string
+	Implemented bool
+	Approved    bool
+}
+
+type WorkflowArtifactLifecycleClassification struct {
+	Path             string
+	Kind             WorkflowArtifactLifecycleKind
+	ArchiveCandidate bool
+}
+
+type CompletedChangeArchivePlan struct {
+	KeptActivePaths []string
 }
 
 type WorkflowPolicyArtifactRequest struct {
@@ -99,6 +121,118 @@ func PlanCleanTreeContractActions(repoRoot string, scope ContractScope) ([]Contr
 		}
 	}
 	return actions, nil
+}
+
+func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) WorkflowArtifactLifecycleClassification {
+	classification := WorkflowArtifactLifecycleClassification{Path: input.Path}
+	if strings.HasPrefix(filepath.ToSlash(input.Path), "features/") && strings.HasSuffix(input.Path, ".feature") && input.Approved {
+		classification.Kind = WorkflowArtifactActiveRegressionContract
+		classification.ArchiveCandidate = false
+	}
+	return classification
+}
+
+func PrepareCompletedChangeArchive(repoRoot string) (CompletedChangeArchivePlan, error) {
+	completed, err := completedScenarioIDs(repoRoot)
+	if err != nil {
+		return CompletedChangeArchivePlan{}, err
+	}
+
+	var plan CompletedChangeArchivePlan
+	for scenarioID := range completed {
+		featurePath, err := approvedFeaturePathForScenario(repoRoot, scenarioID)
+		if err != nil {
+			return CompletedChangeArchivePlan{}, err
+		}
+		if featurePath == "" {
+			continue
+		}
+		classification := ClassifyWorkflowArtifactLifecycle(WorkflowArtifactLifecycleInput{
+			Path:        featurePath,
+			Implemented: true,
+			Approved:    true,
+		})
+		if classification.Kind == WorkflowArtifactActiveRegressionContract && !classification.ArchiveCandidate {
+			plan.KeptActivePaths = append(plan.KeptActivePaths, featurePath)
+		}
+	}
+	return plan, nil
+}
+
+func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
+	content, err := os.ReadFile(filepath.Join(repoRoot, "specs", ".implementation-complete"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]bool{}, nil
+		}
+		return nil, fmt.Errorf("read implementation completion marker: %w", err)
+	}
+
+	completed := map[string]bool{}
+	for _, line := range strings.Split(string(content), "\n") {
+		id := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-"))
+		if strings.HasPrefix(id, "SCN-") {
+			completed[id] = true
+		}
+	}
+	return completed, nil
+}
+
+func approvedFeaturePathForScenario(repoRoot, scenarioID string) (string, error) {
+	featuresRoot := filepath.Join(repoRoot, "features")
+	var found string
+	err := filepath.WalkDir(featuresRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".feature" {
+			return nil
+		}
+
+		featurePath, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return fmt.Errorf("make feature path relative %s: %w", path, err)
+		}
+		featurePath = filepath.ToSlash(featurePath)
+		approved, err := scopedApprovalContains(repoRoot, ContractScope{
+			SpecPath:    specPathForFeature(featurePath),
+			FeaturePath: featurePath,
+			ScenarioID:  scenarioID,
+		})
+		if err != nil {
+			return err
+		}
+		if !approved {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open feature file %s: %w", featurePath, err)
+		}
+		defer file.Close()
+		scenarios, err := ParseFeatureScenarioTags(featurePath, file)
+		if err != nil {
+			return err
+		}
+		for _, scenario := range scenarios {
+			if scenario.ScenarioID == scenarioID {
+				found = featurePath
+				return errStopFeatureSearch
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		if err == errStopFeatureSearch {
+			return found, nil
+		}
+		return "", fmt.Errorf("find approved feature for completed scenario: %w", err)
+	}
+	return "", nil
 }
 
 func gitTracksPath(repoRoot, path string) (bool, error) {
