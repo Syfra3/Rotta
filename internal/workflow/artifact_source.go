@@ -26,6 +26,22 @@ type ContractCleanupAction struct {
 	Kind ContractCleanupActionKind
 }
 
+type WorkflowArtifactCleanupActionKind string
+
+const (
+	WorkflowArtifactCleanupTrack       WorkflowArtifactCleanupActionKind = "track"
+	WorkflowArtifactCleanupKeepPending WorkflowArtifactCleanupActionKind = "keep pending"
+	WorkflowArtifactCleanupArchive     WorkflowArtifactCleanupActionKind = "archive"
+	WorkflowArtifactCleanupIgnore      WorkflowArtifactCleanupActionKind = "ignore"
+	WorkflowArtifactCleanupDelete      WorkflowArtifactCleanupActionKind = "delete"
+)
+
+type WorkflowArtifactCleanupGuidanceItem struct {
+	Path   string
+	Action WorkflowArtifactCleanupActionKind
+	Reason string
+}
+
 type WorkflowArtifactLifecycleKind string
 
 const (
@@ -68,6 +84,10 @@ type CompletedChangeArchivePlan struct {
 type WorkflowArtifactReviewSetPlan struct {
 	IncludedPaths []string
 	ExcludedPaths []string
+}
+
+type WorkflowArtifactCleanupGuidanceReport struct {
+	Items []WorkflowArtifactCleanupGuidanceItem
 }
 
 type WorkflowArtifactArchiveMove struct {
@@ -294,6 +314,42 @@ func PlanWorkflowArtifactArchive(inputs []WorkflowArtifactLifecycleInput) Comple
 		})
 	}
 	return plan
+}
+
+func PrepareWorkflowArtifactCleanupGuidance(inputs []WorkflowArtifactLifecycleInput) WorkflowArtifactCleanupGuidanceReport {
+	var report WorkflowArtifactCleanupGuidanceReport
+	for _, input := range inputs {
+		classification := ClassifyWorkflowArtifactLifecycle(input)
+		item := WorkflowArtifactCleanupGuidanceItem{Path: input.Path}
+		switch {
+		case classification.Kind == WorkflowArtifactRejectedSensitive:
+			item.Action = WorkflowArtifactCleanupDelete
+			item.Reason = "sensitive workflow output must be deleted, ignored, or replaced with a sanitized authored example"
+		case classification.Kind == WorkflowArtifactLocalGeneratedCache:
+			item.Action = WorkflowArtifactCleanupIgnore
+			item.Reason = "local generated graph or cache artifact stays ignored unless intentionally promoted"
+		case isWorkflowContractPath(input.Path) && !input.Approved:
+			item.Action = WorkflowArtifactCleanupKeepPending
+			item.Reason = "pending contract remains pending until human approval"
+		case classification.ArchiveCandidate:
+			item.Action = WorkflowArtifactCleanupArchive
+			item.Reason = classification.ArchiveReason
+		case isWorkflowContractPath(input.Path) && input.Approved:
+			item.Action = WorkflowArtifactCleanupTrack
+			item.Reason = "active behavior contract remains tracked"
+		default:
+			item.Action = WorkflowArtifactCleanupTrack
+			item.Reason = "project artifact remains tracked for review"
+		}
+		report.Items = append(report.Items, item)
+	}
+	return report
+}
+
+func isWorkflowContractPath(path string) bool {
+	normalized := filepath.ToSlash(path)
+	return (strings.HasPrefix(normalized, "features/") && strings.HasSuffix(normalized, ".feature")) ||
+		(strings.HasPrefix(normalized, "specs/") && strings.HasSuffix(normalized, ".md"))
 }
 
 func isLocalGeneratedGraphOrCachePath(path string) bool {
