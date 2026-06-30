@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v1.0.0)"
+        description: "Release tag to build (e.g. rotta-v1.0.0)"
         required: true
         type: string
 
@@ -53,7 +53,8 @@ jobs:
           CGO_ENABLED: 0
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          VERSION="${TAG#v}"
+          VERSION="${TAG#rotta-v}"
+          VERSION="${VERSION#v}"
           BINARY_NAME="rotta${{ matrix.ext }}"
 
           go build \
