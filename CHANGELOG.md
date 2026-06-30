@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/Syfra3/clean-workflow/compare/clean-workflow-v1.0.0...clean-workflow-v1.1.0) (2026-06-29)
+
+
+### Features
+
+* **installer:** add optional Vela integration ([5dc1617](https://github.com/Syfra3/clean-workflow/commit/5dc1617bda223e06f937b62f2d333be88c152740))
+* **installer:** add optional Vela integration ([e8ed277](https://github.com/Syfra3/clean-workflow/commit/e8ed277f71c501efd637688d34b2fc440fb239b8))
+
 ## 1.0.0 (2026-06-26)
 
 
