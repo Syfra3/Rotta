@@ -658,3 +658,19 @@
 - RED: added `TestSCN024_WorkflowCleanupGuidanceKeepsPendingContractBeforeArchiveCandidate` with unapproved `specs/pending_contract.md` plus `ProcessOnly` and `RetirementReason`; focused command failed because the action was `archive` instead of `keep pending`.
 - GREEN: moved unapproved workflow contract handling before archive-candidate handling in `PrepareWorkflowArtifactCleanupGuidance`, while keeping sensitive rejection and generated-cache guidance ahead of contract/archive guidance.
 - Focused command passed: `go test ./internal/workflow -run 'TestSCN024_WorkflowCleanupGuidance(LabelsArtifactLifecycleActions|KeepsPendingContractBeforeArchiveCandidate)' -count=1`.
+
+## Final mutation-gate remediation — workflow artifact lifecycle
+
+### RED
+- Final full review found only the active mutation gate failing: temp-copy changed-module mutation score was 77.42% (72/93 killed), below `.clean-workflow/quality-gates.yaml` threshold `mutation_score >= 0.80`.
+- Survivor summary inspected from `/tmp/clean-workflow-mutation-review-full-summary.json` across `internal/workflow/ancora_state.go`, `artifact_source.go`, and `scenario_trace.go`.
+- Added contract-focused tests for SCN-012, SCN-013, SCN-014, SCN-017, SCN-020, SCN-022, SCN-023, and SCN-024 to cover boundary behavior the surviving mutants obscured: partial tracked contract authority, either legacy collision, active-feature classification constraints, no-repair/no-checksum pointer validation, scenario-bearing rename repair, approved spec archive handling, example path secret rejection, non-feature planning skips, and cleanup reason precedence.
+
+### GREEN
+- No production code changes were required; survivors exposed missing behavioral assertions rather than incorrect current behavior.
+- Focused workflow verification passed after gofmt: `go test ./internal/workflow -count=1`.
+
+### REFACTOR
+- Kept tests behavior-oriented and scenario-traceable, using temp repositories/files only.
+- Targeted prior-survivor mutation rerun killed 18/21 previously surviving mutants. Combined with the unchanged 72 previously killed mutants, the comparable projected changed-module score is 90/93 = 96.77%, above the active 80% gate. Report: `/tmp/clean-workflow-mutation-remediation/targeted-survivor-rerun-summary.json`.
+- Final gate evidence for this remediation is recorded in the session result: full suite, formatting, lint, diff whitespace, and mutation sweep rerun with temp outputs under `/tmp`.

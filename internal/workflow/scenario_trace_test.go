@@ -97,6 +97,68 @@ func TestSCN015_TestTraceValidatorRequiresScenarioIDAndFeatureIdentity(t *testin
 	}); err != nil {
 		t.Fatalf("expected feature-qualified subtest trace to validate: %v", err)
 	}
+
+	unknownFeatureIdentity := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
+		FeaturePath: "features/missing_contract.feature",
+		ScenarioID:  "SCN-015",
+		TestName:    "TestSCN015_UnknownFeatureIdentityIsNotAccepted",
+		Metadata: map[string]string{
+			"scenario": "features/workflow_artifact_lifecycle.feature#SCN-015",
+		},
+	})
+	if unknownFeatureIdentity == nil || !strings.Contains(unknownFeatureIdentity.Error(), "approved feature scenario") {
+		t.Fatalf("expected unknown feature identity to be rejected, got %v", unknownFeatureIdentity)
+	}
+}
+
+func TestSCN015_AmbiguityDetectionRequiresSameScenarioAcrossDifferentFeatures(t *testing.T) {
+	// REQ-013 → REQ-019 → SCN-015 → TestSCN015_AmbiguityDetectionRequiresSameScenarioAcrossDifferentFeatures
+	// Scenario: Tests reference stable scenario IDs from feature files
+	target := FeatureScenario{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015"}
+	scenarios := []FeatureScenario{
+		target,
+		{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", Name: "duplicate within same feature"},
+		{FeaturePath: "features/other_contract.feature", ScenarioID: "SCN-099"},
+	}
+
+	if scenarioIDIsAmbiguous(scenarios, target) {
+		t.Fatalf("expected duplicate IDs in the same feature or unrelated IDs elsewhere not to require feature-qualified trace")
+	}
+	if scenarioIDMatchesMultipleFeatures(scenarios, "SCN-015") {
+		t.Fatalf("expected SCN-015 to appear in only one feature identity")
+	}
+
+	ambiguous := append(scenarios, FeatureScenario{FeaturePath: "features/another_contract.feature", ScenarioID: "SCN-015"})
+	if !scenarioIDIsAmbiguous(ambiguous, target) {
+		t.Fatalf("expected same scenario ID in another feature to be ambiguous")
+	}
+	if !scenarioIDMatchesMultipleFeatures(ambiguous, "SCN-015") {
+		t.Fatalf("expected SCN-015 to match multiple feature identities")
+	}
+}
+
+func TestSCN015_TestTraceValidatorAcceptsExplicitFeaturePathWithoutDuplicateIdentity(t *testing.T) {
+	// REQ-013 → REQ-019 → SCN-015 → TestSCN015_TestTraceValidatorAcceptsExplicitFeaturePathWithoutDuplicateIdentity
+	// Scenario: Tests reference stable scenario IDs from feature files
+	unique := []FeatureScenario{
+		{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", RequirementIDs: []string{"REQ-013"}},
+	}
+	if err := ValidateTestScenarioTrace(unique, TestScenarioTrace{
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-015",
+		TestName:    "TestSCN015_TestTraceValidatorAcceptsExplicitFeaturePathWithoutDuplicateIdentity",
+	}); err != nil {
+		t.Fatalf("expected explicit feature path plus stable scenario ID to validate for a unique scenario: %v", err)
+	}
+
+	ambiguous := append(unique, FeatureScenario{FeaturePath: "features/other_contract.feature", ScenarioID: "SCN-015"})
+	if err := ValidateTestScenarioTrace(ambiguous, TestScenarioTrace{
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-015",
+		TestName:    "TestSCN015_TestTraceValidatorAcceptsExplicitFeaturePathWithoutDuplicateIdentity",
+	}); err != nil {
+		t.Fatalf("expected explicit feature path to disambiguate duplicate scenario IDs: %v", err)
+	}
 }
 
 func TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios(t *testing.T) {
@@ -174,6 +236,28 @@ func TestSCN023_QAPlanningRequiresScopedApprovalAndScenarioIdentity(t *testing.T
 	}
 	if item.Name == "Missing stable scenario identity is not ready for implementation" {
 		t.Fatalf("scenario without SCN identity must not become implementation-ready: %#v", item)
+	}
+}
+
+func TestSCN023_QAPlanningIgnoresNonFeatureFilesUnderFeatures(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningIgnoresNonFeatureFilesUnderFeatures
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), `Feature: Workflow artifact lifecycle
+
+  @REQ-019 @SCN-023
+  Scenario: QA planning enumerates approved scenarios from repository feature files
+    Then each planned test can reference the feature file and scenario ID
+`)
+	mustWrite(t, filepath.Join(repo, "features", "notes.txt"), strings.Repeat("x", 65*1024))
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "features/workflow_artifact_lifecycle.feature#SCN-023\n")
+
+	items, err := PlanImplementationReadyScenarios(repo)
+	if err != nil {
+		t.Fatalf("PlanImplementationReadyScenarios should ignore non-feature files, got %v", err)
+	}
+	if len(items) != 1 || items[0].FeaturePath != "features/workflow_artifact_lifecycle.feature" || items[0].ScenarioID != "SCN-023" {
+		t.Fatalf("expected only the approved repository feature scenario, got %#v", items)
 	}
 }
 
