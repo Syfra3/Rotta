@@ -348,6 +348,30 @@
   - `make lint`
   - `git diff --check`
 
+## SCN-016 — Ancora records pointer-only workflow state
+
+### RED
+- Added `TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText` for `REQ-014 → SCN-016`.
+- The test serializes fake workflow memory state and asserts artifact paths, phase, approval status, risk level, requirement IDs, scenario IDs, observation IDs, and checksums are present while full Markdown/Gherkin bodies are absent.
+- Focused command: `go test ./internal/workflow -run TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText -count=1`.
+- Expected failure observed before production code:
+  - `undefined: SerializeAncoraWorkflowState`
+  - `undefined: AncoraWorkflowState`
+
+### GREEN
+- Added `AncoraWorkflowState` and `SerializeAncoraWorkflowState` to serialize pointer-only state with paths, IDs, phase/status, risk, observation IDs, and optional checksums.
+- Did not add any live Ancora calls or full contract body fields.
+- Focused command passed: `go test ./internal/workflow -run TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText -count=1`.
+
+### REFACTOR
+- Formatted the workflow package changes with `gofmt` and kept SCN-016 behavior limited to pure state serialization.
+- Focused command stayed green: `go test ./internal/workflow -run TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText -count=1`.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
+
 ## SCN-013 — Namespaced workflow-policy artifacts do not overwrite an existing active contract
 
 ### RED

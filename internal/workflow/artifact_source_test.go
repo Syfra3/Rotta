@@ -74,6 +74,52 @@ func TestSCN013_NamespacedWorkflowPolicyArtifactsDoNotOverwriteExistingActiveCon
 	assertFileContent(t, filepath.Join(repo, "features", "installer_recovery.feature"), existingFeature)
 }
 
+func TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText(t *testing.T) {
+	// REQ-014 → SCN-016 → TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText
+	// Scenario: Ancora records pointer-only workflow state
+	fullSpecBody := "# Hard Spec: Workflow Artifact Lifecycle\n\n## Requirements\nFull Markdown body must stay in repo files.\n"
+	fullFeatureBody := "Feature: Workflow artifact lifecycle\n  Scenario: Ancora records pointer-only workflow state\n    Given a hard spec exists at \"specs/workflow_artifact_lifecycle.md\"\n"
+
+	payload, err := SerializeAncoraWorkflowState(AncoraWorkflowState{
+		SpecPath:       "specs/workflow_artifact_lifecycle.md",
+		FeaturePaths:   []string{"features/workflow_artifact_lifecycle.feature"},
+		Phase:          "implementation",
+		ApprovalStatus: "approved",
+		RiskLevel:      "high",
+		RequirementIDs: []string{"REQ-014"},
+		ScenarioIDs:    []string{"SCN-016"},
+		ObservationIDs: []string{"obs-7404"},
+		Checksums: map[string]string{
+			"specs/workflow_artifact_lifecycle.md": "sha256:spec",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SerializeAncoraWorkflowState returned error: %v", err)
+	}
+	serialized := string(payload)
+
+	for _, want := range []string{
+		"specs/workflow_artifact_lifecycle.md",
+		"features/workflow_artifact_lifecycle.feature",
+		"implementation",
+		"approved",
+		"high",
+		"REQ-014",
+		"SCN-016",
+		"obs-7404",
+		"sha256:spec",
+	} {
+		if !strings.Contains(serialized, want) {
+			t.Fatalf("expected serialized pointer state to contain %q, got %s", want, serialized)
+		}
+	}
+	for _, forbidden := range []string{fullSpecBody, fullFeatureBody, "Full Markdown body must stay in repo files", "Given a hard spec exists"} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("expected serialized pointer state to omit full contract text %q, got %s", forbidden, serialized)
+		}
+	}
+}
+
 func TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion(t *testing.T) {
 	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion
 	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
