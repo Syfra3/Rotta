@@ -31,6 +31,7 @@ type WorkflowArtifactLifecycleKind string
 const (
 	WorkflowArtifactActiveRegressionContract WorkflowArtifactLifecycleKind = "active_regression_contract"
 	WorkflowArtifactLocalGeneratedCache      WorkflowArtifactLifecycleKind = "local_generated_cache"
+	WorkflowArtifactRejectedSensitive        WorkflowArtifactLifecycleKind = "rejected_sensitive"
 	WorkflowArtifactRetired                  WorkflowArtifactLifecycleKind = "retired"
 	WorkflowArtifactSuperseded               WorkflowArtifactLifecycleKind = "superseded"
 	WorkflowArtifactProcessOnly              WorkflowArtifactLifecycleKind = "process_only"
@@ -46,6 +47,7 @@ type WorkflowArtifactLifecycleInput struct {
 	IntentionallyTrackedGeneratedArtifact bool
 	ProjectArtifactDecision               bool
 	RetirementReason                      string
+	Content                               string
 }
 
 type WorkflowArtifactLifecycleClassification struct {
@@ -55,6 +57,7 @@ type WorkflowArtifactLifecycleClassification struct {
 	ArchiveReason                   string
 	ReviewCandidate                 bool
 	RequiresProjectArtifactDecision bool
+	RequiresSanitizedReplacement    bool
 }
 
 type CompletedChangeArchivePlan struct {
@@ -158,6 +161,12 @@ func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) Wor
 		classification.RequiresProjectArtifactDecision = input.IntentionallyTrackedGeneratedArtifact && !input.ProjectArtifactDecision
 		return classification
 	}
+	if isSensitiveWorkflowArtifact(input) {
+		classification.Kind = WorkflowArtifactRejectedSensitive
+		classification.ReviewCandidate = false
+		classification.RequiresSanitizedReplacement = true
+		return classification
+	}
 	retirementReason := strings.TrimSpace(input.RetirementReason)
 	if input.Retired {
 		classification.Kind = WorkflowArtifactRetired
@@ -182,6 +191,49 @@ func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) Wor
 		classification.ArchiveCandidate = false
 	}
 	return classification
+}
+
+func isSensitiveWorkflowArtifact(input WorkflowArtifactLifecycleInput) bool {
+	path := filepath.ToSlash(strings.ToLower(input.Path))
+	if hasSensitiveWorkflowPath(path) {
+		return true
+	}
+	if isSanitizedAuthoredExample(path, input.Content) {
+		return false
+	}
+	return hasSensitiveContentMarker(input.Content)
+}
+
+func isSanitizedAuthoredExample(path, content string) bool {
+	return strings.Contains(path, "example") && strings.Contains(strings.ToLower(content), "redacted")
+}
+
+func hasSensitiveWorkflowPath(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		switch part {
+		case "backup", "backups", "restore", "restores", "snapshot", "snapshots", "captures", "machine-state", ".ssh", "ssh":
+			return true
+		}
+	}
+	for _, marker := range []string{"token", "secret", "api_key", "apikey", "private_key"} {
+		if strings.Contains(path, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSensitiveContentMarker(content string) bool {
+	normalized := strings.ToLower(content)
+	if strings.Contains(normalized, "redacted") {
+		return false
+	}
+	for _, marker := range []string{"api_token", "token", "api_key", "apikey", "secret", "authorization:", "bearer ", "identityfile", "private key"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func PrepareWorkflowArtifactReviewSet(inputs []WorkflowArtifactLifecycleInput) WorkflowArtifactReviewSetPlan {

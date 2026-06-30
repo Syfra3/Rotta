@@ -337,6 +337,64 @@ func TestSCN021_ReviewSetPreparationExcludesVelaCacheAndKeepsContracts(t *testin
 	assertFileContent(t, filepath.Join(repo, ".vela", "graph.db"), "generated graph\n")
 }
 
+func TestSCN022_SensitiveBackupAndMachineStateArtifactsAreRejected(t *testing.T) {
+	// REQ-018 → SCN-022 → TestSCN022_SensitiveBackupAndMachineStateArtifactsAreRejected
+	// Scenario: Backup outputs and sensitive config captures are rejected as workflow artifacts
+	tests := []struct {
+		name    string
+		path    string
+		content string
+	}{
+		{name: "backup output", path: ".clean-workflow/backups/20260630/manifest.json", content: `{"target":"opencode"}`},
+		{name: "redacted example under backup output", path: ".clean-workflow/backups/example/redacted-opencode.json", content: `{"api_key":"<redacted>"}`},
+		{name: "restore snapshot", path: ".clean-workflow/restore/pre-restore-snapshot.json", content: `{"snapshot":"pre-restore"}`},
+		{name: "user config capture", path: "captures/home/geen/.config/opencode/opencode.json", content: `{"mcp":{"auth":"fake"}}`},
+		{name: "redacted example under user config capture", path: "captures/example/opencode.json", content: `{"token":"<redacted>"}`},
+		{name: "token-bearing file path", path: "fixtures/token.env", content: "API_TOKEN=fake-token-for-test\n"},
+		{name: "redacted token-bearing example path", path: "docs/examples/api-token.redacted.env", content: "API_TOKEN=<redacted>\n"},
+		{name: "private machine state", path: "machine-state/ssh/config", content: "Host synthetic-test\n  IdentityFile ~/.ssh/id_ed25519\n"},
+		{name: "redacted example under private machine state", path: "machine-state/example/ssh-config", content: "IdentityFile <redacted>\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classification := ClassifyWorkflowArtifactLifecycle(WorkflowArtifactLifecycleInput{Path: tt.path, Content: tt.content})
+
+			if classification.Kind != WorkflowArtifactRejectedSensitive {
+				t.Fatalf("expected sensitive rejection classification, got %#v", classification)
+			}
+			if classification.ReviewCandidate {
+				t.Fatalf("expected sensitive artifact to stay out of review set, got %#v", classification)
+			}
+			if !classification.RequiresSanitizedReplacement {
+				t.Fatalf("expected sensitive artifact to require delete, ignore, or sanitized authored replacement, got %#v", classification)
+			}
+		})
+	}
+}
+
+func TestSCN022_ReviewSetRejectsSensitiveFixturesAndKeepsSanitizedExamples(t *testing.T) {
+	// REQ-018 → SCN-022 → TestSCN022_ReviewSetRejectsSensitiveFixturesAndKeepsSanitizedExamples
+	// Scenario: Backup outputs and sensitive config captures are rejected as workflow artifacts
+	plan := PrepareWorkflowArtifactReviewSet([]WorkflowArtifactLifecycleInput{
+		{Path: "features/workflow_artifact_lifecycle.feature", Approved: true, Implemented: true, Content: "Feature: Workflow artifact lifecycle\n"},
+		{Path: "docs/examples/sanitized_opencode.example.json", Content: `{"token":"<redacted-example>"}`},
+		{Path: "docs/sanitized_capture.md", Content: "Authorization: <redacted>\n"},
+		{Path: "specs/workflow_artifact_lifecycle.md", Content: "captured token: fake-token-for-test\n"},
+		{Path: "backups/opencode.json", Content: `{"api_key":"fake-secret-for-test"}`},
+		{Path: "backups/example/redacted-opencode.json", Content: `{"api_key":"<redacted>"}`},
+		{Path: "docs/examples/api-token.redacted.env", Content: "API_TOKEN=<redacted>\n"},
+	})
+
+	assertReviewSetIncludesPath(t, plan, "features/workflow_artifact_lifecycle.feature")
+	assertReviewSetIncludesPath(t, plan, "docs/examples/sanitized_opencode.example.json")
+	assertReviewSetIncludesPath(t, plan, "docs/sanitized_capture.md")
+	assertReviewSetExcludesPath(t, plan, "specs/workflow_artifact_lifecycle.md")
+	assertReviewSetExcludesPath(t, plan, "backups/opencode.json")
+	assertReviewSetExcludesPath(t, plan, "backups/example/redacted-opencode.json")
+	assertReviewSetExcludesPath(t, plan, "docs/examples/api-token.redacted.env")
+}
+
 func TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText(t *testing.T) {
 	// REQ-014 → SCN-016 → TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText
 	// Scenario: Ancora records pointer-only workflow state
