@@ -27,6 +27,7 @@ type Options struct {
 type Result struct {
 	Target          string
 	Files           []string
+	BackupDir       string
 	AncoraInstalled bool   // true if Ancora binary was installed during this run
 	AncoraBin       string // resolved path to the ancora binary
 	VelaInstalled   bool   // true if Vela binary was installed during this run
@@ -43,6 +44,16 @@ func Install(opts Options) (*Result, error) {
 	}
 
 	projectPath := resolveProjectPath(opts.ProjectPath, home)
+
+	backupDir, err := createInstallBackup(opts, home, projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("create install backup: %w", err)
+	}
+	result.BackupDir = backupDir
+
+	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
+		return nil, err
+	}
 
 	if opts.Target == "claude-code" || opts.Target == "both" {
 		files, err := installClaudeCode(opts, home)
@@ -123,6 +134,52 @@ func installConfig(projectPath string) ([]string, error) {
 		files = append(files, dst)
 	}
 	return files, nil
+}
+
+func cleanPreviousInstallation(opts Options, home, projectPath string) error {
+	if opts.Target == "opencode" || opts.Target == "both" {
+		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
+			return err
+		}
+	}
+	if opts.Target == "claude-code" || opts.Target == "both" {
+		if err := cleanPreviousClaudeCodeInstallation(home); err != nil {
+			return err
+		}
+	}
+	if err := cleanSelectedIntegrationArtifacts(opts, home, projectPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) error {
+	if opts.SetupVela {
+		paths := []string{filepath.Join(projectPath, ".vela", "graph.db")}
+		if opts.Target == "claude-code" || opts.Target == "both" {
+			paths = append(paths,
+				filepath.Join(home, ".claude", "vela-mcp.json"),
+				filepath.Join(home, ".claude", "vela-instructions.md"),
+			)
+		}
+		if opts.Target == "opencode" || opts.Target == "both" {
+			paths = append(paths, filepath.Join(home, ".config", "opencode", "instructions.md"))
+		}
+		for _, path := range paths {
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("cannot remove stale integration artifact %s: %w", path, err)
+			}
+		}
+	}
+
+	if opts.SetupAncora && (opts.Target == "claude-code" || opts.Target == "both") {
+		path := filepath.Join(home, ".claude", "mcp", "ancora.json")
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("cannot remove stale integration artifact %s: %w", path, err)
+		}
+	}
+
+	return nil
 }
 
 // copySkillsToDir copies selected SKILL.md files into skillsDir/clean-workflow/<mode>/
