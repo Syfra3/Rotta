@@ -276,6 +276,51 @@
   - `go test ./cmd/clean-workflow -run 'TestSCN00(5)|TestSCN010' -count=1`
   - `go test ./internal/installer -run 'TestSCN00[1-9]|TestSCN010|TestSCN011' -count=1`
   - `go test ./...`
-  - `make fmt-check`
-  - `make lint`
-  - `git diff --check`
+   - `make fmt-check`
+   - `make lint`
+   - `git diff --check`
+
+## SCN-018 — Pending generated contracts do not pass the implementation gate
+
+### RED
+- Added `TestSCN018_PendingContractRequiresScopedApproval` for `REQ-015 → SCN-018`.
+- Focused command: `go test ./internal/workflow -run TestSCN018_PendingContractRequiresScopedApproval -count=1`.
+- Expected failure observed before production code:
+  - `undefined: EvaluateImplementationGate`
+  - `undefined: ContractScope`
+
+### GREEN
+- Added a scoped implementation gate seam that checks `specs/approvals/<contract-id>.approved` for the requested scenario or feature-qualified scenario reference.
+- The gate ignores the legacy global `specs/.approved` marker for new contract scopes and reports that human approval is still required when no scoped record names the scenario.
+- Focused command passed: `go test ./internal/workflow -run TestSCN018_PendingContractRequiresScopedApproval -count=1`.
+
+### REFACTOR
+- Formatted the new workflow approval package with `gofmt` and kept the API focused on SCN-018 pending-contract gate behavior.
+- Final verification stayed green:
+  - `go test ./internal/workflow -run TestSCN018_PendingContractRequiresScopedApproval -count=1`
+   - `go test ./...`
+   - `make fmt-check`
+   - `make lint`
+
+## SCN-018 remediation — Scoped approval positive and edge-case coverage
+
+### RED
+- Added coverage-first remediation tests for `REQ-015 → SCN-018`:
+  - `TestSCN018_ScopedApprovalAllowsImplementationGate`
+  - `TestSCN018_FeatureQualifiedScopedApprovalAllowsImplementationGate`
+  - `TestSCN018_MissingScopedApprovalFileFailsClosed`
+  - `TestSCN018_UnreadableScopedApprovalFileReturnsError`
+  - `TestSCN018_MalformedScopedApprovalFileReturnsError`
+- Focused command: `go test ./internal/workflow -run 'TestSCN018_(ScopedApprovalAllowsImplementationGate|FeatureQualifiedScopedApprovalAllowsImplementationGate|MissingScopedApprovalFileFailsClosed|UnreadableScopedApprovalFileReturnsError)' -count=1`.
+- Current-code result: PASS. The implementation already supported the positive scoped approval behavior; the failing review gate was the missing test evidence rather than a production assertion failure.
+
+### GREEN
+- No production code change was required for the positive scoped approval, feature-qualified approval, missing scoped file, unreadable scoped path, or malformed scoped file behaviors.
+- Focused command passed: `go test ./internal/workflow -run 'TestSCN018_(MalformedScopedApprovalFileReturnsError|ScopedApprovalAllowsImplementationGate|FeatureQualifiedScopedApprovalAllowsImplementationGate|MissingScopedApprovalFileFailsClosed|UnreadableScopedApprovalFileReturnsError)' -count=1`.
+
+### REFACTOR
+- Extracted `workflowArtifactLifecycleScope` test helper to keep scoped approval tests focused on behavior.
+- Added malformed scoped approval coverage for scanner error handling without expanding beyond the SCN-018 approval resolver.
+- Focused workflow coverage improved to 91.7% package coverage, with `EvaluateImplementationGate` at 100.0% and `scopedApprovalContains` at 87.5%:
+  - `go test ./internal/workflow -run TestSCN018 -coverprofile=/tmp/scn018-workflow.cover -count=1`
+  - `go tool cover -func=/tmp/scn018-workflow.cover`
