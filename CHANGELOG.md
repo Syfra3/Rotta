@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/Syfra3/Rotta/compare/clean-workflow-v1.3.0...clean-workflow-v1.3.1) (2026-06-30)
+
+
+### Documentation
+
+* add README header image ([bb5a4e1](https://github.com/Syfra3/Rotta/commit/bb5a4e1f59198f6438c8d9e7b49b465386449b25))
+
 ## [1.3.0](https://github.com/Syfra3/clean-workflow/compare/clean-workflow-v1.2.0...clean-workflow-v1.3.0) (2026-06-30)
 
 
