@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Syfra3/clean-workflow/assets"
+	"github.com/Syfra3/Rotta/assets"
 )
 
 func readRenderedAsset(path string, opts Options) ([]byte, error) {
@@ -14,8 +14,8 @@ func readRenderedAsset(path string, opts Options) ([]byte, error) {
 	}
 	text := string(data)
 	instructions := integrationInstructions(opts)
-	if strings.Contains(text, "{{CLEAN_WORKFLOW_INTEGRATIONS}}") {
-		text = strings.ReplaceAll(text, "{{CLEAN_WORKFLOW_INTEGRATIONS}}", instructions)
+	if strings.Contains(text, "{{ROTTA_INTEGRATIONS}}") {
+		text = strings.ReplaceAll(text, "{{ROTTA_INTEGRATIONS}}", instructions)
 	} else if strings.HasSuffix(path, ".md") {
 		text += instructions
 	}
@@ -47,7 +47,7 @@ func memoryInstructions(enabled bool) string {
 	return `### Ancora Memory Disabled
 
 - Do not call ` + "`ancora_*`" + ` tools, require Ancora topics, or report that state was saved to Ancora.
-- Workspace files are the only state source: ` + "`specs/hard_spec.md`" + `, ` + "`features/*.feature`" + `, ` + "`.clean-workflow/tdd-log.md`" + `, ` + "`reports/judge_report.md`" + `, and files under ` + "`.clean-workflow/`" + `.
+- Workspace files are the only state source: ` + "`specs/hard_spec.md`" + `, ` + "`features/*.feature`" + `, ` + "`.rotta/tdd-log.md`" + `, ` + "`reports/judge_report.md`" + `, and files under ` + "`.rotta/`" + `.
 - If a base instruction mentions Ancora, treat it as disabled for this installation and write the equivalent state/index information to the workspace file named by the workflow.
 `
 }
@@ -67,10 +67,12 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 	}
 	return fmt.Sprintf(`### Vela Graph Intelligence Enabled
 
-- Clean Workflow controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
+- Rotta controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
 - %s
-- For a new codebase or first structural question, graph data may not exist yet. Check for project graph data before relying on Vela.
-- If graph data is missing or stale, trigger extraction/indexing first with `+"`vela extract <project>`"+` or the available Vela install/build command, then query the graph.
+- At session start, run `+"`vela_status`"+` once like `+"`ancora_context`"+` to cache graph freshness/readiness before any structural graph answer.
+- If Vela is intentionally skipped for an answer, do not call graph tools just because they are available.
+- Before any `+"`vela_explore`"+`, dependency, impact, path, or architecture query, use the cached `+"`vela_status`"+` result; if no status exists, run `+"`vela_status`"+` first.
+- If graph data is missing or stale, trigger extraction/indexing first with `+"`vela update`"+`, `+"`vela build`"+`, `+"`vela extract <project>`"+`, or the available Vela install/build command, then query the graph.
 - Use Vela for structural questions only: dependencies, reverse dependencies, impact, paths, ownership, and architecture explanation.
 - Do not send bag-of-words or broad feature descriptions directly to Vela. First identify concrete files, symbols, types, DTOs, services, handlers, or modules.
 - If confidence is low, graph data is stale, or graph gaps remain, report the gaps and confidence level to the orchestrator. The orchestrator decides whether to spend more exploration effort.

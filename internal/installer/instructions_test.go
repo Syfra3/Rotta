@@ -41,6 +41,9 @@ func TestIntegrationInstructionsWhenAncoraDisabledAndVelaEnabled(t *testing.T) {
 		"Do not call `ancora_*` tools",
 		"### Vela Graph Intelligence Enabled",
 		"Vela may be available as standalone `vela_*` MCP tools",
+		"vela_status",
+		"vela update",
+		"vela build",
 		"trigger extraction/indexing first",
 		"provenance",
 		"confidence",
@@ -55,6 +58,7 @@ func TestIntegrationInstructionsWhenAncoraAndVelaEnabled(t *testing.T) {
 		"### Ancora Memory Enabled",
 		"### Vela Graph Intelligence Enabled",
 		"Ancora remains the primary MCP surface",
+		"vela_status",
 		"trigger extraction/indexing first",
 		"provenance",
 		"confidence",
@@ -62,7 +66,7 @@ func TestIntegrationInstructionsWhenAncoraAndVelaEnabled(t *testing.T) {
 }
 
 func TestReadRenderedAssetAppendsDisabledIntegrationInstructions(t *testing.T) {
-	data, err := readRenderedAsset("agents/clean-orchestrator.md", Options{})
+	data, err := readRenderedAsset("agents/rotta-orchestrator.md", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +85,7 @@ func TestReadRenderedAssetAppendsDisabledIntegrationInstructions(t *testing.T) {
 }
 
 func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
-	data, err := readRenderedAsset("agents/clean-orchestrator.md", Options{SetupAncora: true, SetupVela: true})
+	data, err := readRenderedAsset("agents/rotta-orchestrator.md", Options{SetupAncora: true, SetupVela: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +97,7 @@ func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
 		"ancora_save",
 		"### Vela Graph Intelligence Enabled",
 		"Ancora remains the primary MCP surface",
+		"vela_status",
 	})
 }
 

@@ -20,53 +20,67 @@ type agentEntry struct {
 	modeFlag    func(opts Options) bool
 }
 
-// cleanAgents defines all four Clean Workflow agents in dependency order.
+// rottaAgents defines all four Rotta agents in dependency order.
 // The orchestrator is always installed; sub-agents depend on mode selection.
-var cleanAgents = []agentEntry{
+var rottaAgents = []agentEntry{
 	{
-		key:         "clean-orchestrator",
-		description: "Clean-Orchestrator — Senior Architect Orchestrator",
+		key:         "rotta-orchestrator",
+		description: "Rotta-Orchestrator — Senior Architect Orchestrator",
 		mode:        "primary",
 		hidden:      false,
 		tools:       map[string]bool{"bash": true, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are Clean-Orchestrator, the Clean Workflow orchestrator (Senior Architect). Do NOT be a sub-agent executor. Read your full instructions at ~/.config/opencode/skills/clean-orchestrator/SKILL.md and follow them exactly.",
-		assetPath:   "agents/clean-orchestrator.md",
-		skillName:   "clean-orchestrator",
+		prompt:      "You are Rotta-Orchestrator, the Rotta orchestrator (Senior Architect). Do NOT be a sub-agent executor. Read your full instructions at ~/.config/opencode/skills/rotta-orchestrator/SKILL.md and follow them exactly.",
+		assetPath:   "agents/rotta-orchestrator.md",
+		skillName:   "rotta-orchestrator",
 		modeFlag:    func(_ Options) bool { return true }, // always install
 	},
 	{
-		key:         "clean-spec",
-		description: "Clean Workflow — Spec Partner + Gherkin Author",
+		key:         "rotta-spec",
+		description: "Rotta — Spec Partner + Gherkin Author",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": false, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Clean Spec sub-agent (Spec Partner + Gherkin Author). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/clean-spec/SKILL.md and follow them exactly.",
-		assetPath:   "agents/clean-spec.md",
-		skillName:   "clean-spec",
+		prompt:      "You are the Rotta Spec sub-agent (Spec Partner + Gherkin Author). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/rotta-spec/SKILL.md and follow them exactly.",
+		assetPath:   "agents/rotta-spec.md",
+		skillName:   "rotta-spec",
 		modeFlag:    func(o Options) bool { return o.InstallSpec },
 	},
 	{
-		key:         "clean-impl",
-		description: "Clean Workflow — TDD Craftsman",
+		key:         "rotta-impl",
+		description: "Rotta — TDD Craftsman",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Clean Implementation sub-agent (TDD Craftsman). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/clean-impl/SKILL.md and follow them exactly.",
-		assetPath:   "agents/clean-impl.md",
-		skillName:   "clean-impl",
+		prompt:      "You are the Rotta Implementation sub-agent (TDD Craftsman). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/rotta-impl/SKILL.md and follow them exactly.",
+		assetPath:   "agents/rotta-impl.md",
+		skillName:   "rotta-impl",
 		modeFlag:    func(o Options) bool { return o.InstallImpl },
 	},
 	{
-		key:         "clean-review",
-		description: "Clean Workflow — Judge (Metrics-based Quality Auditor)",
+		key:         "rotta-review",
+		description: "Rotta — Judge (Metrics-based Quality Auditor)",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": true},
-		prompt:      "You are the Clean Review sub-agent (Judge). Do NOT delegate to other agents. You review evidence, not code. Read your full instructions at ~/.config/opencode/skills/clean-review/SKILL.md and follow them exactly.",
-		assetPath:   "agents/clean-review.md",
-		skillName:   "clean-review",
+		prompt:      "You are the Rotta Review sub-agent (Judge). Do NOT delegate to other agents. You review evidence, not code. Read your full instructions at ~/.config/opencode/skills/rotta-review/SKILL.md and follow them exactly.",
+		assetPath:   "agents/rotta-review.md",
+		skillName:   "rotta-review",
 		modeFlag:    func(o Options) bool { return o.InstallReview },
 	},
+}
+
+var legacyBobOpenCodeAgentKeys = []string{
+	"bob-orchestrator",
+	"bob-spec",
+	"bob-impl",
+	"bob-review",
+}
+
+var legacyCleanOpenCodeAgentKeys = []string{
+	"clean-orchestrator",
+	"clean-spec",
+	"clean-impl",
+	"clean-review",
 }
 
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
@@ -88,8 +102,9 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if agentMap == nil {
 		agentMap = map[string]interface{}{}
 	}
+	removeLegacyOpenCodeAgents(config, agentMap)
 
-	for _, a := range cleanAgents {
+	for _, a := range rottaAgents {
 		if !a.modeFlag(opts) {
 			continue
 		}
@@ -149,22 +164,38 @@ func cleanPreviousOpenCodeInstallation(home string) error {
 	}
 	agentMap, _ := config["agent"].(map[string]interface{})
 	if agentMap != nil {
-		for _, a := range cleanAgents {
+		for _, a := range rottaAgents {
 			delete(agentMap, a.key)
 		}
+		removeLegacyOpenCodeAgents(config, agentMap)
 		config["agent"] = agentMap
 		if err := writeOpenCodeConfig(configPath, config); err != nil {
 			return err
 		}
 	}
 
-	for _, a := range cleanAgents {
+	for _, a := range rottaAgents {
 		path := filepath.Join(home, ".config", "opencode", "skills", a.skillName)
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("cannot remove stale opencode skill %s: %w", path, err)
 		}
 	}
+	for _, skillName := range append(legacyBobOpenCodeAgentKeys, legacyCleanOpenCodeAgentKeys...) {
+		path := filepath.Join(home, ".config", "opencode", "skills", skillName)
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("cannot remove legacy opencode skill %s: %w", path, err)
+		}
+	}
 	return nil
+}
+
+func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[string]interface{}) {
+	for _, key := range append(legacyBobOpenCodeAgentKeys, legacyCleanOpenCodeAgentKeys...) {
+		delete(agentMap, key)
+	}
+	if config["default_agent"] == "bob-orchestrator" || config["default_agent"] == "clean-orchestrator" {
+		config["default_agent"] = "rotta-orchestrator"
+	}
 }
 
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {

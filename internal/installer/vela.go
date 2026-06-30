@@ -21,13 +21,13 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 
 	binPath, err := detectVelaBin()
 	if err != nil {
-		if installErr := installVela(); installErr != nil {
+		if installErr := installVela(opts); installErr != nil {
 			return nil, fmt.Errorf(
 				"vela not found and installation failed: %w\n\n"+
 					"Install manually:\n"+
 					"  brew tap Syfra3/tap && brew install vela\n"+
 					"  # or build from source: https://github.com/Syfra3/vela\n\n"+
-					"Then rerun clean-workflow setup or run: vela install --project <project>",
+					"Then rerun rotta setup or run: vela install --project <project>",
 				installErr,
 			)
 		}
@@ -40,7 +40,7 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 	result.BinPath = binPath
 
 	if opts.SetupAncora {
-		if err := runVelaInstall(binPath, projectPath, "", ""); err != nil {
+		if err := runVelaInstall(opts, binPath, projectPath, "", ""); err != nil {
 			return nil, fmt.Errorf("initialize vela project graph: %w", err)
 		}
 		result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
@@ -49,7 +49,7 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 
 	if opts.Target == "claude-code" || opts.Target == "both" {
 		claudeDir := filepath.Join(home, ".claude")
-		if err := runVelaInstall(binPath, projectPath, "claude", claudeDir); err != nil {
+		if err := runVelaInstall(opts, binPath, projectPath, "claude", claudeDir); err != nil {
 			return nil, fmt.Errorf("vela install claude: %w", err)
 		}
 		result.addFiles(
@@ -61,7 +61,7 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 
 	if opts.Target == "opencode" || opts.Target == "both" {
 		opencodeDir := filepath.Join(home, ".config", "opencode")
-		if err := runVelaInstall(binPath, projectPath, "opencode", opencodeDir); err != nil {
+		if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
 			return nil, fmt.Errorf("vela install opencode: %w", err)
 		}
 		result.addFiles(
@@ -113,21 +113,21 @@ func (r *VelaResult) addFile(path string) {
 
 // installVela installs Vela through the Syfra Homebrew tap. There is no known
 // official curl installer, so we do not run one implicitly.
-func installVela() error {
+func installVela(opts Options) error {
 	brew, err := exec.LookPath("brew")
 	if err != nil {
 		return fmt.Errorf("brew not found")
 	}
-	if err := runCommand(brew, "tap", "Syfra3/tap"); err != nil {
+	if err := runCommand(opts, brew, "tap", "Syfra3/tap"); err != nil {
 		return fmt.Errorf("brew tap Syfra3/tap: %w", err)
 	}
-	if err := runCommand(brew, "trust", "Syfra3/tap"); err != nil {
+	if err := runCommand(opts, brew, "trust", "Syfra3/tap"); err != nil {
 		return fmt.Errorf("brew trust Syfra3/tap: %w", err)
 	}
-	return runCommand(brew, "install", "vela")
+	return runCommand(opts, brew, "install", "vela")
 }
 
-func runVelaInstall(binPath, projectPath, agent, configDir string) error {
+func runVelaInstall(opts Options, binPath, projectPath, agent, configDir string) error {
 	args := []string{"install", "--project", projectPath}
 	if agent != "" {
 		args = append(args, "--agent", agent)
@@ -138,13 +138,11 @@ func runVelaInstall(binPath, projectPath, agent, configDir string) error {
 			args = append(args, "--opencode-dir", configDir)
 		}
 	}
-	return runCommand(binPath, args...)
+	return runCommand(opts, binPath, args...)
 }
 
-func runCommand(name string, args ...string) error {
+func runCommand(opts Options, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	configureCommandIO(cmd, opts)
 	return cmd.Run()
 }

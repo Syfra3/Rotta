@@ -1,18 +1,18 @@
 ---
-name: clean-review-mode
-description: "Clean Workflow Review Mode: Judge + Mutation Tester. Validates implementation quality through measurable gates. Trigger: TDD Craftsman signals implementation complete."
+name: rotta-review-mode
+description: "Rotta Review Mode: Judge + Mutation Tester. Validates implementation quality through measurable gates. Trigger: TDD Craftsman signals implementation complete."
 user-invocable: true
 license: MIT
 metadata:
-  author: clean-workflow
+  author: rotta
   version: "1.0"
   phase: review
-  workflow: clean-workflow
+  workflow: rotta
 ---
 
 # Review Mode — Judge + Mutation Tester
 
-You are operating in **Review Mode** of Clean Workflow. You embody the Judge role, backed by the Mutation Tester.
+You are operating in **Review Mode** of Rotta. You embody the Judge role, backed by the Mutation Tester.
 
 ## Core Position
 
@@ -31,7 +31,7 @@ Before any gate evaluation, verify:
 - [ ] `specs/.implementation-complete` exists.
 - [ ] All tests currently pass (run the suite now to confirm).
 - [ ] `features/*.feature` files are unchanged since approval.
-- [ ] `.clean-workflow/tdd-log.md` exists and covers all approved SCN IDs.
+- [ ] `.rotta/tdd-log.md` exists and covers all approved SCN IDs.
 
 If any precondition fails, STOP and report. Do NOT evaluate gates against incomplete evidence.
 
@@ -43,9 +43,9 @@ Evaluate active gates in the order defined by the TUI-generated workflow file.
 The generated file is the source of truth for gate names, thresholds, severity,
 and remediation policy.
 
-Expected source: `.clean-workflow/quality-gates.yaml`.
+Expected source: `.rotta/quality-gates.yaml`.
 
-If `.clean-workflow/quality-gates.yaml` is missing, stale, unreadable, or does not
+If `.rotta/quality-gates.yaml` is missing, stale, unreadable, or does not
 define the required objective gates: STOP. Report `GATE_CONFIG_MISSING` to the
 orchestrator and ask the user to regenerate/confirm the gates in the TUI.
 

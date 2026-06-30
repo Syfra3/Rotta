@@ -1,9 +1,11 @@
 package installer
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,7 +21,7 @@ func TestSCN001_InstallCreatesTimestampedBackupBeforeMutation(t *testing.T) {
 	preInstallOpenCodeConfig := []byte(`{"agent":{"user-agent":{"description":"keep"}}}`)
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), preInstallOpenCodeConfig)
 	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions":{"allow":["user-permission"]}}`))
-	writeTestFile(t, filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"), []byte("previous: state\n"))
+	writeTestFile(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), []byte("previous: state\n"))
 
 	result, err := Install(Options{
 		Target:        "both",
@@ -35,8 +37,8 @@ func TestSCN001_InstallCreatesTimestampedBackupBeforeMutation(t *testing.T) {
 	if result.BackupDir == "" {
 		t.Fatal("expected install result to include backup directory")
 	}
-	if filepath.Dir(result.BackupDir) != filepath.Join(home, ".clean-workflow", "backups") {
-		t.Fatalf("expected backup under ~/.clean-workflow/backups, got %s", result.BackupDir)
+	if filepath.Dir(result.BackupDir) != filepath.Join(home, ".rotta", "backups") {
+		t.Fatalf("expected backup under ~/.rotta/backups, got %s", result.BackupDir)
 	}
 
 	manifest := readBackupManifest(t, filepath.Join(result.BackupDir, "manifest.json"))
@@ -68,18 +70,18 @@ func TestSCN001_InstallCreatesTimestampedBackupBeforeMutation(t *testing.T) {
 
 func TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall
-	// Scenario: Successful install cleans previous clean-workflow settings before fresh install
+	// Scenario: Successful install cleans previous rotta settings before fresh install
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"clean-spec":{"description":"stale","mode":"subagent","prompt":"old"},"clean-impl":{"description":"remove me"},"user-agent":{"description":"keep me"}},"theme":"user-theme"}`))
-	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "clean-impl", "SKILL.md"), []byte("stale impl skill\n"))
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"rotta-spec":{"description":"stale","mode":"subagent","prompt":"old"},"rotta-impl":{"description":"remove me"},"user-agent":{"description":"keep me"}},"theme":"user-theme"}`))
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-impl", "SKILL.md"), []byte("stale impl skill\n"))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "user-skill", "SKILL.md"), []byte("keep user skill\n"))
-	writeTestFile(t, filepath.Join(home, ".claude", "skills", "clean-workflow", "implementation-mode", "SKILL.md"), []byte("stale claude impl skill\n"))
+	writeTestFile(t, filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"), []byte("stale claude impl skill\n"))
 	writeTestFile(t, filepath.Join(home, ".claude", "skills", "user-skill", "SKILL.md"), []byte("keep claude user skill\n"))
 	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions":{"allow":["mcp__clean_workflow__implementation_mode","user-permission"]},"theme":"dark"}`))
-	writeTestFile(t, filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"), []byte("stale: true\n"))
+	writeTestFile(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), []byte("stale: true\n"))
 
 	result, err := Install(Options{
 		Target:      "both",
@@ -101,27 +103,28 @@ func TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall(t *tes
 	if _, ok := opencodeConfig["theme"]; !ok {
 		t.Fatalf("expected unrelated opencode setting to be preserved, got %#v", opencodeConfig)
 	}
-	cleanSpec := agents["clean-spec"].(map[string]interface{})
+	cleanSpec := agents["rotta-spec"].(map[string]interface{})
 	if cleanSpec["prompt"] == "old" {
-		t.Fatalf("expected stale clean-spec agent to be replaced, got %#v", cleanSpec)
+		t.Fatalf("expected stale rotta-spec agent to be replaced, got %#v", cleanSpec)
 	}
-	if _, ok := agents["clean-impl"]; ok {
-		t.Fatalf("expected unselected stale clean-impl agent to be removed, got %#v", agents)
+	if _, ok := agents["rotta-impl"]; ok {
+		t.Fatalf("expected unselected stale rotta-impl agent to be removed, got %#v", agents)
 	}
-	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "skills", "clean-impl"))
-	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "clean-spec", "SKILL.md"))
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-impl"))
+	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-spec", "SKILL.md"))
 	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "user-skill", "SKILL.md"))
 
 	claudeSettings := readJSONFile(t, filepath.Join(home, ".claude", "settings.json"))
 	permissions := claudeSettings["permissions"].(map[string]interface{})
 	allow := permissions["allow"].([]interface{})
 	assertJSONListContains(t, allow, "user-permission")
+	assertJSONListContains(t, allow, "mcp__rotta__spec_mode")
 	assertJSONListDoesNotContain(t, allow, "mcp__clean_workflow__implementation_mode")
-	assertPathMissing(t, filepath.Join(home, ".claude", "skills", "clean-workflow", "implementation-mode"))
-	assertPathExists(t, filepath.Join(home, ".claude", "skills", "clean-workflow", "spec-mode", "SKILL.md"))
+	assertPathMissing(t, filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode"))
+	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta", "spec-mode", "SKILL.md"))
 	assertPathExists(t, filepath.Join(home, ".claude", "skills", "user-skill", "SKILL.md"))
 
-	stateMachine := filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml")
+	stateMachine := filepath.Join(projectPath, ".rotta", "state-machine.yaml")
 	stateData, err := os.ReadFile(stateMachine)
 	if err != nil {
 		t.Fatalf("read fresh state machine: %v", err)
@@ -131,9 +134,70 @@ func TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall(t *tes
 	}
 }
 
+func TestSCN002_OpenCodeInstallMigratesLegacyBobAndCleanAgents(t *testing.T) {
+	// REQ-004 -> SCN-002 -> TestSCN002_OpenCodeInstallMigratesLegacyBobAndCleanAgents
+	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"$schema":"https://opencode.ai/config.json","default_agent":"clean-orchestrator","agent":{"bob-orchestrator":{"description":"legacy primary","mode":"primary"},"bob-spec":{"description":"legacy spec","mode":"subagent","hidden":true},"bob-impl":{"description":"legacy impl","mode":"subagent","hidden":true},"bob-review":{"description":"legacy review","mode":"subagent","hidden":true},"clean-orchestrator":{"description":"legacy clean primary","mode":"primary"},"clean-spec":{"description":"legacy clean spec","mode":"subagent","hidden":true},"clean-impl":{"description":"legacy clean impl","mode":"subagent","hidden":true},"clean-review":{"description":"legacy clean review","mode":"subagent","hidden":true},"rotta-orchestrator":{"description":"stale rotta","mode":"primary","prompt":"old"},"user-agent":{"description":"keep me","mode":"primary"}},"theme":"user-theme"}`))
+	for _, skill := range []string{"bob-orchestrator", "bob-spec", "bob-impl", "bob-review", "clean-orchestrator", "clean-spec", "clean-impl", "clean-review", "user-skill"} {
+		writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", skill, "SKILL.md"), []byte(skill+"\n"))
+	}
+
+	result, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.BackupDir == "" {
+		t.Fatal("expected install to back up legacy Bob and clean artifacts before migration")
+	}
+	manifest := readBackupManifest(t, filepath.Join(result.BackupDir, "manifest.json"))
+	assertManifestContainsPath(t, manifest.BackedUpPaths, filepath.Join(home, ".config", "opencode", "skills", "bob-orchestrator"))
+	assertManifestContainsPath(t, manifest.BackedUpPaths, filepath.Join(home, ".config", "opencode", "skills", "clean-orchestrator"))
+	assertFileContains(t, backupDestination(result.BackupDir, home, filepath.Join(home, ".config", "opencode", "skills", "bob-spec", "SKILL.md")), "bob-spec")
+	assertFileContains(t, backupDestination(result.BackupDir, home, filepath.Join(home, ".config", "opencode", "skills", "clean-spec", "SKILL.md")), "clean-spec")
+
+	opencodeConfig := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if opencodeConfig["$schema"] == nil || opencodeConfig["theme"] != "user-theme" {
+		t.Fatalf("expected unrelated opencode config to be preserved, got %#v", opencodeConfig)
+	}
+	if opencodeConfig["default_agent"] != "rotta-orchestrator" {
+		t.Fatalf("expected legacy default_agent to migrate to rotta-orchestrator, got %#v", opencodeConfig["default_agent"])
+	}
+	agents := opencodeConfig["agent"].(map[string]interface{})
+	for _, legacy := range []string{"bob-orchestrator", "bob-spec", "bob-impl", "bob-review", "clean-orchestrator", "clean-spec", "clean-impl", "clean-review"} {
+		if _, ok := agents[legacy]; ok {
+			t.Fatalf("expected legacy agent %s to be removed, got %#v", legacy, agents)
+		}
+		assertPathMissing(t, filepath.Join(home, ".config", "opencode", "skills", legacy))
+	}
+	if _, ok := agents["user-agent"]; !ok {
+		t.Fatalf("expected unrelated user agent to be preserved, got %#v", agents)
+	}
+	rottaOrchestrator := agents["rotta-orchestrator"].(map[string]interface{})
+	if rottaOrchestrator["mode"] != "primary" || rottaOrchestrator["prompt"] == "old" {
+		t.Fatalf("expected Rotta orchestrator to be freshly installed as primary, got %#v", rottaOrchestrator)
+	}
+	for _, rottaSubagent := range []string{"rotta-spec", "rotta-impl", "rotta-review"} {
+		entry := agents[rottaSubagent].(map[string]interface{})
+		if entry["mode"] != "subagent" || entry["hidden"] != true {
+			t.Fatalf("expected %s to stay hidden subagent, got %#v", rottaSubagent, entry)
+		}
+	}
+	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "user-skill", "SKILL.md"))
+}
+
 func TestSCN002_SelectedIntegrationCleanupRunsBeforeOptionalSetup(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_SelectedIntegrationCleanupRunsBeforeOptionalSetup
-	// Scenario: Successful install cleans previous clean-workflow settings before fresh install
+	// Scenario: Successful install cleans previous rotta settings before fresh install
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
@@ -195,6 +259,148 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "instructions.md"))
 }
 
+func TestSCN023_ExternalSetupOutputIsRoutedThroughInstallOptions(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_ExternalSetupOutputIsRoutedThroughInstallOptions
+	// Scenario: TUI install can keep external setup output away from the Bubble Tea screen.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+if [ "$1" = setup ]; then
+  echo "external stdout"
+  echo "external stderr" >&2
+  exit 0
+fi
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	_, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		SetupAncora:   true,
+		CommandStdout: &stdout,
+		CommandStderr: &stderr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "external stdout\n" {
+		t.Fatalf("expected setup stdout to be routed through options, got %q", stdout.String())
+	}
+	if stderr.String() != "external stderr\n" {
+		t.Fatalf("expected setup stderr to be routed through options, got %q", stderr.String())
+	}
+}
+
+func TestSCN023_DefaultExternalCommandStdinRemainsInteractive(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_DefaultExternalCommandStdinRemainsInteractive
+	// Scenario: CLI/default installs can still answer prompts from external setup tools.
+	cmd := exec.Command("true")
+	configureCommandIO(cmd, Options{})
+	if cmd.Stdin != os.Stdin {
+		t.Fatal("expected default external command stdin to remain interactive")
+	}
+}
+
+func TestSCN023_VelaSetupOutputIsRoutedThroughInstallOptions(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_VelaSetupOutputIsRoutedThroughInstallOptions
+	// Scenario: Vela setup cannot write directly over the TUI install screen.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+echo "vela stdout"
+echo "vela stderr" >&2
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	_, err := SetupVela(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		SetupVela:     true,
+		CommandStdout: &stdout,
+		CommandStderr: &stderr,
+	}, home, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "vela stdout\n" {
+		t.Fatalf("expected vela stdout to be routed through options, got %q", stdout.String())
+	}
+	if stderr.String() != "vela stderr\n" {
+		t.Fatalf("expected vela stderr to be routed through options, got %q", stderr.String())
+	}
+}
+
+func TestSCN023_BootstrapInstallOutputIsRoutedThroughInstallOptions(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_BootstrapInstallOutputIsRoutedThroughInstallOptions
+	// Scenario: bootstrap install commands cannot write directly over the TUI install screen.
+	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir)
+
+	writeExecutable(t, filepath.Join(binDir, "brew"), `#!/bin/sh
+echo "brew stdout $*"
+echo "brew stderr $*" >&2
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	opts := Options{CommandStdout: &stdout, CommandStderr: &stderr}
+	if err := installAncora(opts); err != nil {
+		t.Fatalf("install ancora via brew: %v", err)
+	}
+	if err := installVela(opts); err != nil {
+		t.Fatalf("install vela via brew: %v", err)
+	}
+	if strings.Count(stdout.String(), "brew stdout") != 6 {
+		t.Fatalf("expected all brew stdout to be routed through options, got %q", stdout.String())
+	}
+	if strings.Count(stderr.String(), "brew stderr") != 6 {
+		t.Fatalf("expected all brew stderr to be routed through options, got %q", stderr.String())
+	}
+}
+
+func TestSCN023_AncoraScriptBootstrapOutputIsRoutedThroughInstallOptions(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_AncoraScriptBootstrapOutputIsRoutedThroughInstallOptions
+	// Scenario: curl|bash bootstrap fallback cannot write directly over the TUI install screen.
+	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir)
+
+	writeExecutable(t, filepath.Join(binDir, "curl"), `#!/bin/sh
+printf '%s\n' '#!/bin/sh' 'echo script body'
+`)
+	writeExecutable(t, filepath.Join(binDir, "bash"), `#!/bin/sh
+while IFS= read -r ignored; do :; done
+echo "bash stdout"
+echo "bash stderr" >&2
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := installAncoraViaScript(Options{CommandStdout: &stdout, CommandStderr: &stderr}); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "bash stdout\n" {
+		t.Fatalf("expected bash stdout to be routed through options, got %q", stdout.String())
+	}
+	if stderr.String() != "bash stderr\n" {
+		t.Fatalf("expected bash stderr to be routed through options, got %q", stderr.String())
+	}
+}
+
 func TestSCN003_BackupFailureAbortsInstallCompletely(t *testing.T) {
 	// REQ-003 → SCN-003 → TestSCN003_BackupFailureAbortsInstallCompletely
 	// Scenario: Backup failure aborts install completely
@@ -202,10 +408,10 @@ func TestSCN003_BackupFailureAbortsInstallCompletely(t *testing.T) {
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"clean-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`))
-	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "clean-spec", "SKILL.md"), []byte("stale skill\n"))
-	writeTestFile(t, filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"), []byte("stale: true\n"))
-	writeTestFile(t, filepath.Join(home, ".clean-workflow", "backups"), []byte("not a directory\n"))
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`))
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-spec", "SKILL.md"), []byte("stale skill\n"))
+	writeTestFile(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), []byte("stale: true\n"))
+	writeTestFile(t, filepath.Join(home, ".rotta", "backups"), []byte("not a directory\n"))
 
 	result, err := Install(Options{
 		Target:      "opencode",
@@ -224,13 +430,13 @@ func TestSCN003_BackupFailureAbortsInstallCompletely(t *testing.T) {
 
 	opencodeConfig := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
 	agents := opencodeConfig["agent"].(map[string]interface{})
-	cleanSpec := agents["clean-spec"].(map[string]interface{})
+	cleanSpec := agents["rotta-spec"].(map[string]interface{})
 	if cleanSpec["description"] != "stale" {
 		t.Fatalf("expected cleanup and fresh install not to mutate opencode agents, got %#v", agents)
 	}
-	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "clean-spec", "SKILL.md"))
-	assertFileContains(t, filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"), "stale: true")
-	assertFileContains(t, filepath.Join(home, ".clean-workflow", "backups"), "not a directory")
+	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-spec", "SKILL.md"))
+	assertFileContains(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), "stale: true")
+	assertFileContains(t, filepath.Join(home, ".rotta", "backups"), "not a directory")
 }
 
 func TestSCN007_RestoreAppliesFullBackupAndRemovesAbsentPaths(t *testing.T) {
@@ -240,10 +446,10 @@ func TestSCN007_RestoreAppliesFullBackupAndRemovesAbsentPaths(t *testing.T) {
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	selectedBackupDir := filepath.Join(home, ".clean-workflow", "backups", "20260629T130000Z")
+	selectedBackupDir := filepath.Join(home, ".rotta", "backups", "20260629T130000Z")
 	restoredOpenCodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
-	restoredSkillDir := filepath.Join(home, ".config", "opencode", "skills", "clean-spec")
-	absentAtBackupPath := filepath.Join(projectPath, ".clean-workflow", "quality-gates.yaml")
+	restoredSkillDir := filepath.Join(home, ".config", "opencode", "skills", "rotta-spec")
+	absentAtBackupPath := filepath.Join(projectPath, ".rotta", "quality-gates.yaml")
 
 	writeTestFile(t, backupDestination(selectedBackupDir, home, restoredOpenCodeConfig), []byte(`{"agent":{"restored":{"description":"from backup"}}}`))
 	writeTestFile(t, backupDestination(selectedBackupDir, home, filepath.Join(restoredSkillDir, "SKILL.md")), []byte("restored skill\n"))
@@ -278,9 +484,9 @@ func TestSCN008_FailedRestoreRollsBackToPreRestoreState(t *testing.T) {
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	selectedBackupDir := filepath.Join(home, ".clean-workflow", "backups", "20260629T140000Z")
+	selectedBackupDir := filepath.Join(home, ".rotta", "backups", "20260629T140000Z")
 	restoredOpenCodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
-	restoredSkillDir := filepath.Join(home, ".config", "opencode", "skills", "clean-spec")
+	restoredSkillDir := filepath.Join(home, ".config", "opencode", "skills", "rotta-spec")
 
 	writeTestFile(t, backupDestination(selectedBackupDir, home, restoredOpenCodeConfig), []byte(`{"agent":{"restored":{"description":"from selected backup"}}}`))
 	writeTestFile(t, backupDestination(selectedBackupDir, home, filepath.Join(restoredSkillDir, "SKILL.md")), []byte("restored skill\n"))
@@ -323,7 +529,7 @@ func TestSCN009_RestoreFailureWithRollbackFailureProvidesManualRecoveryLocations
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	selectedBackupDir := filepath.Join(home, ".clean-workflow", "backups", "20260629T150000Z")
+	selectedBackupDir := filepath.Join(home, ".rotta", "backups", "20260629T150000Z")
 	restoredOpenCodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
 
 	writeTestFile(t, backupDestination(selectedBackupDir, home, restoredOpenCodeConfig), []byte(`{"agent":{"restored":{"description":"from selected backup"}}}`))

@@ -142,7 +142,7 @@ func TestSCN005_TUIPreviewsBackupContentsAndMetadata(t *testing.T) {
 		"Spec, Review",
 		"Ancora",
 		"Vela: no",
-		filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"),
+		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
 		filepath.Join(projectPath, ".vela", "graph.db"),
 		"full-backup restore only",
 	} {
@@ -222,21 +222,68 @@ func TestSCN007_TUIConfirmationExecutesFullRestore(t *testing.T) {
 	}
 }
 
+func TestSCN023_TUIRunInstallUsesNonInteractiveExternalCommandInput(t *testing.T) {
+	// REQ-004 → SCN-023 → TestSCN023_TUIRunInstallUsesNonInteractiveExternalCommandInput
+	// Scenario: TUI install must not let external setup tools read from the Bubble Tea terminal.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeTUITestExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+if [ "$1" = setup ]; then
+  if IFS= read -r line; then
+    echo "unexpected interactive stdin: $line" >&2
+    exit 23
+  fi
+  echo "external setup output should be discarded"
+  exit 0
+fi
+`)
+
+	model := New()
+	model.Target = TargetOpenCode
+	model.ProjectPath = projectPath
+	model.SelectedModes = [3]bool{true, false, false}
+	model.SetupAncora = true
+	model.SetupVela = false
+
+	msg := runInstall(model)()
+	done, ok := msg.(installDoneMsg)
+	if !ok {
+		t.Fatalf("expected installDoneMsg, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("expected non-interactive TUI install to complete, got %v", done.err)
+	}
+}
+
 func writeBackupManifest(t *testing.T, home, timestamp, projectPath, target string) {
 	t.Helper()
-	dir := filepath.Join(home, ".clean-workflow", "backups", timestamp)
+	dir := filepath.Join(home, ".rotta", "backups", timestamp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"version":1,"timestamp":"` + timestamp + `","project_path":"` + projectPath + `","target":"` + target + `","selected_modes":{"spec":true,"implementation":false,"review":true},"optional_integrations":{"ancora":true,"vela":false},"backed_up_paths":["` + filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml") + `"],"missing_paths":["` + filepath.Join(projectPath, ".vela", "graph.db") + `"],"status":"complete"}`
+	manifest := `{"version":1,"timestamp":"` + timestamp + `","project_path":"` + projectPath + `","target":"` + target + `","selected_modes":{"spec":true,"implementation":false,"review":true},"optional_integrations":{"ancora":true,"vela":false},"backed_up_paths":["` + filepath.Join(projectPath, ".rotta", "state-machine.yaml") + `"],"missing_paths":["` + filepath.Join(projectPath, ".vela", "graph.db") + `"],"status":"complete"}`
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTUITestExecutable(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func writeRestorableBackupManifest(t *testing.T, home, timestamp, projectPath, target, backedUpPath, missingPath string) string {
 	t.Helper()
-	dir := filepath.Join(home, ".clean-workflow", "backups", timestamp)
+	dir := filepath.Join(home, ".rotta", "backups", timestamp)
 	backupFile := filepath.Join(dir, "files", "home", strings.TrimPrefix(backedUpPath, home+string(os.PathSeparator)))
 	writeTestFile(t, backupFile, []byte(`{"restored":true}`))
 	manifest := `{"version":1,"timestamp":"` + timestamp + `","project_path":"` + projectPath + `","target":"` + target + `","selected_modes":{"spec":true,"implementation":false,"review":true},"optional_integrations":{"ancora":true,"vela":false},"backed_up_paths":["` + backedUpPath + `"],"missing_paths":["` + missingPath + `"],"status":"complete"}`

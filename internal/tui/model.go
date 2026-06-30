@@ -1,4 +1,4 @@
-// Package tui implements the Bubbletea terminal UI for the Clean Workflow installer.
+// Package tui implements the Bubbletea terminal UI for the Rotta installer.
 //
 // Patterns (Gentleman Bubbletea):
 // - Screen constants as iota
@@ -10,7 +10,7 @@
 package tui
 
 import (
-	"github.com/Syfra3/clean-workflow/internal/installer"
+	"github.com/Syfra3/Rotta/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

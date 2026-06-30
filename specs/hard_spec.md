@@ -10,7 +10,7 @@
 - The current install flow is allowed to change from additive/idempotent behavior to backup-first cleanup-and-reinstall behavior for normal installs.
 - A full-backup restore is acceptable even when a user only wants one file recovered.
 - Timestamped local backups under the user's home directory are acceptable as the default recovery location.
-- Optional integrations may mutate files not directly written by clean-workflow code; safe rollback therefore requires backing up broader config roots, not only the exact destination files.
+- Optional integrations may mutate files not directly written by rotta code; safe rollback therefore requires backing up broader config roots, not only the exact destination files.
 
 ## Alternatives Considered
 | Approach | Reason Rejected |
@@ -21,24 +21,24 @@
 | Store backups inside the target project | Project deletion, git cleanup, or project moves could remove recovery data needed for global agent settings. |
 
 ## Summary
-Add installer recovery tooling so every normal install first creates a timestamped backup of the user's affected AI-agent and project configuration, then removes previous clean-workflow installation artifacts/settings, then installs clean-workflow fresh. Users must be able to list backups, preview backup metadata and contents, and confirm a full restore from the terminal UI. Backup failure must abort installation before mutation. Restore failure must roll back to the state that existed immediately before the restore attempt.
+Add installer recovery tooling so every normal install first creates a timestamped backup of the user's affected AI-agent and project configuration, then removes previous rotta installation artifacts/settings, then installs rotta fresh. Users must be able to list backups, preview backup metadata and contents, and confirm a full restore from the terminal UI. Backup failure must abort installation before mutation. Restore failure must roll back to the state that existed immediately before the restore attempt.
 
 ## Invariants
-- No normal install path may mutate opencode, Claude Code, project `.clean-workflow`, project `.vela`, Ancora, or Vela-related configuration before a successful backup is recorded.
+- No normal install path may mutate opencode, Claude Code, project `.rotta`, project `.vela`, Ancora, or Vela-related configuration before a successful backup is recorded.
 - Restore is all-or-nothing at the backup-set level; there is no selective restore workflow.
 - Restore must create a pre-restore safety backup of the current configuration before overwriting anything.
-- Cleanup must remove only clean-workflow-owned entries/files/directories or integration files in the explicitly defined restore/install scope; unrelated user configuration must be preserved.
+- Cleanup must remove only rotta-owned entries/files/directories or integration files in the explicitly defined restore/install scope; unrelated user configuration must be preserved.
 - Generated artifacts, code comments, UI copy, docs, commit text, and summaries must use neutral wording and must not mention or identify the external behavioral precedent supplied to the workflow.
 
 ## Requirements
 
 ### REQ-001: Enumerate Backup Scope Before Mutation
-**Description:** The installer must compute a backup scope before any install, cleanup, or restore mutation. The scope must cover all files/directories clean-workflow currently writes or patches, plus broader agent configuration roots where required for safe rollback.
+**Description:** The installer must compute a backup scope before any install, cleanup, or restore mutation. The scope must cover all files/directories rotta currently writes or patches, plus broader agent configuration roots where required for safe rollback.
 **Acceptance Criteria:**
-- The backup scope includes `<project>/.clean-workflow/state-machine.yaml` and `<project>/.clean-workflow/quality-gates.yaml`.
+- The backup scope includes `<project>/.rotta/state-machine.yaml` and `<project>/.rotta/quality-gates.yaml`.
 - The backup scope includes `<project>/.vela/graph.db` when Vela setup is enabled or a previous Vela graph may be cleaned/restored.
-- The backup scope includes `~/.config/opencode/opencode.json`, `~/.config/opencode/opencode.jsonc` if present, `~/.config/opencode/instructions.md` if present, and `~/.config/opencode/skills/clean-orchestrator`, `clean-spec`, `clean-impl`, and `clean-review` when opencode is targeted or existing opencode cleanup is relevant.
-- The backup scope includes `~/.claude/settings.json`, `~/.claude/skills/clean-workflow`, `~/.claude/mcp/ancora.json` if present, `~/.claude/vela-mcp.json` if present, and `~/.claude/vela-instructions.md` if present when Claude Code is targeted or existing Claude Code cleanup is relevant.
+- The backup scope includes `~/.config/opencode/opencode.json`, `~/.config/opencode/opencode.jsonc` if present, `~/.config/opencode/instructions.md` if present, and `~/.config/opencode/skills/rotta-orchestrator`, `rotta-spec`, `rotta-impl`, and `rotta-review` when opencode is targeted or existing opencode cleanup is relevant.
+- The backup scope includes `~/.claude/settings.json`, `~/.claude/skills/rotta`, `~/.claude/mcp/ancora.json` if present, `~/.claude/vela-mcp.json` if present, and `~/.claude/vela-instructions.md` if present when Claude Code is targeted or existing Claude Code cleanup is relevant.
 - The backup scope may include the whole `~/.config/opencode` and `~/.claude` configuration roots when needed to preserve safe rollback of project/tool settings touched by external setup commands.
 - The scope records missing paths as metadata rather than treating absence as an error.
 **Edge Cases:**
@@ -49,11 +49,11 @@ Add installer recovery tooling so every normal install first creates a timestamp
 - Backing up unrelated system packages or binaries installed by package managers.
 
 ### REQ-002: Create Timestamped Backups for Every Normal Install
-**Description:** Every normal install must create a backup under `~/.clean-workflow/backups/{timestamp}/` before cleanup or installation begins.
+**Description:** Every normal install must create a backup under `~/.rotta/backups/{timestamp}/` before cleanup or installation begins.
 **Acceptance Criteria:**
 - Starting an install through the TUI creates a backup first.
 - Starting an install through a non-interactive install command creates a backup first.
-- The backup directory contains a manifest with timestamp, project path, target, selected modes, optional integration choices, backed-up paths, missing paths, backup status, and clean-workflow version when available.
+- The backup directory contains a manifest with timestamp, project path, target, selected modes, optional integration choices, backed-up paths, missing paths, backup status, and rotta version when available.
 - Backup paths preserve enough relative structure to restore files to their original absolute destinations.
 - Backups are never overwritten by a later install; timestamp collisions are resolved deterministically by adding a stable suffix or rejecting before mutation.
 **Edge Cases:**
@@ -68,7 +68,7 @@ Add installer recovery tooling so every normal install first creates a timestamp
 **Acceptance Criteria:**
 - A failed backup returns an install failure result and displays a recovery-safe error to the user.
 - No cleanup runs after a failed backup.
-- No clean-workflow files, agent entries, permissions, instructions, or integration configuration are written after a failed backup.
+- No rotta files, agent entries, permissions, instructions, or integration configuration are written after a failed backup.
 - Partial backup artifacts are either removed or marked unusable in the manifest so they are not offered as restore candidates.
 **Edge Cases:**
 - Permission denied while reading a scoped file.
@@ -78,27 +78,27 @@ Add installer recovery tooling so every normal install first creates a timestamp
 - Continuing install with a warning after backup failure.
 
 ### REQ-004: Clean Previous Installation Before Fresh Install
-**Description:** After a successful backup and before writing the fresh installation, the installer must remove previous clean-workflow-owned installation artifacts and settings for the selected scope.
+**Description:** After a successful backup and before writing the fresh installation, the installer must remove previous rotta-owned installation artifacts and settings for the selected scope.
 **Acceptance Criteria:**
-- Previous clean-workflow skill directories are removed before fresh skill files are written.
-- Previous opencode clean-workflow agent entries are removed before fresh agent entries are added.
-- Previous Claude Code clean-workflow permission entries are removed or normalized before current permissions are applied.
-- Previous project `.clean-workflow` generated config files are replaced with the current embedded defaults.
-- Stale clean-workflow-managed Vela/Ancora integration files or entries in the selected scope are removed or normalized before current optional setup runs.
+- Previous rotta skill directories are removed before fresh skill files are written.
+- Previous opencode rotta agent entries are removed before fresh agent entries are added.
+- Previous Claude Code rotta permission entries are removed or normalized before current permissions are applied.
+- Previous project `.rotta` generated config files are replaced with the current embedded defaults.
+- Stale rotta-managed Vela/Ancora integration files or entries in the selected scope are removed or normalized before current optional setup runs.
 - Cleanup preserves unrelated user settings and unrelated agent entries.
 **Edge Cases:**
 - Prior install contains only a subset of modes.
 - Prior install was partially completed or manually edited.
-- User has unrelated opencode agents or Claude Code permissions adjacent to clean-workflow entries.
+- User has unrelated opencode agents or Claude Code permissions adjacent to rotta entries.
 **Out of Scope:**
-- Removing user-created files that merely mention clean-workflow but are not installer-owned.
+- Removing user-created files that merely mention rotta but are not installer-owned.
 
 ### REQ-005: Provide CLI Recovery Commands Consistent With Existing CLI Style
 **Description:** The command-line interface must expose backup, install, and restore operations using names consistent with the existing minimal CLI.
 **Acceptance Criteria:**
-- The CLI supports a direct install path equivalent to a clean install, such as `clean-workflow install --clean`, while preserving existing `version`/`--version` behavior.
-- The CLI supports listing or creating backups through a backup command such as `clean-workflow backup`.
-- The CLI supports restoring a full backup through a restore command such as `clean-workflow restore`.
+- The CLI supports a direct install path equivalent to a clean install, such as `rotta install --clean`, while preserving existing `version`/`--version` behavior.
+- The CLI supports listing or creating backups through a backup command such as `rotta backup`.
+- The CLI supports restoring a full backup through a restore command such as `rotta restore`.
 - If the final command names differ, they must remain discoverable from CLI help and must not allow a normal install to skip backup.
 **Edge Cases:**
 - Unknown commands should fail without launching an install.
@@ -110,7 +110,7 @@ Add installer recovery tooling so every normal install first creates a timestamp
 **Description:** The terminal UI must expose a recovery option that lets users list backups, preview details, and confirm full restore.
 **Acceptance Criteria:**
 - The TUI provides a user-visible path to recovery before starting a new install.
-- Users can list available backups from `~/.clean-workflow/backups/`.
+- Users can list available backups from `~/.rotta/backups/`.
 - Users can preview a backup's metadata, including timestamp, project path, target, selected modes, optional integrations, backed-up paths, and missing paths.
 - Users must explicitly confirm before restore begins.
 - The UI communicates that restore is full-backup restore, not selective restore.
@@ -126,7 +126,7 @@ Add installer recovery tooling so every normal install first creates a timestamp
 **Acceptance Criteria:**
 - Restore creates a pre-restore safety backup of the current in-scope configuration before overwriting or deleting anything.
 - Restore copies every backed-up file/directory to its original destination.
-- Restore removes clean-workflow-scoped destination paths that were recorded as missing in the selected backup, when those paths exist at restore time.
+- Restore removes rotta-scoped destination paths that were recorded as missing in the selected backup, when those paths exist at restore time.
 - Restore reports success only after all destination changes complete.
 - Restore does not offer selective path restore.
 **Edge Cases:**
@@ -168,7 +168,7 @@ Add installer recovery tooling so every normal install first creates a timestamp
 **Description:** Existing target selection, project path selection, mode selection, Ancora setup, Vela setup, and success/error reporting must continue to work after backup-first installation is introduced.
 **Acceptance Criteria:**
 - Existing TUI screens remain reachable unless intentionally superseded by the recovery entry point.
-- Existing install options still determine which current clean-workflow files are installed after cleanup.
+- Existing install options still determine which current rotta files are installed after cleanup.
 - The install success summary includes the backup location or a clear way to find it.
 - The install error path distinguishes backup failure, cleanup failure, install failure, and restore failure.
 **Edge Cases:**
@@ -176,7 +176,7 @@ Add installer recovery tooling so every normal install first creates a timestamp
 - User cancels from install confirmation.
 - Install succeeds after cleaning a partial previous installation.
 **Out of Scope:**
-- Changing clean-workflow's core spec/implementation/review workflow semantics.
+- Changing rotta's core spec/implementation/review workflow semantics.
 
 ## Non-Goals
 - Do not implement selective restore.
@@ -189,9 +189,9 @@ Add installer recovery tooling so every normal install first creates a timestamp
 - None.
 
 ## Trade-offs
-- Backing up broader config roots increases disk usage but reduces rollback risk for files modified by optional setup tools outside direct clean-workflow writes.
+- Backing up broader config roots increases disk usage but reduces rollback risk for files modified by optional setup tools outside direct rotta writes.
 - Full restore is safer and easier to reason about than selective restore, but users cannot recover one file through the supported UI.
-- Cleanup before fresh install removes stale clean-workflow-owned configuration, but implementation must carefully preserve unrelated user customization.
+- Cleanup before fresh install removes stale rotta-owned configuration, but implementation must carefully preserve unrelated user customization.
 
 ## Risk Level
 high — Justification: The feature intentionally mutates user-level AI-agent configuration and project settings; incorrect ordering or incomplete backup scope can cause data loss or broken agent installations.

@@ -16,7 +16,7 @@ func TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage(t *testing.T) {
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
 
-	preInstallConfig := []byte(`{"agent":{"clean-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`)
+	preInstallConfig := []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`)
 	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), preInstallConfig)
 
 	var stdout bytes.Buffer
@@ -25,7 +25,7 @@ func TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".clean-workflow", "backups"))
+	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups"))
 	manifest := readCLIBackupManifest(t, filepath.Join(backupDir, "manifest.json"))
 	if manifest["status"] != "complete" {
 		t.Fatalf("expected complete backup manifest, got %#v", manifest)
@@ -75,7 +75,7 @@ func TestSCN005_CLIBackupRestoreCommandsAreDiscoverableAndUnknownCommandsFail(t 
 	if err := runCLI([]string{"backup", "--target", "opencode", "--project", projectPath, "--spec"}, &backupOut, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".clean-workflow", "backups"))
+	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups"))
 	if !strings.Contains(backupOut.String(), backupDir) {
 		t.Fatalf("expected backup command output to include backup location %s, got %q", backupDir, backupOut.String())
 	}

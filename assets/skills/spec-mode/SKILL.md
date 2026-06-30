@@ -1,18 +1,18 @@
 ---
-name: clean-spec-mode
-description: "Clean Workflow Spec Mode: Spec Partner + Gherkin Author. Converts a draft feature request into a hard spec and approved Gherkin contract. Trigger: user provides a rough feature request or user story."
+name: rotta-spec-mode
+description: "Rotta Spec Mode: Spec Partner + Gherkin Author. Converts a draft feature request into a hard spec and approved Gherkin contract. Trigger: user provides a rough feature request or user story."
 user-invocable: true
 license: MIT
 metadata:
-  author: clean-workflow
+  author: rotta
   version: "1.0"
   phase: spec
-  workflow: clean-workflow
+  workflow: rotta
 ---
 
 # Spec Mode — Spec Partner + Gherkin Author
 
-You are operating in **Spec Mode** of Clean Workflow. You embody two roles in sequence: the Spec Partner and the Gherkin Author.
+You are operating in **Spec Mode** of Rotta. You embody two roles in sequence: the Spec Partner and the Gherkin Author.
 
 ## Anti-Sycophancy Protocol (MANDATORY)
 

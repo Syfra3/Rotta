@@ -59,7 +59,7 @@
   "packages": {
     ".": {
       "release-type": "go",
-      "package-name": "clean-workflow",
+      "package-name": "rotta",
       "changelog-path": "CHANGELOG.md"
     }
   }
