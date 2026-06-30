@@ -19,7 +19,7 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 		return nil, err
 	}
 
-	// Add tool permissions for clean-workflow skills to settings.json
+	// Add tool permissions for rotta skills to settings.json
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	if err := addClaudeCodePermissions(settingsPath, opts); err != nil {
 		// Non-fatal: user can add permissions manually
@@ -30,13 +30,16 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 }
 
 func cleanPreviousClaudeCodeInstallation(home string) error {
-	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "clean-workflow")); err != nil {
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "rotta")); err != nil {
 		return fmt.Errorf("cannot remove stale Claude Code skills: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "clean-workflow")); err != nil {
+		return fmt.Errorf("cannot remove legacy Claude Code skills: %w", err)
 	}
 	return cleanClaudeCodePermissions(filepath.Join(home, ".claude", "settings.json"))
 }
 
-// addClaudeCodePermissions injects clean-workflow skill triggers into the
+// addClaudeCodePermissions injects rotta skill triggers into the
 // Claude Code settings.json permissions.allow list.
 func addClaudeCodePermissions(settingsPath string, opts Options) error {
 	settings := map[string]interface{}{}
@@ -106,6 +109,9 @@ func cleanClaudeCodePermissions(settingsPath string) error {
 	for _, entry := range selectedClaudeCodePermissions(Options{InstallSpec: true, InstallImpl: true, InstallReview: true}) {
 		owned[entry] = true
 	}
+	for _, entry := range legacyCleanClaudeCodePermissions() {
+		owned[entry] = true
+	}
 	kept := allow[:0]
 	for _, entry := range allow {
 		value, _ := entry.(string)
@@ -125,13 +131,21 @@ func cleanClaudeCodePermissions(settingsPath string) error {
 func selectedClaudeCodePermissions(opts Options) []string {
 	var entries []string
 	if opts.InstallSpec {
-		entries = append(entries, "mcp__clean_workflow__spec_mode")
+		entries = append(entries, "mcp__rotta__spec_mode")
 	}
 	if opts.InstallImpl {
-		entries = append(entries, "mcp__clean_workflow__implementation_mode")
+		entries = append(entries, "mcp__rotta__implementation_mode")
 	}
 	if opts.InstallReview {
-		entries = append(entries, "mcp__clean_workflow__review_mode")
+		entries = append(entries, "mcp__rotta__review_mode")
 	}
 	return entries
+}
+
+func legacyCleanClaudeCodePermissions() []string {
+	return []string{
+		"mcp__clean_workflow__spec_mode",
+		"mcp__clean_workflow__implementation_mode",
+		"mcp__clean_workflow__review_mode",
+	}
 }

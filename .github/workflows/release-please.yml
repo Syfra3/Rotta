@@ -63,15 +63,15 @@ jobs:
           CGO_ENABLED: 0
         run: |
           VERSION="${{ needs.release-please.outputs.tag_name }}"
-          BINARY_NAME="clean-workflow${{ matrix.ext }}"
+          BINARY_NAME="rotta${{ matrix.ext }}"
 
           go build \
             -ldflags="-s -w -X main.version=${VERSION}" \
             -trimpath \
             -o "${BINARY_NAME}" \
-            ./cmd/clean-workflow
+            ./cmd/rotta
 
-          ARCHIVE_NAME="clean-workflow-${{ needs.release-please.outputs.version }}-${{ matrix.platform }}.tar.gz"
+          ARCHIVE_NAME="rotta-${{ needs.release-please.outputs.version }}-${{ matrix.platform }}.tar.gz"
           tar czf "${ARCHIVE_NAME}" "${BINARY_NAME}"
 
           if command -v sha256sum &>/dev/null; then
@@ -85,8 +85,8 @@ jobs:
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: |
-            clean-workflow-*.tar.gz
-            clean-workflow-*.sha256
+            rotta-*.tar.gz
+            rotta-*.sha256
 
   update-homebrew-tap:
     needs: [release-please, build-and-upload]
@@ -103,45 +103,45 @@ jobs:
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          REPO="Syfra3/clean-workflow"
-          PACKAGE="clean-workflow"
+          REPO="Syfra3/Rotta"
+          PACKAGE="rotta"
           FORMULA="Formula/${PACKAGE}.rb"
 
           if [ ! -f "$FORMULA" ]; then
             mkdir -p "$(dirname "$FORMULA")"
             cat > "$FORMULA" <<'RUBY'
-          class CleanWorkflow < Formula
+          class Rotta < Formula
             desc "Contract-driven development orchestrator for AI coding agents"
-            homepage "https://github.com/Syfra3/clean-workflow"
+            homepage "https://github.com/Syfra3/Rotta"
             version "VERSION_PLACEHOLDER"
             license "Apache-2.0"
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/Syfra3/clean-workflow/releases/download/v#{version}/clean-workflow-#{version}-darwin-arm64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
                 sha256 "TODO_DARWIN_ARM64"
               else
-                url "https://github.com/Syfra3/clean-workflow/releases/download/v#{version}/clean-workflow-#{version}-darwin-amd64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
                 sha256 "TODO_DARWIN_AMD64"
               end
             end
 
             on_linux do
               if Hardware::CPU.intel?
-                url "https://github.com/Syfra3/clean-workflow/releases/download/v#{version}/clean-workflow-#{version}-linux-amd64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-amd64.tar.gz"
                 sha256 "TODO_LINUX_AMD64"
               else
-                url "https://github.com/Syfra3/clean-workflow/releases/download/v#{version}/clean-workflow-#{version}-linux-arm64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-arm64.tar.gz"
                 sha256 "TODO_LINUX_ARM64"
               end
             end
 
             def install
-              bin.install "clean-workflow"
+              bin.install "rotta"
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/clean-workflow --version")
+              assert_match version.to_s, shell_output("#{bin}/rotta --version")
             end
           end
           RUBY
@@ -171,7 +171,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/clean-workflow.rb
+          git add Formula/rotta.rb
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "chore: update clean-workflow to v${VERSION}"
+          git commit -m "chore: update rotta to v${VERSION}"
           git push

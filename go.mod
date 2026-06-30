@@ -1,4 +1,4 @@
-module github.com/Syfra3/clean-workflow
+module github.com/Syfra3/Rotta
 
 go 1.25.0
 

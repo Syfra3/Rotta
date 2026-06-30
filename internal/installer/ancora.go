@@ -3,6 +3,7 @@ package installer
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
@@ -24,7 +25,7 @@ func SetupAncora(opts Options, home string) (*AncoraResult, error) {
 
 	binPath, err := detectAncoraBin()
 	if err != nil {
-		if installErr := installAncora(); installErr != nil {
+		if installErr := installAncora(opts); installErr != nil {
 			return nil, fmt.Errorf(
 				"ancora not found and installation failed: %w\n\n"+
 					"Install manually:\n"+
@@ -46,13 +47,13 @@ func SetupAncora(opts Options, home string) (*AncoraResult, error) {
 	// Delegate all configuration to `ancora setup` — it handles MCP config,
 	// plugin files, permissions, and hooks for each target.
 	if opts.Target == "claude-code" || opts.Target == "both" {
-		if err := runAncoraSetup(binPath, "claude-code"); err != nil {
+		if err := runAncoraSetup(opts, binPath, "claude-code"); err != nil {
 			return nil, fmt.Errorf("ancora setup claude-code: %w", err)
 		}
 	}
 
 	if opts.Target == "opencode" || opts.Target == "both" {
-		if err := runAncoraSetup(binPath, "opencode"); err != nil {
+		if err := runAncoraSetup(opts, binPath, "opencode"); err != nil {
 			return nil, fmt.Errorf("ancora setup opencode: %w", err)
 		}
 	}
@@ -79,40 +80,37 @@ func detectAncoraBin() (string, error) {
 
 // installAncora installs the Ancora binary using Homebrew (preferred on macOS)
 // or the official install script as fallback.
-func installAncora() error {
+func installAncora(opts Options) error {
 	brew, err := exec.LookPath("brew")
 	if err == nil {
-		return installAncoraViaBrew(brew)
+		return installAncoraViaBrew(opts, brew)
 	}
-	return installAncoraViaScript()
+	return installAncoraViaScript(opts)
 }
 
 // installAncoraViaBrew installs via brew tap + trust + install.
-func installAncoraViaBrew(brew string) error {
+func installAncoraViaBrew(opts Options, brew string) error {
 	tap := exec.Command(brew, "tap", "Syfra3/tap")
-	tap.Stdout = os.Stdout
-	tap.Stderr = os.Stderr
+	configureCommandIO(tap, opts)
 	if err := tap.Run(); err != nil {
 		return fmt.Errorf("brew tap Syfra3/tap: %w", err)
 	}
 
 	// Homebrew requires explicit trust for third-party taps.
 	trust := exec.Command(brew, "trust", "Syfra3/tap")
-	trust.Stdout = os.Stdout
-	trust.Stderr = os.Stderr
+	configureCommandIO(trust, opts)
 	if err := trust.Run(); err != nil {
 		return fmt.Errorf("brew trust Syfra3/tap: %w", err)
 	}
 
 	install := exec.Command(brew, "install", "ancora")
-	install.Stdout = os.Stdout
-	install.Stderr = os.Stderr
+	configureCommandIO(install, opts)
 	return install.Run()
 }
 
 // installAncoraViaScript installs via the official bash install script.
 // Source: https://github.com/Syfra3/ancora/blob/main/scripts/install-ancora.sh
-func installAncoraViaScript() error {
+func installAncoraViaScript(opts Options) error {
 	curl, err := exec.LookPath("curl")
 	if err != nil {
 		return fmt.Errorf("neither brew nor curl is available")
@@ -133,17 +131,35 @@ func installAncoraViaScript() error {
 	}
 
 	bashCmd.Stdin = bytes.NewReader(curlOut)
-	bashCmd.Stdout = os.Stdout
-	bashCmd.Stderr = os.Stderr
+	bashCmd.Stdout = writerOrDefault(opts.CommandStdout, os.Stdout)
+	bashCmd.Stderr = writerOrDefault(opts.CommandStderr, os.Stderr)
 	return bashCmd.Run()
 }
 
 // runAncoraSetup runs `ancora setup <agent>` which configures MCP, plugins,
 // and permissions for the given target (claude-code or opencode).
-func runAncoraSetup(binPath, agent string) error {
+func runAncoraSetup(opts Options, binPath, agent string) error {
 	cmd := exec.Command(binPath, "setup", agent)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin // ancora setup may prompt interactively
+	configureCommandIO(cmd, opts)
 	return cmd.Run()
+}
+
+func configureCommandIO(cmd *exec.Cmd, opts Options) {
+	cmd.Stdout = writerOrDefault(opts.CommandStdout, os.Stdout)
+	cmd.Stderr = writerOrDefault(opts.CommandStderr, os.Stderr)
+	cmd.Stdin = readerOrDefault(opts.CommandStdin, os.Stdin)
+}
+
+func readerOrDefault(r io.Reader, fallback io.Reader) io.Reader {
+	if r != nil {
+		return r
+	}
+	return fallback
+}
+
+func writerOrDefault(w io.Writer, fallback io.Writer) io.Writer {
+	if w != nil {
+		return w
+	}
+	return fallback
 }

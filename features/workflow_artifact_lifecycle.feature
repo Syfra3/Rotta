@@ -1,5 +1,5 @@
 Feature: Workflow artifact lifecycle
-  Clean-workflow contributors need approved workflow contracts to remain reviewable, traceable, and safe to consume during TDD and QA without turning Ancora or local generated output into the source of truth.
+  Rotta contributors need approved workflow contracts to remain reviewable, traceable, and safe to consume during TDD and QA without turning Ancora or local generated output into the source of truth.
 
   Background:
     Given the repository contains workflow artifact directories named "specs" and "features"

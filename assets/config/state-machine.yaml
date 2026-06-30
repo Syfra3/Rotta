@@ -1,4 +1,4 @@
-# Clean Workflow — State Machine
+# Rotta — State Machine
 # Managed by the Craftsman Lead (Orchestrator).
 # Workspace files are the source of truth for durable artifacts.
 
@@ -95,7 +95,7 @@ artifacts:
     - "features/*.feature"
     - specs/.approved
     - specs/.implementation-complete
-    - ".clean-workflow/tdd-log.md"
+    - ".rotta/tdd-log.md"
   reports:
     - reports/traceability.json
     - reports/test-results.xml
@@ -105,4 +105,4 @@ artifacts:
     - reports/judge_report.md
 
 # State file location
-state_file: .clean-workflow/state.yaml
+state_file: .rotta/state.yaml

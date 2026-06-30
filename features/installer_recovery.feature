@@ -1,33 +1,33 @@
 Feature: Safe installer backup, clean install, and full restore
-  Users need every install to protect their current AI-agent configuration before clean-workflow removes previous settings and installs a fresh copy.
+  Users need every install to protect their current AI-agent configuration before rotta removes previous settings and installs a fresh copy.
 
   Background:
-    Given a user has a clean-workflow project path
-    And the backup root is "~/.clean-workflow/backups"
+    Given a user has a rotta project path
+    And the backup root is "~/.rotta/backups"
 
   @REQ-001 @REQ-002 @SCN-001
   Scenario: Install creates a timestamped backup before any mutation
-    Given the user has existing opencode, Claude Code, and project clean-workflow configuration
-    When the user starts a normal clean-workflow install
-    Then a timestamped backup is created under "~/.clean-workflow/backups"
+    Given the user has existing opencode, Claude Code, and project rotta configuration
+    When the user starts a normal rotta install
+    Then a timestamped backup is created under "~/.rotta/backups"
     And the backup manifest records the project path, target, selected modes, optional integrations, backed-up paths, and missing paths
     And no install or cleanup mutation occurs before the backup succeeds
 
   @REQ-004 @REQ-010 @SCN-002
-  Scenario: Successful install cleans previous clean-workflow settings before fresh install
+  Scenario: Successful install cleans previous rotta settings before fresh install
     Given a valid backup has been created for the install
-    And a previous clean-workflow installation exists for the selected target
+    And a previous rotta installation exists for the selected target
     When the install continues
-    Then previous clean-workflow-owned skills, agent entries, permissions, generated config, and selected integration settings are removed or normalized
+    Then previous rotta-owned skills, agent entries, permissions, generated config, and selected integration settings are removed or normalized
     And unrelated user settings are preserved
-    And the fresh clean-workflow installation is written according to the selected target and modes
+    And the fresh rotta installation is written according to the selected target and modes
 
   @REQ-003 @SCN-003
   Scenario: Backup failure aborts install completely
-    Given the user starts a normal clean-workflow install
+    Given the user starts a normal rotta install
     When creating the backup fails
     Then the install fails before cleanup begins
-    And no fresh clean-workflow files or settings are written
+    And no fresh rotta files or settings are written
     And any partial backup is removed or marked unusable
     And the user sees that backup failure prevented installation
 
@@ -82,7 +82,7 @@ Feature: Safe installer backup, clean install, and full restore
 
   @REQ-005 @REQ-010 @SCN-010
   Scenario: CLI install path cannot skip backup during normal usage
-    Given the user starts a non-interactive clean-workflow install command
+    Given the user starts a non-interactive rotta install command
     When the command performs a normal install
     Then it creates a backup before cleanup or installation
     And there is no normal install option that skips backup

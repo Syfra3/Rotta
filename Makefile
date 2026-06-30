@@ -1,4 +1,4 @@
-# Clean Workflow build/test/release helpers
+# Rotta build/test/release helpers
 .PHONY: build install run test test-ci test-verbose test-coverage fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
 
 GOPATH := $(shell go env GOPATH)
@@ -8,9 +8,9 @@ GOLANGCI_LINT_VERSION ?= v2.5.0
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS = -s -w -X main.version=$(VERSION)
 
-BINARY = clean-workflow
+BINARY = rotta
 BUILD_DIR = bin
-MAIN_PATH = ./cmd/clean-workflow
+MAIN_PATH = ./cmd/rotta
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -101,7 +101,7 @@ hooks-install:
 
 help:
 	@echo "Available targets:"
-	@echo "  build          - Build clean-workflow"
+	@echo "  build          - Build rotta"
 	@echo "  install        - Install binary to $${GOPATH}/bin"
 	@echo "  run            - Run the binary"
 	@echo "  fmt            - Format Go files"

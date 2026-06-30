@@ -394,7 +394,7 @@ func TestSCN021_LocalGraphAndCacheArtifactsClassifyOutsideReviewSet(t *testing.T
 	}{
 		{name: "vela graph", path: ".vela/graph.db"},
 		{name: "nested vela cache", path: "subproject/.vela/cache.json"},
-		{name: "tool cache", path: ".cache/clean-workflow/planner.json"},
+		{name: "tool cache", path: ".cache/rotta/planner.json"},
 	}
 
 	for _, tt := range tests {
@@ -432,19 +432,19 @@ func TestSCN021_ReviewSetPreparationExcludesVelaCacheAndKeepsContracts(t *testin
 	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# Workflow Artifact Lifecycle\n")
 	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-017 @SCN-021\nScenario: Local graph and cache artifacts are excluded unless intentionally promoted\n")
 	mustWrite(t, filepath.Join(repo, ".vela", "graph.db"), "generated graph\n")
-	mustWrite(t, filepath.Join(repo, ".cache", "clean-workflow", "planner.json"), "{}\n")
+	mustWrite(t, filepath.Join(repo, ".cache", "rotta", "planner.json"), "{}\n")
 
 	plan := PrepareWorkflowArtifactReviewSet([]WorkflowArtifactLifecycleInput{
 		{Path: "specs/workflow_artifact_lifecycle.md"},
 		{Path: "features/workflow_artifact_lifecycle.feature", Approved: true, Implemented: true},
 		{Path: ".vela/graph.db"},
-		{Path: ".cache/clean-workflow/planner.json"},
+		{Path: ".cache/rotta/planner.json"},
 	})
 
 	assertReviewSetIncludesPath(t, plan, "specs/workflow_artifact_lifecycle.md")
 	assertReviewSetIncludesPath(t, plan, "features/workflow_artifact_lifecycle.feature")
 	assertReviewSetExcludesPath(t, plan, ".vela/graph.db")
-	assertReviewSetExcludesPath(t, plan, ".cache/clean-workflow/planner.json")
+	assertReviewSetExcludesPath(t, plan, ".cache/rotta/planner.json")
 	assertFileContent(t, filepath.Join(repo, ".vela", "graph.db"), "generated graph\n")
 }
 
@@ -456,9 +456,9 @@ func TestSCN022_SensitiveBackupAndMachineStateArtifactsAreRejected(t *testing.T)
 		path    string
 		content string
 	}{
-		{name: "backup output", path: ".clean-workflow/backups/20260630/manifest.json", content: `{"target":"opencode"}`},
-		{name: "redacted example under backup output", path: ".clean-workflow/backups/example/redacted-opencode.json", content: `{"api_key":"<redacted>"}`},
-		{name: "restore snapshot", path: ".clean-workflow/restore/pre-restore-snapshot.json", content: `{"snapshot":"pre-restore"}`},
+		{name: "backup output", path: ".rotta/backups/20260630/manifest.json", content: `{"target":"opencode"}`},
+		{name: "redacted example under backup output", path: ".rotta/backups/example/redacted-opencode.json", content: `{"api_key":"<redacted>"}`},
+		{name: "restore snapshot", path: ".rotta/restore/pre-restore-snapshot.json", content: `{"snapshot":"pre-restore"}`},
 		{name: "user config capture", path: "captures/home/geen/.config/opencode/opencode.json", content: `{"mcp":{"auth":"fake"}}`},
 		{name: "redacted example under user config capture", path: "captures/example/opencode.json", content: `{"token":"<redacted>"}`},
 		{name: "token-bearing file path", path: "fixtures/token.env", content: "API_TOKEN=fake-token-for-test\n"},

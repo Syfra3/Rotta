@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Clean Workflow Universal Installer
+# Rotta Universal Installer
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/Syfra3/clean-workflow/main/scripts/install-clean-workflow.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/Syfra3/Rotta/main/scripts/install-rotta.sh | bash
 
-VERSION="${CLEAN_WORKFLOW_VERSION:-latest}"
-INSTALL_DIR="${CLEAN_WORKFLOW_INSTALL_DIR:-/usr/local/bin}"
-INSTALL_BIN_NAME="${CLEAN_WORKFLOW_BINARY_NAME:-clean-workflow}"
-REPO="Syfra3/clean-workflow"
-PACKAGE="clean-workflow"
+VERSION="${ROTTA_VERSION:-latest}"
+INSTALL_DIR="${ROTTA_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_BIN_NAME="${ROTTA_BINARY_NAME:-rotta}"
+REPO="Syfra3/Rotta"
+PACKAGE="rotta"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -70,7 +70,7 @@ detect_platform() {
 }
 
 get_latest_version() {
-  log_info "Fetching latest clean-workflow version"
+  log_info "Fetching latest rotta version"
   local latest
   latest=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": "\([^\"]*\)".*/\1/p' | head -n1)
 
@@ -133,9 +133,9 @@ download_and_install() {
   log_info "Extracting ${archive}"
   tar -xzf "${archive_path}" -C "${tmp_dir}"
 
-  local source_binary="${tmp_dir}/clean-workflow"
+  local source_binary="${tmp_dir}/rotta"
   if [ "${platform}" = "windows-amd64" ]; then
-    source_binary="${tmp_dir}/clean-workflow.exe"
+    source_binary="${tmp_dir}/rotta.exe"
   fi
 
   if [ ! -f "${source_binary}" ]; then
@@ -150,7 +150,7 @@ download_and_install() {
 
   log_info "Installing ${INSTALL_BIN_NAME} to ${INSTALL_DIR}"
   if ! mv "${source_binary}" "${INSTALL_DIR}/${INSTALL_BIN_NAME}"; then
-    log_error "Install failed. Try setting CLEAN_WORKFLOW_INSTALL_DIR to a writable location."
+    log_error "Install failed. Try setting ROTTA_INSTALL_DIR to a writable location."
     exit 1
   fi
 
@@ -173,7 +173,7 @@ verify_install() {
 main() {
   echo ""
   echo "----------------------------------------"
-  echo -e "${BLUE}Clean Workflow Installer${NC}"
+  echo -e "${BLUE}Rotta Installer${NC}"
   echo "----------------------------------------"
   echo ""
 

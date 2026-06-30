@@ -221,7 +221,7 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 
 func nextBackupDir(home string) (string, string, error) {
 	timestamp := time.Now().UTC().Format("20060102T150405Z")
-	root := filepath.Join(home, ".clean-workflow", "backups")
+	root := filepath.Join(home, ".rotta", "backups")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", "", err
 	}
@@ -242,8 +242,8 @@ func nextBackupDir(home string) (string, string, error) {
 
 func backupScope(opts Options, home, projectPath string) []string {
 	paths := []string{
-		filepath.Join(projectPath, ".clean-workflow", "state-machine.yaml"),
-		filepath.Join(projectPath, ".clean-workflow", "quality-gates.yaml"),
+		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
+		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
 	}
 
 	paths = append(paths, filepath.Join(projectPath, ".vela", "graph.db"))
@@ -253,16 +253,25 @@ func backupScope(opts Options, home, projectPath string) []string {
 			filepath.Join(home, ".config", "opencode", "opencode.json"),
 			filepath.Join(home, ".config", "opencode", "opencode.jsonc"),
 			filepath.Join(home, ".config", "opencode", "instructions.md"),
+			filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator"),
+			filepath.Join(home, ".config", "opencode", "skills", "rotta-spec"),
+			filepath.Join(home, ".config", "opencode", "skills", "rotta-impl"),
+			filepath.Join(home, ".config", "opencode", "skills", "rotta-review"),
 			filepath.Join(home, ".config", "opencode", "skills", "clean-orchestrator"),
 			filepath.Join(home, ".config", "opencode", "skills", "clean-spec"),
 			filepath.Join(home, ".config", "opencode", "skills", "clean-impl"),
 			filepath.Join(home, ".config", "opencode", "skills", "clean-review"),
+			filepath.Join(home, ".config", "opencode", "skills", "bob-orchestrator"),
+			filepath.Join(home, ".config", "opencode", "skills", "bob-spec"),
+			filepath.Join(home, ".config", "opencode", "skills", "bob-impl"),
+			filepath.Join(home, ".config", "opencode", "skills", "bob-review"),
 		)
 	}
 
 	if opts.Target == "claude-code" || opts.Target == "both" {
 		paths = append(paths,
 			filepath.Join(home, ".claude", "settings.json"),
+			filepath.Join(home, ".claude", "skills", "rotta"),
 			filepath.Join(home, ".claude", "skills", "clean-workflow"),
 			filepath.Join(home, ".claude", "mcp", "ancora.json"),
 			filepath.Join(home, ".claude", "vela-mcp.json"),

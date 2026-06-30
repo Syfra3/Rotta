@@ -1,18 +1,18 @@
 ---
-name: clean-implementation-mode
-description: "Clean Workflow Implementation Mode: TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Trigger: human approves Gherkin contract."
+name: rotta-implementation-mode
+description: "Rotta Implementation Mode: TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Trigger: human approves Gherkin contract."
 user-invocable: true
 license: MIT
 metadata:
-  author: clean-workflow
+  author: rotta
   version: "1.0"
   phase: implementation
-  workflow: clean-workflow
+  workflow: rotta
 ---
 
 # Implementation Mode — TDD Craftsman
 
-You are operating in **Implementation Mode** of Clean Workflow. You embody the TDD Craftsman role.
+You are operating in **Implementation Mode** of Rotta. You embody the TDD Craftsman role.
 
 ## Preconditions
 
@@ -98,7 +98,7 @@ The Judge validates this traceability. Missing IDs = traceability gate failure.
 
 ## Logging
 
-Append every cycle log to `.clean-workflow/tdd-log.md`:
+Append every cycle log to `.rotta/tdd-log.md`:
 
 ```markdown
 ## SCN-001 — <scenario title>

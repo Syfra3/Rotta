@@ -21,7 +21,7 @@
 | Track every generated file under the workflow directories | Local caches, graph databases, backup outputs, and config captures may be noisy, machine-specific, or sensitive. |
 
 ## Summary
-Clean-workflow must treat repository files as the source of truth for approved workflow contracts. Markdown hard specs and Gherkin feature files are version-controlled artifacts that remain active while they describe behavior that must keep working. Ancora stores only compact state and pointers to those files. Approval gates must prevent implementation before human approval while also avoiding the recurring untracked-artifact blocker. Archive behavior must retire only superseded or completed process artifacts and must never delete or hide active regression contracts.
+Rotta must treat repository files as the source of truth for approved workflow contracts. Markdown hard specs and Gherkin feature files are version-controlled artifacts that remain active while they describe behavior that must keep working. Ancora stores only compact state and pointers to those files. Approval gates must prevent implementation before human approval while also avoiding the recurring untracked-artifact blocker. Archive behavior must retire only superseded or completed process artifacts and must never delete or hide active regression contracts.
 
 ## Invariants
 - Full hard spec and Gherkin content lives in repository files, not only in Ancora.

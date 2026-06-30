@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/Syfra3/clean-workflow/internal/installer"
-	"github.com/Syfra3/clean-workflow/internal/tui"
+	"github.com/Syfra3/Rotta/internal/installer"
+	"github.com/Syfra3/Rotta/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -24,7 +24,7 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "version":
-			fmt.Fprintf(stdout, "clean-workflow %s\n", version)
+			fmt.Fprintf(stdout, "rotta %s\n", version)
 			return nil
 		case "install":
 			return runInstallCommand(args[1:], stdout, stderr)
@@ -68,11 +68,14 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 		InstallReview: *installReview,
 		SetupAncora:   *setupAncora,
 		SetupVela:     *setupVela,
+		CommandStdin:  os.Stdin,
+		CommandStdout: stdout,
+		CommandStderr: stderr,
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Installed clean-workflow for %s\n", result.Target)
+	fmt.Fprintf(stdout, "Installed rotta for %s\n", result.Target)
 	fmt.Fprintf(stdout, "Backup: %s\n", result.BackupDir)
 	return nil
 }

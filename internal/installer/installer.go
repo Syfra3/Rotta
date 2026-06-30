@@ -1,26 +1,30 @@
-// Package installer handles writing Clean Workflow files to the target tool.
+// Package installer handles writing Rotta files to the target tool.
 package installer
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/Syfra3/clean-workflow/assets"
+	"github.com/Syfra3/Rotta/assets"
 )
 
 // Options configures what and where to install.
 type Options struct {
 	Target          string // "claude-code" | "opencode" | "both"
-	ProjectPath     string // project root; config files land here under .clean-workflow/
+	ProjectPath     string // project root; config files land here under .rotta/
 	InstallSpec     bool
 	InstallImpl     bool
 	InstallReview   bool
 	UseDefaultGates bool
 	SetupAncora     bool // whether to install/configure Ancora memory
 	SetupVela       bool // whether to install/configure Vela graph intelligence
+	CommandStdin    io.Reader
+	CommandStdout   io.Writer
+	CommandStderr   io.Writer
 }
 
 // Result describes what was installed.
@@ -110,11 +114,11 @@ func resolveProjectPath(path, home string) string {
 	return path
 }
 
-// installConfig writes state-machine.yaml and quality-gates.yaml to <project>/.clean-workflow/
+// installConfig writes state-machine.yaml and quality-gates.yaml to <project>/.rotta/
 func installConfig(projectPath string) ([]string, error) {
-	dir := filepath.Join(projectPath, ".clean-workflow")
+	dir := filepath.Join(projectPath, ".rotta")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("cannot create .clean-workflow dir: %w", err)
+		return nil, fmt.Errorf("cannot create .rotta dir: %w", err)
 	}
 
 	configs := map[string]string{
@@ -182,7 +186,7 @@ func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) e
 	return nil
 }
 
-// copySkillsToDir copies selected SKILL.md files into skillsDir/clean-workflow/<mode>/
+// copySkillsToDir copies selected SKILL.md files into skillsDir/rotta/<mode>/
 func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 	type modeEntry struct {
 		enabled bool
@@ -200,7 +204,7 @@ func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 		if !m.enabled {
 			continue
 		}
-		dst := filepath.Join(skillsDir, "clean-workflow", m.name)
+		dst := filepath.Join(skillsDir, "rotta", m.name)
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return nil, fmt.Errorf("cannot create dir %s: %w", dst, err)
 		}

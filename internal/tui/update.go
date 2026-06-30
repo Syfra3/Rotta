@@ -1,13 +1,15 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 
-	"github.com/Syfra3/clean-workflow/internal/installer"
+	"github.com/Syfra3/Rotta/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -326,6 +328,9 @@ func runInstall(m Model) tea.Cmd {
 			UseDefaultGates: m.UseDefaults,
 			SetupAncora:     m.SetupAncora,
 			SetupVela:       m.SetupVela,
+			CommandStdin:    bytes.NewReader(nil),
+			CommandStdout:   io.Discard,
+			CommandStderr:   io.Discard,
 		}
 		result, err := installer.Install(opts)
 		return installDoneMsg{result: result, err: err}
@@ -337,7 +342,7 @@ func loadRecoveryBackups() ([]recoveryBackup, string) {
 	if err != nil {
 		return nil, fmt.Sprintf("cannot resolve home directory: %v", err)
 	}
-	root := filepath.Join(home, ".clean-workflow", "backups")
+	root := filepath.Join(home, ".rotta", "backups")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
