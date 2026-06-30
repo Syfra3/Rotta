@@ -74,6 +74,139 @@ func TestSCN013_NamespacedWorkflowPolicyArtifactsDoNotOverwriteExistingActiveCon
 	assertFileContent(t, filepath.Join(repo, "features", "installer_recovery.feature"), existingFeature)
 }
 
+func TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion(t *testing.T) {
+	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion
+	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-019\n")
+
+	plan, err := PlanCleanTreeContractActions(repo, ContractScope{
+		SpecPath:    "specs/workflow_artifact_lifecycle.md",
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-019",
+	})
+	if err != nil {
+		t.Fatalf("PlanCleanTreeContractActions returned error: %v", err)
+	}
+
+	assertContractAction(t, plan, "specs/workflow_artifact_lifecycle.md", ContractCleanupTrack)
+	assertContractAction(t, plan, "features/workflow_artifact_lifecycle.feature", ContractCleanupTrack)
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+}
+
+func TestSCN019_CleanTreePlanningRequiresScopedApproval(t *testing.T) {
+	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_CleanTreePlanningRequiresScopedApproval
+	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+
+	plan, err := PlanCleanTreeContractActions(repo, ContractScope{
+		SpecPath:    "specs/workflow_artifact_lifecycle.md",
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-019",
+	})
+
+	if err == nil {
+		t.Fatalf("expected scoped approval error, got nil")
+	}
+	if !strings.Contains(err.Error(), "human approval is still required") {
+		t.Fatalf("expected human approval error, got %v", err)
+	}
+	if plan != nil {
+		t.Fatalf("expected no cleanup actions without scoped approval, got %#v", plan)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+}
+
+func TestSCN019_CleanTreePlanningSurfacesApprovalReadErrors(t *testing.T) {
+	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_CleanTreePlanningSurfacesApprovalReadErrors
+	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+	if err := os.MkdirAll(filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), 0o755); err != nil {
+		t.Fatalf("create unreadable approval path: %v", err)
+	}
+
+	plan, err := PlanCleanTreeContractActions(repo, ContractScope{
+		SpecPath:    "specs/workflow_artifact_lifecycle.md",
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-019",
+	})
+
+	if err == nil {
+		t.Fatalf("expected approval read error, got nil")
+	}
+	if plan != nil {
+		t.Fatalf("expected no cleanup actions when scoped approval cannot be read, got %#v", plan)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+}
+
+func TestSCN019_TrackedActiveContractsRequireNoCleanTreeAction(t *testing.T) {
+	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_TrackedActiveContractsRequireNoCleanTreeAction
+	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-019\n")
+	runGit(t, repo, "add", "specs/workflow_artifact_lifecycle.md", "features/workflow_artifact_lifecycle.feature")
+	runGit(t, repo, "commit", "-m", "test: track approved contract artifacts")
+
+	plan, err := PlanCleanTreeContractActions(repo, ContractScope{
+		SpecPath:    "specs/workflow_artifact_lifecycle.md",
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-019",
+	})
+	if err != nil {
+		t.Fatalf("PlanCleanTreeContractActions returned error: %v", err)
+	}
+	if len(plan) != 0 {
+		t.Fatalf("expected no cleanup actions for already tracked active contracts, got %#v", plan)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+}
+
+func TestSCN019_CleanTreePlanningReportsGitMetadataErrors(t *testing.T) {
+	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_CleanTreePlanningReportsGitMetadataErrors
+	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-019\n")
+
+	plan, err := PlanCleanTreeContractActions(repo, ContractScope{
+		SpecPath:    "specs/workflow_artifact_lifecycle.md",
+		FeaturePath: "features/workflow_artifact_lifecycle.feature",
+		ScenarioID:  "SCN-019",
+	})
+
+	if err == nil {
+		t.Fatalf("expected git metadata error, got nil")
+	}
+	if !strings.Contains(err.Error(), "check tracked path specs/workflow_artifact_lifecycle.md") {
+		t.Fatalf("expected tracked-path error, got %v", err)
+	}
+	if plan != nil {
+		t.Fatalf("expected no cleanup actions when git metadata cannot be read, got %#v", plan)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# approved hard spec\n")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -93,4 +226,17 @@ func assertFileContent(t *testing.T, path, want string) {
 	if string(got) != want {
 		t.Fatalf("unexpected content for %s: got %q want %q", path, got, want)
 	}
+}
+
+func assertContractAction(t *testing.T, plan []ContractCleanupAction, path string, want ContractCleanupActionKind) {
+	t.Helper()
+	for _, action := range plan {
+		if action.Path == path {
+			if action.Kind != want {
+				t.Fatalf("expected %s action for %s, got %s", want, path, action.Kind)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected action for %s in %#v", path, plan)
 }
