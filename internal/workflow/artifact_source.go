@@ -30,31 +30,41 @@ type WorkflowArtifactLifecycleKind string
 
 const (
 	WorkflowArtifactActiveRegressionContract WorkflowArtifactLifecycleKind = "active_regression_contract"
+	WorkflowArtifactLocalGeneratedCache      WorkflowArtifactLifecycleKind = "local_generated_cache"
 	WorkflowArtifactRetired                  WorkflowArtifactLifecycleKind = "retired"
 	WorkflowArtifactSuperseded               WorkflowArtifactLifecycleKind = "superseded"
 	WorkflowArtifactProcessOnly              WorkflowArtifactLifecycleKind = "process_only"
 )
 
 type WorkflowArtifactLifecycleInput struct {
-	Path             string
-	Implemented      bool
-	Approved         bool
-	Retired          bool
-	Superseded       bool
-	ProcessOnly      bool
-	RetirementReason string
+	Path                                  string
+	Implemented                           bool
+	Approved                              bool
+	Retired                               bool
+	Superseded                            bool
+	ProcessOnly                           bool
+	IntentionallyTrackedGeneratedArtifact bool
+	ProjectArtifactDecision               bool
+	RetirementReason                      string
 }
 
 type WorkflowArtifactLifecycleClassification struct {
-	Path             string
-	Kind             WorkflowArtifactLifecycleKind
-	ArchiveCandidate bool
-	ArchiveReason    string
+	Path                            string
+	Kind                            WorkflowArtifactLifecycleKind
+	ArchiveCandidate                bool
+	ArchiveReason                   string
+	ReviewCandidate                 bool
+	RequiresProjectArtifactDecision bool
 }
 
 type CompletedChangeArchivePlan struct {
 	KeptActivePaths []string
 	ArchiveMoves    []WorkflowArtifactArchiveMove
+}
+
+type WorkflowArtifactReviewSetPlan struct {
+	IncludedPaths []string
+	ExcludedPaths []string
 }
 
 type WorkflowArtifactArchiveMove struct {
@@ -141,7 +151,13 @@ func PlanCleanTreeContractActions(repoRoot string, scope ContractScope) ([]Contr
 }
 
 func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) WorkflowArtifactLifecycleClassification {
-	classification := WorkflowArtifactLifecycleClassification{Path: input.Path}
+	classification := WorkflowArtifactLifecycleClassification{Path: input.Path, ReviewCandidate: true}
+	if isLocalGeneratedGraphOrCachePath(input.Path) {
+		classification.Kind = WorkflowArtifactLocalGeneratedCache
+		classification.ReviewCandidate = input.IntentionallyTrackedGeneratedArtifact && input.ProjectArtifactDecision
+		classification.RequiresProjectArtifactDecision = input.IntentionallyTrackedGeneratedArtifact && !input.ProjectArtifactDecision
+		return classification
+	}
 	retirementReason := strings.TrimSpace(input.RetirementReason)
 	if input.Retired {
 		classification.Kind = WorkflowArtifactRetired
@@ -166,6 +182,19 @@ func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) Wor
 		classification.ArchiveCandidate = false
 	}
 	return classification
+}
+
+func PrepareWorkflowArtifactReviewSet(inputs []WorkflowArtifactLifecycleInput) WorkflowArtifactReviewSetPlan {
+	var plan WorkflowArtifactReviewSetPlan
+	for _, input := range inputs {
+		classification := ClassifyWorkflowArtifactLifecycle(input)
+		if classification.ReviewCandidate {
+			plan.IncludedPaths = append(plan.IncludedPaths, classification.Path)
+			continue
+		}
+		plan.ExcludedPaths = append(plan.ExcludedPaths, classification.Path)
+	}
+	return plan
 }
 
 func PrepareCompletedChangeArchive(repoRoot string) (CompletedChangeArchivePlan, error) {
@@ -213,6 +242,16 @@ func PlanWorkflowArtifactArchive(inputs []WorkflowArtifactLifecycleInput) Comple
 		})
 	}
 	return plan
+}
+
+func isLocalGeneratedGraphOrCachePath(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		switch part {
+		case ".vela", ".cache", "cache", "caches":
+			return true
+		}
+	}
+	return false
 }
 
 func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
