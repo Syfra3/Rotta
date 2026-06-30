@@ -395,6 +395,39 @@
   - `make lint`
   - `git diff --check`
 
+## SCN-023 — QA planning enumerates approved scenarios from repository feature files
+
+### RED
+- Added `TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios` for `REQ-019 → SCN-023`.
+- The test creates temporary repository feature fixtures, records scoped approval only for `features/workflow_artifact_lifecycle.feature#SCN-023`, and asserts QA/TDD planning returns only that implementation-ready item with both feature path and scenario ID.
+- Focused command: `go test ./internal/workflow -run TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios -count=1`.
+- Expected failure observed before production code:
+  - `undefined: PlanImplementationReadyScenarios`
+
+### GREEN
+- Added pure repository feature planning via `PlanImplementationReadyScenarios`, which walks active `features/**/*.feature` files, parses tagged scenarios from repository content, and includes only scenarios present in the matching scoped approval marker.
+- Pending unapproved scenarios in active or pending feature files are excluded from implementation-ready planning.
+- Focused command passed: `go test ./internal/workflow -run TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios -count=1`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept planning pure with temporary fixtures only; no live external services are called.
+- Final verification stayed green:
+  - `go test ./internal/workflow -run TestSCN023 -count=1`
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
+
+### REMEDIATION — changed-line coverage gate
+- Fresh Bob review failed `.clean-workflow/quality-gates.yaml` changed-line coverage for `PlanImplementationReadyScenarios` at 71.9% against the 90% threshold.
+- Added focused SCN-023 planner tests for:
+  - feature-qualified scoped approval and duplicate-SCN exclusion across repository feature identities;
+  - excluding scenarios without a stable SCN identity from implementation-ready planning;
+  - feature parse error propagation with repository feature path context;
+  - missing feature directory behavior as no implementation-ready scenarios;
+  - scoped approval read error propagation during planning.
+- Remediation coverage evidence after tests: `PlanImplementationReadyScenarios` 93.8%, package statements 91.2% via `go test ./internal/workflow -coverprofile=/tmp/opencode/scn023-workflow.cover -count=1` and `go tool cover -func=/tmp/opencode/scn023-workflow.cover`.
+
 ## SCN-017 — Repository content wins when an Ancora pointer is stale
 
 ### RED
