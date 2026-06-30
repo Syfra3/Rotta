@@ -21,7 +21,7 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 
 	// Add tool permissions for clean-workflow skills to settings.json
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	if err := addClaudeCodePermissions(settingsPath); err != nil {
+	if err := addClaudeCodePermissions(settingsPath, opts); err != nil {
 		// Non-fatal: user can add permissions manually
 		_ = err
 	}
@@ -29,9 +29,16 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 	return files, nil
 }
 
+func cleanPreviousClaudeCodeInstallation(home string) error {
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "clean-workflow")); err != nil {
+		return fmt.Errorf("cannot remove stale Claude Code skills: %w", err)
+	}
+	return cleanClaudeCodePermissions(filepath.Join(home, ".claude", "settings.json"))
+}
+
 // addClaudeCodePermissions injects clean-workflow skill triggers into the
 // Claude Code settings.json permissions.allow list.
-func addClaudeCodePermissions(settingsPath string) error {
+func addClaudeCodePermissions(settingsPath string, opts Options) error {
 	settings := map[string]interface{}{}
 
 	data, err := os.ReadFile(settingsPath)
@@ -48,11 +55,7 @@ func addClaudeCodePermissions(settingsPath string) error {
 
 	allow, _ := permissions["allow"].([]interface{})
 
-	newEntries := []string{
-		"mcp__clean_workflow__spec_mode",
-		"mcp__clean_workflow__implementation_mode",
-		"mcp__clean_workflow__review_mode",
-	}
+	newEntries := selectedClaudeCodePermissions(opts)
 
 	existing := make(map[string]bool)
 	for _, a := range allow {
@@ -76,4 +79,59 @@ func addClaudeCodePermissions(settingsPath string) error {
 	}
 
 	return os.WriteFile(settingsPath, out, 0o644)
+}
+
+func cleanClaudeCodePermissions(settingsPath string) error {
+	settings := map[string]interface{}{}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("cannot read settings.json: %w", err)
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return fmt.Errorf("cannot parse settings.json: %w", err)
+	}
+	permissions, _ := settings["permissions"].(map[string]interface{})
+	if permissions == nil {
+		return nil
+	}
+	allow, _ := permissions["allow"].([]interface{})
+	if allow == nil {
+		return nil
+	}
+
+	owned := map[string]bool{}
+	for _, entry := range selectedClaudeCodePermissions(Options{InstallSpec: true, InstallImpl: true, InstallReview: true}) {
+		owned[entry] = true
+	}
+	kept := allow[:0]
+	for _, entry := range allow {
+		value, _ := entry.(string)
+		if !owned[value] {
+			kept = append(kept, entry)
+		}
+	}
+	permissions["allow"] = kept
+	settings["permissions"] = permissions
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cannot marshal settings.json: %w", err)
+	}
+	return os.WriteFile(settingsPath, out, 0o644)
+}
+
+func selectedClaudeCodePermissions(opts Options) []string {
+	var entries []string
+	if opts.InstallSpec {
+		entries = append(entries, "mcp__clean_workflow__spec_mode")
+	}
+	if opts.InstallImpl {
+		entries = append(entries, "mcp__clean_workflow__implementation_mode")
+	}
+	if opts.InstallReview {
+		entries = append(entries, "mcp__clean_workflow__review_mode")
+	}
+	return entries
 }
