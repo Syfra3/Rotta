@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -94,6 +96,129 @@ func TestSCN015_TestTraceValidatorRequiresScenarioIDAndFeatureIdentity(t *testin
 		},
 	}); err != nil {
 		t.Fatalf("expected feature-qualified subtest trace to validate: %v", err)
+	}
+}
+
+func TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningEnumeratesApprovedRepositoryScenarios
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), `Feature: Workflow artifact lifecycle
+
+  @REQ-019 @SCN-023
+  Scenario: QA planning enumerates approved scenarios from repository feature files
+    Then each planned test can reference the feature file and scenario ID
+
+  @REQ-020 @SCN-024
+  Scenario: Workflow cleanup explains artifact lifecycle actions explicitly
+    Then pending contracts remain pending until a human approves them
+`)
+	mustWrite(t, filepath.Join(repo, "features", "pending_contract.feature"), `Feature: Pending contract
+
+  @REQ-999 @SCN-999
+  Scenario: Pending generated behavior is not ready
+    Then implementation does not begin
+`)
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "features/workflow_artifact_lifecycle.feature#SCN-023\n")
+
+	items, err := PlanImplementationReadyScenarios(repo)
+	if err != nil {
+		t.Fatalf("PlanImplementationReadyScenarios returned error: %v", err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected only one implementation-ready scenario, got %#v", items)
+	}
+	item := items[0]
+	if item.FeaturePath != "features/workflow_artifact_lifecycle.feature" || item.ScenarioID != "SCN-023" {
+		t.Fatalf("expected planned item to reference feature path and SCN-023, got %#v", item)
+	}
+	if item.Name != "QA planning enumerates approved scenarios from repository feature files" {
+		t.Fatalf("expected scenario name from repository feature, got %#v", item)
+	}
+}
+
+func TestSCN023_QAPlanningRequiresScopedApprovalAndScenarioIdentity(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningRequiresScopedApprovalAndScenarioIdentity
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), `Feature: Workflow artifact lifecycle
+
+  @REQ-019 @SCN-023
+  Scenario: QA planning enumerates approved scenarios from repository feature files
+    Then each planned test can reference the feature file and scenario ID
+
+  @REQ-019
+  Scenario: Missing stable scenario identity is not ready for implementation
+    Then implementation does not begin without a scenario ID
+`)
+	mustWrite(t, filepath.Join(repo, "features", "archive", "workflow_artifact_lifecycle.feature"), `Feature: Archived duplicate lifecycle contract
+
+  @REQ-019 @SCN-023
+  Scenario: Archived duplicate is not approved by another feature identity
+    Then feature-qualified approval remains scoped to one feature file
+`)
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "features/workflow_artifact_lifecycle.feature#SCN-023\n")
+
+	items, err := PlanImplementationReadyScenarios(repo)
+	if err != nil {
+		t.Fatalf("PlanImplementationReadyScenarios returned error: %v", err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected only the feature-qualified approved scenario to be ready, got %#v", items)
+	}
+	item := items[0]
+	if item.FeaturePath != "features/workflow_artifact_lifecycle.feature" || item.ScenarioID != "SCN-023" {
+		t.Fatalf("expected scoped feature identity and SCN-023, got %#v", item)
+	}
+	if item.Name == "Missing stable scenario identity is not ready for implementation" {
+		t.Fatalf("scenario without SCN identity must not become implementation-ready: %#v", item)
+	}
+}
+
+func TestSCN023_QAPlanningReturnsParseErrors(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningReturnsParseErrors
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), strings.Repeat("x", 65*1024))
+
+	_, err := PlanImplementationReadyScenarios(repo)
+	if err == nil || !strings.Contains(err.Error(), "parse feature scenarios features/workflow_artifact_lifecycle.feature") {
+		t.Fatalf("expected feature parse error to identify repository feature, got %v", err)
+	}
+}
+
+func TestSCN023_QAPlanningTreatsMissingFeatureDirectoryAsNoReadyScenarios(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningTreatsMissingFeatureDirectoryAsNoReadyScenarios
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	items, err := PlanImplementationReadyScenarios(t.TempDir())
+	if err != nil {
+		t.Fatalf("PlanImplementationReadyScenarios returned error for repository without features: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected repository without feature files to have no implementation-ready scenarios, got %#v", items)
+	}
+}
+
+func TestSCN023_QAPlanningReturnsScopedApprovalReadErrors(t *testing.T) {
+	// REQ-019 → SCN-023 → TestSCN023_QAPlanningReturnsScopedApprovalReadErrors
+	// Scenario: QA planning enumerates approved scenarios from repository feature files
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), `Feature: Workflow artifact lifecycle
+
+  @REQ-019 @SCN-023
+  Scenario: QA planning enumerates approved scenarios from repository feature files
+    Then each planned test can reference the feature file and scenario ID
+`)
+	approvalPath := filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved")
+	if err := os.MkdirAll(approvalPath, 0o755); err != nil {
+		t.Fatalf("create unreadable approval path: %v", err)
+	}
+
+	_, err := PlanImplementationReadyScenarios(repo)
+	if err == nil || !strings.Contains(err.Error(), "plan implementation-ready scenarios") {
+		t.Fatalf("expected scoped approval read error during planning, got %v", err)
 	}
 }
 

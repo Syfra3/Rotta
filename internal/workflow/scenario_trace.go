@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -82,6 +84,67 @@ func ValidateTestScenarioTrace(scenarios []FeatureScenario, trace TestScenarioTr
 	}
 
 	return nil
+}
+
+func PlanImplementationReadyScenarios(repoRoot string) ([]FeatureScenario, error) {
+	featuresRoot := filepath.Join(repoRoot, "features")
+	var planned []FeatureScenario
+
+	err := filepath.WalkDir(featuresRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".feature" {
+			return nil
+		}
+
+		featurePath, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return fmt.Errorf("make feature path relative %s: %w", path, err)
+		}
+		featurePath = filepath.ToSlash(featurePath)
+
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open feature file %s: %w", featurePath, err)
+		}
+		defer file.Close()
+
+		scenarios, err := ParseFeatureScenarioTags(featurePath, file)
+		if err != nil {
+			return err
+		}
+		for _, scenario := range scenarios {
+			if scenario.ScenarioID == "" {
+				continue
+			}
+			approved, err := scopedApprovalContains(repoRoot, ContractScope{
+				SpecPath:    specPathForFeature(featurePath),
+				FeaturePath: featurePath,
+				ScenarioID:  scenario.ScenarioID,
+			})
+			if err != nil {
+				return err
+			}
+			if approved {
+				planned = append(planned, scenario)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("plan implementation-ready scenarios: %w", err)
+	}
+
+	return planned, nil
+}
+
+func specPathForFeature(featurePath string) string {
+	contractID := strings.TrimSuffix(filepath.Base(featurePath), filepath.Ext(featurePath))
+	return filepath.ToSlash(filepath.Join("specs", contractID+".md"))
 }
 
 func scenarioIDFromTags(tags []string) string {
