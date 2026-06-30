@@ -33,6 +33,9 @@ const (
 	ScreenInstalling
 	ScreenSuccess
 	ScreenError
+	ScreenRecoveryList
+	ScreenRecoveryPreview
+	ScreenRecoveryConfirm
 )
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
@@ -48,6 +51,28 @@ const (
 type installDoneMsg struct {
 	result *installer.Result
 	err    error
+}
+
+type recoveryBackup struct {
+	BackupDir            string
+	Timestamp            string
+	ProjectPath          string
+	Target               string
+	SelectedModes        recoverySelectedModes
+	OptionalIntegrations recoveryOptionalIntegrations
+	BackedUpPaths        []string
+	MissingPaths         []string
+}
+
+type recoverySelectedModes struct {
+	Spec           bool
+	Implementation bool
+	Review         bool
+}
+
+type recoveryOptionalIntegrations struct {
+	Ancora bool
+	Vela   bool
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -91,6 +116,10 @@ type Model struct {
 	InstallError   string
 	InstallSpinner spinner.Model
 	InstallSteps   []string
+
+	RecoveryBackups []recoveryBackup
+	RecoveryCursor  int
+	RecoveryError   string
 }
 
 var targets = []string{"Claude Code", "OpenCode", "Both"}

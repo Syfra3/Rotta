@@ -141,6 +141,32 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	return files, nil
 }
 
+func cleanPreviousOpenCodeInstallation(home string) error {
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	config, err := readOpenCodeConfig(configPath)
+	if err != nil {
+		return err
+	}
+	agentMap, _ := config["agent"].(map[string]interface{})
+	if agentMap != nil {
+		for _, a := range cleanAgents {
+			delete(agentMap, a.key)
+		}
+		config["agent"] = agentMap
+		if err := writeOpenCodeConfig(configPath, config); err != nil {
+			return err
+		}
+	}
+
+	for _, a := range cleanAgents {
+		path := filepath.Join(home, ".config", "opencode", "skills", a.skillName)
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("cannot remove stale opencode skill %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 	config := map[string]interface{}{}
 	data, err := os.ReadFile(path)
