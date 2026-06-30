@@ -1,4 +1,5 @@
 .atl/
+.vela/
 .openspec/
 openspec/
 build/
