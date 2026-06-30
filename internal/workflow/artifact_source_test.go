@@ -274,6 +274,69 @@ func TestSCN020_ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegress
 	assertFileContent(t, filepath.Join(repo, "docs", "handoff_notes.md"), processNote)
 }
 
+func TestSCN021_LocalGraphAndCacheArtifactsClassifyOutsideReviewSet(t *testing.T) {
+	// REQ-017 → SCN-021 → TestSCN021_LocalGraphAndCacheArtifactsClassifyOutsideReviewSet
+	// Scenario: Local graph and cache artifacts are excluded unless intentionally promoted
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "vela graph", path: ".vela/graph.db"},
+		{name: "nested vela cache", path: "subproject/.vela/cache.json"},
+		{name: "tool cache", path: ".cache/clean-workflow/planner.json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classification := ClassifyWorkflowArtifactLifecycle(WorkflowArtifactLifecycleInput{Path: tt.path})
+
+			if classification.Kind != WorkflowArtifactLocalGeneratedCache {
+				t.Fatalf("expected local generated cache classification, got %#v", classification)
+			}
+			if classification.ReviewCandidate {
+				t.Fatalf("expected local generated cache to stay out of review set, got %#v", classification)
+			}
+			if classification.RequiresProjectArtifactDecision {
+				t.Fatalf("expected unpromoted local generated cache not to require a decision just to exclude, got %#v", classification)
+			}
+		})
+	}
+
+	classification := ClassifyWorkflowArtifactLifecycle(WorkflowArtifactLifecycleInput{
+		Path:                                  ".vela/promoted-review-snapshot.json",
+		IntentionallyTrackedGeneratedArtifact: true,
+	})
+	if classification.ReviewCandidate {
+		t.Fatalf("expected intentionally tracked generated artifact without decision to stay out of review set, got %#v", classification)
+	}
+	if !classification.RequiresProjectArtifactDecision {
+		t.Fatalf("expected intentionally tracked generated artifact to require explicit project-artifact decision, got %#v", classification)
+	}
+}
+
+func TestSCN021_ReviewSetPreparationExcludesVelaCacheAndKeepsContracts(t *testing.T) {
+	// REQ-017 → SCN-021 → TestSCN021_ReviewSetPreparationExcludesVelaCacheAndKeepsContracts
+	// Scenario: Local graph and cache artifacts are excluded unless intentionally promoted
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# Workflow Artifact Lifecycle\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-017 @SCN-021\nScenario: Local graph and cache artifacts are excluded unless intentionally promoted\n")
+	mustWrite(t, filepath.Join(repo, ".vela", "graph.db"), "generated graph\n")
+	mustWrite(t, filepath.Join(repo, ".cache", "clean-workflow", "planner.json"), "{}\n")
+
+	plan := PrepareWorkflowArtifactReviewSet([]WorkflowArtifactLifecycleInput{
+		{Path: "specs/workflow_artifact_lifecycle.md"},
+		{Path: "features/workflow_artifact_lifecycle.feature", Approved: true, Implemented: true},
+		{Path: ".vela/graph.db"},
+		{Path: ".cache/clean-workflow/planner.json"},
+	})
+
+	assertReviewSetIncludesPath(t, plan, "specs/workflow_artifact_lifecycle.md")
+	assertReviewSetIncludesPath(t, plan, "features/workflow_artifact_lifecycle.feature")
+	assertReviewSetExcludesPath(t, plan, ".vela/graph.db")
+	assertReviewSetExcludesPath(t, plan, ".cache/clean-workflow/planner.json")
+	assertFileContent(t, filepath.Join(repo, ".vela", "graph.db"), "generated graph\n")
+}
+
 func TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText(t *testing.T) {
 	// REQ-014 → SCN-016 → TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText
 	// Scenario: Ancora records pointer-only workflow state
@@ -586,6 +649,26 @@ func assertArchivePlanDoesNotMovePath(t *testing.T, plan CompletedChangeArchiveP
 			t.Fatalf("expected %s to stay out of archive moves, got %#v", path, plan)
 		}
 	}
+}
+
+func assertReviewSetIncludesPath(t *testing.T, plan WorkflowArtifactReviewSetPlan, path string) {
+	t.Helper()
+	for _, includedPath := range plan.IncludedPaths {
+		if includedPath == path {
+			return
+		}
+	}
+	t.Fatalf("expected review set to include %s, got %#v", path, plan)
+}
+
+func assertReviewSetExcludesPath(t *testing.T, plan WorkflowArtifactReviewSetPlan, path string) {
+	t.Helper()
+	for _, excludedPath := range plan.ExcludedPaths {
+		if excludedPath == path {
+			return
+		}
+	}
+	t.Fatalf("expected review set to exclude %s, got %#v", path, plan)
 }
 
 func assertPointerIssue(t *testing.T, report WorkflowPointerValidationReport, path string, want PointerIssueKind) {

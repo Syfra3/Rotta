@@ -556,3 +556,33 @@
   - `make fmt-check`
   - `make lint`
   - `git diff --check`
+
+## SCN-021 — Local graph and cache artifacts are excluded unless intentionally promoted
+
+### RED
+- Added SCN-021 lifecycle coverage for `REQ-017 → SCN-021`:
+  - `TestSCN021_LocalGraphAndCacheArtifactsClassifyOutsideReviewSet` verifies `.vela` and cache paths classify as local generated cache artifacts, stay out of the review set by default, and require an explicit project-artifact decision before intentional tracking can proceed.
+  - `TestSCN021_ReviewSetPreparationExcludesVelaCacheAndKeepsContracts` verifies review-set preparation includes active `specs/` and `features/` contract artifacts while excluding `.vela/` and `.cache/` generated fixtures without deleting them.
+- Focused commands:
+  - `go test ./internal/workflow -run TestSCN021 -count=1`
+  - `go test ./internal/workflow -run TestSCN021_LocalGraphAndCacheArtifactsClassifyOutsideReviewSet -count=1`
+- Expected failures observed before production code:
+  - `undefined: WorkflowArtifactLocalGeneratedCache`
+  - `classification.ReviewCandidate undefined`
+  - `classification.RequiresProjectArtifactDecision undefined`
+  - `undefined: PrepareWorkflowArtifactReviewSet`
+  - `unknown field IntentionallyTrackedGeneratedArtifact in struct literal of type WorkflowArtifactLifecycleInput`
+
+### GREEN
+- Added local generated graph/cache classification for `.vela`, `.cache`, `cache`, and `caches` path segments.
+- Added pure review-set preparation that includes review candidates and excludes generated cache artifacts by default.
+- Added explicit intentional-promotion fields so generated artifacts only enter the review set when an intentional tracking request also has a project-artifact decision.
+- Focused command passed: `go test ./internal/workflow -run TestSCN021 -count=1`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept SCN-021 as pure classification/planning logic over temp fixtures; no real `.vela` or cache files are deleted or modified.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
