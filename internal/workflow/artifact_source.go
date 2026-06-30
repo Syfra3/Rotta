@@ -15,6 +15,15 @@ type ContractSourceStatus struct {
 	RequiresAncoraContractText bool
 }
 
+type ContractCleanupActionKind string
+
+const ContractCleanupTrack ContractCleanupActionKind = "track"
+
+type ContractCleanupAction struct {
+	Path string
+	Kind ContractCleanupActionKind
+}
+
 type WorkflowPolicyArtifactRequest struct {
 	ContractID        string
 	HardSpec          string
@@ -68,6 +77,28 @@ func EvaluateContractSourceOfTruth(repoRoot string, scope ContractScope) (Contra
 		FeatureTracked:             featureTracked,
 		RequiresAncoraContractText: false,
 	}, nil
+}
+
+func PlanCleanTreeContractActions(repoRoot string, scope ContractScope) ([]ContractCleanupAction, error) {
+	decision, err := EvaluateImplementationGate(repoRoot, scope)
+	if err != nil {
+		return nil, err
+	}
+	if !decision.Approved {
+		return nil, fmt.Errorf("cannot plan active contract cleanup: %s", decision.Reason)
+	}
+
+	var actions []ContractCleanupAction
+	for _, path := range []string{scope.SpecPath, scope.FeaturePath} {
+		tracked, err := gitTracksPath(repoRoot, path)
+		if err != nil {
+			return nil, err
+		}
+		if !tracked {
+			actions = append(actions, ContractCleanupAction{Path: path, Kind: ContractCleanupTrack})
+		}
+	}
+	return actions, nil
 }
 
 func gitTracksPath(repoRoot, path string) (bool, error) {

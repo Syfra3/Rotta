@@ -366,3 +366,38 @@
 ### REFACTOR
 - Formatted the workflow package with `gofmt` and kept generation behavior scoped to namespaced artifact path creation plus legacy overwrite protection.
 - Full test suite stayed green: `go test ./...`.
+
+## SCN-019 — Untracked active contracts are tracked instead of deleted to clean the tree
+
+### RED
+- Added `TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion` for `REQ-015 → REQ-020 → SCN-019`.
+- The test creates a temporary git repository with approved workflow artifact lifecycle spec/feature files left untracked, then asks for clean-tree contract actions and asserts the active contracts are marked for tracking while their contents remain present.
+- Focused command: `go test ./internal/workflow -run TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion -count=1`.
+- Expected failure observed before production code:
+  - `undefined: PlanCleanTreeContractActions`
+  - `undefined: ContractCleanupTrack`
+  - `undefined: ContractCleanupAction`
+  - `undefined: ContractCleanupActionKind`
+
+### GREEN
+- Added `PlanCleanTreeContractActions`, `ContractCleanupAction`, and `ContractCleanupActionKind` with the `track` action for approved active contract files that are present but not tracked by git.
+- Reused the scoped implementation gate so cleanup planning only treats the contract as active when human approval is recorded for the requested scope.
+- Focused command passed: `go test ./internal/workflow -run TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion -count=1`.
+
+### REFACTOR
+- Formatted the workflow package with `gofmt` and kept SCN-019 behavior limited to planning tracking actions; no deletion path was introduced.
+- Focused package verification stayed green: `go test ./internal/workflow -count=1`.
+
+### COVERAGE REMEDIATION
+- Added focused SCN-019 tests for clean-tree planning branches that were under-covered in review:
+  - `TestSCN019_CleanTreePlanningRequiresScopedApproval` proves cleanup planning refuses unapproved active contracts and leaves files intact.
+  - `TestSCN019_CleanTreePlanningSurfacesApprovalReadErrors` proves approval-store read failures stop planning without cleanup actions.
+  - `TestSCN019_TrackedActiveContractsRequireNoCleanTreeAction` proves already tracked active contracts produce no unnecessary tracking action.
+  - `TestSCN019_CleanTreePlanningReportsGitMetadataErrors` proves git metadata errors are surfaced instead of guessing a cleanup action.
+- Focused remediation command passed: `go test ./internal/workflow -run 'TestSCN019_' -count=1`.
+- Coverage evidence: `go test ./internal/workflow -coverprofile=/tmp/opencode/scn019-workflow.cover -covermode=count && go tool cover -func=/tmp/opencode/scn019-workflow.cover` reported `PlanCleanTreeContractActions` at `100.0%` statement coverage.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
