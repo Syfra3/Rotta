@@ -33,6 +33,12 @@ func (m Model) View() string {
 		return m.viewSuccess()
 	case ScreenError:
 		return m.viewError()
+	case ScreenRecoveryList:
+		return m.viewRecoveryList()
+	case ScreenRecoveryPreview:
+		return m.viewRecoveryPreview()
+	case ScreenRecoveryConfirm:
+		return m.viewRecoveryConfirm()
 	}
 	return ""
 }
@@ -55,8 +61,114 @@ func (m Model) viewWelcome() string {
 			"  at the level of behavior and risk — not implementation details.",
 	) + "\n\n")
 
-	b.WriteString(helpStyle.Render("Press Enter to start · q to quit"))
+	b.WriteString(helpStyle.Render("Press Enter to start · r for recovery · q to quit"))
 	return appStyle.Render(b.String())
+}
+
+func (m Model) viewRecoveryList() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Recovery") + "\n\n")
+	b.WriteString(sectionStyle.Render("Available backups") + "\n")
+
+	if m.RecoveryError != "" {
+		b.WriteString(errorStyle.Render(m.RecoveryError) + "\n\n")
+	} else if len(m.RecoveryBackups) == 0 {
+		b.WriteString(menuItemStyle.Render("  No valid backups found") + "\n\n")
+	} else {
+		for i, backup := range m.RecoveryBackups {
+			prefix := "  "
+			style := menuItemStyle
+			if i == m.RecoveryCursor {
+				prefix = "▸ "
+				style = menuSelectedStyle
+			}
+			b.WriteString(style.Render(fmt.Sprintf("%s%s — %s — %s", prefix, backup.Timestamp, backup.ProjectPath, backup.Target)) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(helpStyle.Render("j/k to move · Enter to preview · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewRecoveryPreview() string {
+	if len(m.RecoveryBackups) == 0 || m.RecoveryCursor >= len(m.RecoveryBackups) {
+		return m.viewRecoveryList()
+	}
+
+	backup := m.RecoveryBackups[m.RecoveryCursor]
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Backup preview") + "\n\n")
+	b.WriteString(labelStyle.Render("Timestamp:") + " " + valueStyle.Render(backup.Timestamp) + "\n")
+	b.WriteString(labelStyle.Render("Project path:") + " " + valueStyle.Render(backup.ProjectPath) + "\n")
+	b.WriteString(labelStyle.Render("Target:") + " " + valueStyle.Render(backup.Target) + "\n")
+	b.WriteString(labelStyle.Render("Selected modes:") + " " + valueStyle.Render(formatRecoveryModes(backup.SelectedModes)) + "\n")
+	b.WriteString(labelStyle.Render("Optional integrations:") + " " + valueStyle.Render(formatRecoveryIntegrations(backup.OptionalIntegrations)) + "\n\n")
+
+	b.WriteString(sectionStyle.Render("Backed-up paths") + "\n")
+	writeRecoveryPaths(&b, backup.BackedUpPaths)
+	b.WriteString("\n")
+	b.WriteString(sectionStyle.Render("Missing paths") + "\n")
+	writeRecoveryPaths(&b, backup.MissingPaths)
+	b.WriteString("\n")
+	b.WriteString(warningStyle.Render("Restore is full-backup restore only") + "\n\n")
+	b.WriteString(helpStyle.Render("r to restore · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewRecoveryConfirm() string {
+	if len(m.RecoveryBackups) == 0 || m.RecoveryCursor >= len(m.RecoveryBackups) {
+		return m.viewRecoveryList()
+	}
+
+	backup := m.RecoveryBackups[m.RecoveryCursor]
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Confirm full restore") + "\n\n")
+	b.WriteString(labelStyle.Render("Backup:") + " " + valueStyle.Render(backup.Timestamp) + "\n")
+	b.WriteString(labelStyle.Render("Project path:") + " " + valueStyle.Render(backup.ProjectPath) + "\n\n")
+	b.WriteString(warningStyle.Render("Restore has not started") + "\n")
+	b.WriteString(menuItemStyle.Render("This will restore the full backup after confirmation.") + "\n\n")
+	b.WriteString(helpStyle.Render("y to confirm restore · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func formatRecoveryModes(modes recoverySelectedModes) string {
+	var selected []string
+	if modes.Spec {
+		selected = append(selected, "Spec")
+	}
+	if modes.Implementation {
+		selected = append(selected, "Implementation")
+	}
+	if modes.Review {
+		selected = append(selected, "Review")
+	}
+	if len(selected) == 0 {
+		return "none"
+	}
+	return strings.Join(selected, ", ")
+}
+
+func formatRecoveryIntegrations(integrations recoveryOptionalIntegrations) string {
+	ancora := "Ancora: no"
+	if integrations.Ancora {
+		ancora = "Ancora: yes"
+	}
+	vela := "Vela: no"
+	if integrations.Vela {
+		vela = "Vela: yes"
+	}
+	return ancora + ", " + vela
+}
+
+func writeRecoveryPaths(b *strings.Builder, paths []string) {
+	if len(paths) == 0 {
+		b.WriteString(menuItemStyle.Render("  None") + "\n")
+		return
+	}
+	for _, path := range paths {
+		b.WriteString(menuItemStyle.Render("  "+path) + "\n")
+	}
 }
 
 func (m Model) viewTargetSelect() string {

@@ -47,7 +47,7 @@ func Install(opts Options) (*Result, error) {
 
 	backupDir, err := createInstallBackup(opts, home, projectPath)
 	if err != nil {
-		return nil, fmt.Errorf("create install backup: %w", err)
+		return nil, fmt.Errorf("backup failure prevented installation: %w", err)
 	}
 	result.BackupDir = backupDir
 
