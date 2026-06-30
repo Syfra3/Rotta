@@ -449,6 +449,32 @@
 - Formatted workflow changes with `gofmt` and kept the repair path metadata-only; no live Ancora calls and no repository content overwrite path were introduced.
 - Focused command stayed green: `go test ./internal/workflow -run TestSCN017 -count=1`.
 
+## SCN-014 — Implemented feature files remain active regression contracts
+
+### RED
+- Added SCN-014 lifecycle coverage for `REQ-012 → REQ-016 → SCN-014`:
+  - `TestSCN014_ImplementedFeatureFileClassifiesAsActiveRegressionContract` verifies an approved implemented feature remains classified as an active regression contract, not an archive candidate.
+  - `TestSCN014_ArchivePreparationKeepsImplementedActiveFeatureUnderFeatures` verifies completion/archive preparation keeps the implemented active feature under `features/` using temp fixtures only.
+- Focused command: `go test ./internal/workflow -run TestSCN014 -count=1`.
+- Expected failure observed before production code:
+  - `undefined: ClassifyWorkflowArtifactLifecycle`
+  - `undefined: WorkflowArtifactLifecycleInput`
+  - `undefined: WorkflowArtifactActiveRegressionContract`
+  - `undefined: PrepareCompletedChangeArchive`
+
+### GREEN
+- Added lifecycle classification and completed-change archive preparation seams that keep approved implemented feature files active under `features/`.
+- Archive preparation reads the implementation completion marker and scoped approval marker, discovers the scenario from repository feature files, and records active features to keep without moving or deleting them.
+- Focused command passed: `go test ./internal/workflow -run TestSCN014 -count=1`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept archive preparation as a pure planning operation over repository/temp fixtures.
+- Added focused SCN-014 coverage for archive preparation edge paths:
+  - missing completion marker plans no archive action;
+  - unapproved completed features are not treated as approved active regression contracts;
+  - completion marker read errors and feature parse errors are surfaced instead of guessing archive behavior.
+- Coverage evidence: `go test ./internal/workflow -coverprofile=/tmp/opencode/scn014-workflow.cover -covermode=count && go tool cover -func=/tmp/opencode/scn014-workflow.cover` reported package coverage at 91.1%, with `ClassifyWorkflowArtifactLifecycle`, `PrepareCompletedChangeArchive`, and `completedScenarioIDs` at 100.0%.
+
 ## SCN-013 — Namespaced workflow-policy artifacts do not overwrite an existing active contract
 
 ### RED
