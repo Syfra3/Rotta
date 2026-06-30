@@ -3,4 +3,5 @@ completed_scenarios:
   - SCN-012
   - SCN-013
   - SCN-019
-completed_at: "2026-06-30T06:34:00Z"
+  - SCN-016
+completed_at: "2026-06-30T06:57:20Z"
