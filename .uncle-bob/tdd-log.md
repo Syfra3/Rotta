@@ -324,3 +324,26 @@
 - Focused workflow coverage improved to 91.7% package coverage, with `EvaluateImplementationGate` at 100.0% and `scopedApprovalContains` at 87.5%:
   - `go test ./internal/workflow -run TestSCN018 -coverprofile=/tmp/scn018-workflow.cover -count=1`
   - `go tool cover -func=/tmp/scn018-workflow.cover`
+
+## SCN-012 — Active hard spec and feature files are tracked as the contract source of truth
+
+### RED
+- Added `TestSCN012_TrackedHardSpecAndFeatureAreAuthoritativeContractSources` for `REQ-011 → REQ-012 → SCN-012`.
+- The test creates a temporary git repository, tracks `specs/workflow_artifact_lifecycle.md` and `features/workflow_artifact_lifecycle.feature`, and asserts that repository files are authoritative without requiring full Ancora contract text.
+- Focused command: `go test ./internal/workflow -run TestSCN012_TrackedHardSpecAndFeatureAreAuthoritativeContractSources -count=1`.
+- Expected failure observed before production code:
+  - `undefined: EvaluateContractSourceOfTruth`
+
+### GREEN
+- Added `EvaluateContractSourceOfTruth` and `ContractSourceStatus` to classify tracked hard spec and feature files as authoritative repository contract sources.
+- Added git-backed path tracking checks using `git ls-files --error-unmatch` against the provided repository root.
+- Focused command passed: `go test ./internal/workflow -run TestSCN012_TrackedHardSpecAndFeatureAreAuthoritativeContractSources -count=1`.
+
+### REFACTOR
+- Formatted the workflow package with `go fmt ./internal/workflow` and kept the SCN-012 production seam limited to source-of-truth classification.
+- Focused command stayed green: `go test ./internal/workflow -run TestSCN012_TrackedHardSpecAndFeatureAreAuthoritativeContractSources -count=1`.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
