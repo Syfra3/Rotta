@@ -8,4 +8,5 @@ completed_scenarios:
   - SCN-015
   - SCN-023
   - SCN-014
-completed_at: "2026-06-30T08:05:57Z"
+  - SCN-020
+completed_at: "2026-06-30T08:30:00Z"

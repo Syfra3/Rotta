@@ -169,6 +169,111 @@ func TestSCN014_ArchivePreparationSurfacesFeatureParseErrors(t *testing.T) {
 	}
 }
 
+func TestSCN020_RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates(t *testing.T) {
+	// REQ-016 → SCN-020 → TestSCN020_RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates
+	// Scenario: Retired or superseded process artifacts can be archived without hiding active contracts
+	tests := []struct {
+		name string
+		in   WorkflowArtifactLifecycleInput
+		want WorkflowArtifactLifecycleKind
+	}{
+		{
+			name: "retired",
+			in: WorkflowArtifactLifecycleInput{
+				Path:             "specs/old_process.md",
+				Retired:          true,
+				RetirementReason: "replaced by workflow_artifact_lifecycle",
+			},
+			want: WorkflowArtifactRetired,
+		},
+		{
+			name: "superseded",
+			in: WorkflowArtifactLifecycleInput{
+				Path:             "features/old_workflow.feature",
+				Superseded:       true,
+				RetirementReason: "superseded by workflow_artifact_lifecycle.feature",
+			},
+			want: WorkflowArtifactSuperseded,
+		},
+		{
+			name: "process only",
+			in: WorkflowArtifactLifecycleInput{
+				Path:             "docs/process-notes.md",
+				ProcessOnly:      true,
+				RetirementReason: "temporary implementation notes",
+			},
+			want: WorkflowArtifactProcessOnly,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classification := ClassifyWorkflowArtifactLifecycle(tt.in)
+
+			if classification.Kind != tt.want {
+				t.Fatalf("expected %s classification, got %#v", tt.want, classification)
+			}
+			if !classification.ArchiveCandidate {
+				t.Fatalf("expected archive candidate for %s, got %#v", tt.name, classification)
+			}
+			if classification.ArchiveReason != tt.in.RetirementReason {
+				t.Fatalf("expected archive reason %q, got %#v", tt.in.RetirementReason, classification)
+			}
+		})
+	}
+}
+
+func TestSCN020_ArchiveEligibilityRequiresRetirementReason(t *testing.T) {
+	// REQ-016 → SCN-020 → TestSCN020_ArchiveEligibilityRequiresRetirementReason
+	// Scenario: Retired or superseded process artifacts can be archived without hiding active contracts
+	classification := ClassifyWorkflowArtifactLifecycle(WorkflowArtifactLifecycleInput{
+		Path:    "specs/old_process.md",
+		Retired: true,
+	})
+
+	if classification.ArchiveCandidate {
+		t.Fatalf("expected retired artifact without a reason to stay out of archive moves, got %#v", classification)
+	}
+}
+
+func TestSCN020_ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegressionContracts(t *testing.T) {
+	// REQ-016 → SCN-020 → TestSCN020_ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegressionContracts
+	// Scenario: Retired or superseded process artifacts can be archived without hiding active contracts
+	repo := t.TempDir()
+	activeFeature := "Feature: active regression contract\n"
+	retiredSpec := "# Retired process note\n"
+	processNote := "# Process-only note\n"
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), activeFeature)
+	mustWrite(t, filepath.Join(repo, "specs", "old_process.md"), retiredSpec)
+	mustWrite(t, filepath.Join(repo, "docs", "handoff_notes.md"), processNote)
+
+	plan := PlanWorkflowArtifactArchive([]WorkflowArtifactLifecycleInput{
+		{
+			Path:        "features/workflow_artifact_lifecycle.feature",
+			Implemented: true,
+			Approved:    true,
+		},
+		{
+			Path:             "specs/old_process.md",
+			Retired:          true,
+			RetirementReason: "replaced by workflow_artifact_lifecycle.md",
+		},
+		{
+			Path:             "docs/handoff_notes.md",
+			ProcessOnly:      true,
+			RetirementReason: "temporary implementation handoff",
+		},
+	})
+
+	assertArchivePlanKeepsPath(t, plan, "features/workflow_artifact_lifecycle.feature")
+	assertArchiveMove(t, plan, "specs/old_process.md", "archive/specs/old_process.md", "replaced by workflow_artifact_lifecycle.md")
+	assertArchiveMove(t, plan, "docs/handoff_notes.md", "archive/docs/handoff_notes.md", "temporary implementation handoff")
+	assertArchivePlanDoesNotMovePath(t, plan, "features/workflow_artifact_lifecycle.feature")
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), activeFeature)
+	assertFileContent(t, filepath.Join(repo, "specs", "old_process.md"), retiredSpec)
+	assertFileContent(t, filepath.Join(repo, "docs", "handoff_notes.md"), processNote)
+}
+
 func TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText(t *testing.T) {
 	// REQ-014 → SCN-016 → TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText
 	// Scenario: Ancora records pointer-only workflow state
@@ -459,6 +564,28 @@ func assertArchivePlanKeepsPath(t *testing.T, plan CompletedChangeArchivePlan, p
 		}
 	}
 	t.Fatalf("expected archive preparation to keep %s active under features, got %#v", path, plan)
+}
+
+func assertArchiveMove(t *testing.T, plan CompletedChangeArchivePlan, sourcePath, destinationPath, reason string) {
+	t.Helper()
+	for _, move := range plan.ArchiveMoves {
+		if move.SourcePath == sourcePath {
+			if move.DestinationPath != destinationPath || move.Reason != reason {
+				t.Fatalf("unexpected archive move for %s: got %#v", sourcePath, move)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected archive move for %s in %#v", sourcePath, plan)
+}
+
+func assertArchivePlanDoesNotMovePath(t *testing.T, plan CompletedChangeArchivePlan, path string) {
+	t.Helper()
+	for _, move := range plan.ArchiveMoves {
+		if move.SourcePath == path {
+			t.Fatalf("expected %s to stay out of archive moves, got %#v", path, plan)
+		}
+	}
 }
 
 func assertPointerIssue(t *testing.T, report WorkflowPointerValidationReport, path string, want PointerIssueKind) {

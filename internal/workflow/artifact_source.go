@@ -28,22 +28,39 @@ type ContractCleanupAction struct {
 
 type WorkflowArtifactLifecycleKind string
 
-const WorkflowArtifactActiveRegressionContract WorkflowArtifactLifecycleKind = "active_regression_contract"
+const (
+	WorkflowArtifactActiveRegressionContract WorkflowArtifactLifecycleKind = "active_regression_contract"
+	WorkflowArtifactRetired                  WorkflowArtifactLifecycleKind = "retired"
+	WorkflowArtifactSuperseded               WorkflowArtifactLifecycleKind = "superseded"
+	WorkflowArtifactProcessOnly              WorkflowArtifactLifecycleKind = "process_only"
+)
 
 type WorkflowArtifactLifecycleInput struct {
-	Path        string
-	Implemented bool
-	Approved    bool
+	Path             string
+	Implemented      bool
+	Approved         bool
+	Retired          bool
+	Superseded       bool
+	ProcessOnly      bool
+	RetirementReason string
 }
 
 type WorkflowArtifactLifecycleClassification struct {
 	Path             string
 	Kind             WorkflowArtifactLifecycleKind
 	ArchiveCandidate bool
+	ArchiveReason    string
 }
 
 type CompletedChangeArchivePlan struct {
 	KeptActivePaths []string
+	ArchiveMoves    []WorkflowArtifactArchiveMove
+}
+
+type WorkflowArtifactArchiveMove struct {
+	SourcePath      string
+	DestinationPath string
+	Reason          string
 }
 
 type WorkflowPolicyArtifactRequest struct {
@@ -125,6 +142,25 @@ func PlanCleanTreeContractActions(repoRoot string, scope ContractScope) ([]Contr
 
 func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) WorkflowArtifactLifecycleClassification {
 	classification := WorkflowArtifactLifecycleClassification{Path: input.Path}
+	retirementReason := strings.TrimSpace(input.RetirementReason)
+	if input.Retired {
+		classification.Kind = WorkflowArtifactRetired
+		classification.ArchiveCandidate = retirementReason != ""
+		classification.ArchiveReason = retirementReason
+		return classification
+	}
+	if input.Superseded {
+		classification.Kind = WorkflowArtifactSuperseded
+		classification.ArchiveCandidate = retirementReason != ""
+		classification.ArchiveReason = retirementReason
+		return classification
+	}
+	if input.ProcessOnly {
+		classification.Kind = WorkflowArtifactProcessOnly
+		classification.ArchiveCandidate = retirementReason != ""
+		classification.ArchiveReason = retirementReason
+		return classification
+	}
 	if strings.HasPrefix(filepath.ToSlash(input.Path), "features/") && strings.HasSuffix(input.Path, ".feature") && input.Approved {
 		classification.Kind = WorkflowArtifactActiveRegressionContract
 		classification.ArchiveCandidate = false
@@ -157,6 +193,26 @@ func PrepareCompletedChangeArchive(repoRoot string) (CompletedChangeArchivePlan,
 		}
 	}
 	return plan, nil
+}
+
+func PlanWorkflowArtifactArchive(inputs []WorkflowArtifactLifecycleInput) CompletedChangeArchivePlan {
+	var plan CompletedChangeArchivePlan
+	for _, input := range inputs {
+		classification := ClassifyWorkflowArtifactLifecycle(input)
+		if classification.Kind == WorkflowArtifactActiveRegressionContract && !classification.ArchiveCandidate {
+			plan.KeptActivePaths = append(plan.KeptActivePaths, classification.Path)
+			continue
+		}
+		if !classification.ArchiveCandidate {
+			continue
+		}
+		plan.ArchiveMoves = append(plan.ArchiveMoves, WorkflowArtifactArchiveMove{
+			SourcePath:      classification.Path,
+			DestinationPath: filepath.ToSlash(filepath.Join("archive", classification.Path)),
+			Reason:          classification.ArchiveReason,
+		})
+	}
+	return plan
 }
 
 func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
