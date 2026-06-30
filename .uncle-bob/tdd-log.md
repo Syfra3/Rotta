@@ -348,6 +348,34 @@
   - `make lint`
   - `git diff --check`
 
+## SCN-020 — Retired or superseded process artifacts can be archived without hiding active contracts
+
+### RED
+- Added SCN-020 lifecycle coverage for `REQ-016 → SCN-020`:
+  - `TestSCN020_RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates` verifies only retired, superseded, or process-only artifacts with retirement reasons are archive candidates and preserve their archive reason.
+  - `TestSCN020_ArchiveEligibilityRequiresRetirementReason` verifies retirement state alone is insufficient for archive movement without a reason.
+  - `TestSCN020_ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegressionContracts` verifies a pure archive plan moves only retired/process-only fixtures, records reasons, keeps active regression contracts discoverable, and does not move/delete fixture files.
+- Focused commands:
+  - `go test ./internal/workflow -run TestSCN020_RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates`
+  - `go test ./internal/workflow -run TestSCN020_ArchiveEligibilityRequiresRetirementReason`
+  - `go test ./internal/workflow -run TestSCN020_ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegressionContracts`
+- Expected failures observed before production code:
+  - `unknown field Retired in struct literal of type WorkflowArtifactLifecycleInput`
+  - `undefined: WorkflowArtifactRetired`
+  - `classification.ArchiveReason undefined`
+  - `expected retired artifact without a reason to stay out of archive moves`
+  - `undefined: PlanWorkflowArtifactArchive`
+  - `plan.ArchiveMoves undefined`
+
+### GREEN
+- Added retired, superseded, and process-only lifecycle classifications with required trimmed retirement reasons before an artifact becomes an archive candidate.
+- Added `WorkflowArtifactArchiveMove` and `PlanWorkflowArtifactArchive` to build a pure archive move plan with `archive/<source>` destinations and reason text, while active approved feature files remain in `KeptActivePaths` and out of archive moves.
+- Focused SCN-020 command passed: `go test ./internal/workflow -run 'TestSCN020_(ArchivePlanMovesOnlyRetiredProcessArtifactsAndKeepsActiveRegressionContracts|RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates|ArchiveEligibilityRequiresRetirementReason)'`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept SCN-020 as pure planning/classification logic; no real artifacts are moved or deleted.
+- Full test suite stayed green: `go test ./...`.
+
 ## SCN-015 — Tests reference stable scenario IDs from feature files
 
 ### RED
