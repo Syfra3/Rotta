@@ -120,6 +120,75 @@ func TestSCN016_AncoraWorkflowStateSerializesPointersWithoutFullContractText(t *
 	}
 }
 
+func TestSCN017_ChangedRepositoryArtifactReportsStalePointerWithoutOverwritingContent(t *testing.T) {
+	// REQ-014 → SCN-017 → TestSCN017_ChangedRepositoryArtifactReportsStalePointerWithoutOverwritingContent
+	// Scenario: Repository content wins when an Ancora pointer is stale
+	repo := t.TempDir()
+	reviewedSpec := "# Reviewed hard spec\n\nRepository-approved content.\n"
+	olderAncoraText := "# Older hard spec\n\nStale memory text must not be restored.\n"
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), reviewedSpec)
+
+	report, err := ValidateAncoraWorkflowPointers(repo, AncoraWorkflowState{
+		SpecPath:       "specs/workflow_artifact_lifecycle.md",
+		FeaturePaths:   []string{"features/workflow_artifact_lifecycle.feature"},
+		ScenarioIDs:    []string{"SCN-017"},
+		ObservationIDs: []string{"obs-stale"},
+		Checksums: map[string]string{
+			"specs/workflow_artifact_lifecycle.md": "sha256:old-spec",
+		},
+	}, map[string]string{
+		"specs/workflow_artifact_lifecycle.md": olderAncoraText,
+	})
+	if err != nil {
+		t.Fatalf("ValidateAncoraWorkflowPointers returned error: %v", err)
+	}
+
+	if !report.RepositoryContentAuthoritative {
+		t.Fatalf("expected repository content to remain authoritative, got %#v", report)
+	}
+	assertPointerIssue(t, report, "specs/workflow_artifact_lifecycle.md", PointerIssueChecksumMismatch)
+	assertPointerIssue(t, report, "features/workflow_artifact_lifecycle.feature", PointerIssueMissing)
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), reviewedSpec)
+}
+
+func TestSCN017_RenamedRepositoryArtifactRepairsPointerMetadataWithoutRestoringMemoryText(t *testing.T) {
+	// REQ-014 → SCN-017 → TestSCN017_RenamedRepositoryArtifactRepairsPointerMetadataWithoutRestoringMemoryText
+	// Scenario: Repository content wins when an Ancora pointer is stale
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	reviewedSpec := "# Reviewed renamed spec\n"
+	reviewedFeature := "@REQ-014 @SCN-017\nScenario: Repository content wins when an Ancora pointer is stale\n"
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle_reviewed.md"), reviewedSpec)
+	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle_reviewed.feature"), reviewedFeature)
+	runGit(t, repo, "add", "specs/workflow_artifact_lifecycle_reviewed.md", "features/workflow_artifact_lifecycle_reviewed.feature")
+	runGit(t, repo, "commit", "-m", "test: track reviewed renamed artifacts")
+
+	report, err := ValidateAncoraWorkflowPointers(repo, AncoraWorkflowState{
+		SpecPath:     "specs/workflow_artifact_lifecycle.md",
+		FeaturePaths: []string{"features/workflow_artifact_lifecycle.feature"},
+		ScenarioIDs:  []string{"SCN-017"},
+	}, map[string]string{
+		"specs/workflow_artifact_lifecycle.md":         "# Older memory spec\n",
+		"features/workflow_artifact_lifecycle.feature": "Feature: stale memory feature\n",
+	})
+	if err != nil {
+		t.Fatalf("ValidateAncoraWorkflowPointers returned error: %v", err)
+	}
+
+	if report.RepairedState.SpecPath != "specs/workflow_artifact_lifecycle_reviewed.md" {
+		t.Fatalf("expected repaired spec pointer to reviewed repository path, got %#v", report.RepairedState)
+	}
+	if len(report.RepairedState.FeaturePaths) != 1 || report.RepairedState.FeaturePaths[0] != "features/workflow_artifact_lifecycle_reviewed.feature" {
+		t.Fatalf("expected repaired feature pointer to reviewed repository path, got %#v", report.RepairedState)
+	}
+	assertPointerIssue(t, report, "specs/workflow_artifact_lifecycle.md", PointerIssueMissing)
+	assertPointerIssue(t, report, "features/workflow_artifact_lifecycle.feature", PointerIssueMissing)
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle_reviewed.md"), reviewedSpec)
+	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle_reviewed.feature"), reviewedFeature)
+}
+
 func TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion(t *testing.T) {
 	// REQ-015 → REQ-020 → SCN-019 → TestSCN019_UntrackedActiveContractsRequireTrackingInsteadOfDeletion
 	// Scenario: Untracked active contracts are tracked instead of deleted to clean the tree
@@ -285,4 +354,17 @@ func assertContractAction(t *testing.T, plan []ContractCleanupAction, path strin
 		}
 	}
 	t.Fatalf("expected action for %s in %#v", path, plan)
+}
+
+func assertPointerIssue(t *testing.T, report WorkflowPointerValidationReport, path string, want PointerIssueKind) {
+	t.Helper()
+	for _, issue := range report.Issues {
+		if issue.Path == path {
+			if issue.Kind != want {
+				t.Fatalf("expected %s issue for %s, got %s", want, path, issue.Kind)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected issue for %s in %#v", path, report.Issues)
 }

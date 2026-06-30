@@ -372,6 +372,27 @@
   - `make lint`
   - `git diff --check`
 
+## SCN-017 — Repository content wins when an Ancora pointer is stale
+
+### RED
+- Added SCN-017 pointer-validation coverage for `REQ-014 → SCN-017`:
+  - `TestSCN017_ChangedRepositoryArtifactReportsStalePointerWithoutOverwritingContent` verifies checksum and missing-path stale pointer reports while repository content remains unchanged despite older fake Ancora text.
+  - `TestSCN017_RenamedRepositoryArtifactRepairsPointerMetadataWithoutRestoringMemoryText` verifies a renamed reviewed repository artifact can repair pointer metadata from tracked repo files without restoring stale memory text.
+- Focused command: `go test ./internal/workflow -run TestSCN017 -count=1`.
+- Expected failure observed before production code:
+  - `undefined: ValidateAncoraWorkflowPointers`
+  - `undefined: PointerIssueChecksumMismatch`
+  - `undefined: PointerIssueMissing`
+  - `undefined: WorkflowPointerValidationReport`
+
+### GREEN
+- Added pure pointer validation for `AncoraWorkflowState` that reports missing and checksum-mismatched pointers, keeps repository content authoritative, ignores fake memory text, and repairs pointer metadata only from tracked repository artifacts when an unambiguous reviewed contract path is discoverable.
+- Focused command passed: `go test ./internal/workflow -run TestSCN017 -count=1`.
+
+### REFACTOR
+- Formatted workflow changes with `gofmt` and kept the repair path metadata-only; no live Ancora calls and no repository content overwrite path were introduced.
+- Focused command stayed green: `go test ./internal/workflow -run TestSCN017 -count=1`.
+
 ## SCN-013 — Namespaced workflow-policy artifacts do not overwrite an existing active contract
 
 ### RED
