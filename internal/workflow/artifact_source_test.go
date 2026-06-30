@@ -643,6 +643,47 @@ func TestSCN019_CleanTreePlanningReportsGitMetadataErrors(t *testing.T) {
 	assertFileContent(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @REQ-020 @SCN-019\nScenario: Untracked active contracts are tracked instead of deleted to clean the tree\n")
 }
 
+func TestSCN024_WorkflowCleanupGuidanceLabelsArtifactLifecycleActions(t *testing.T) {
+	// REQ-020 → SCN-024 → TestSCN024_WorkflowCleanupGuidanceLabelsArtifactLifecycleActions
+	// Scenario: Workflow cleanup explains artifact lifecycle actions explicitly
+	inputs := []WorkflowArtifactLifecycleInput{
+		{Path: "specs/workflow_artifact_lifecycle.md", Approved: true, Implemented: true},
+		{Path: "features/workflow_artifact_lifecycle.feature", Approved: true, Implemented: true},
+		{Path: "features/pending_contract.feature"},
+		{Path: "docs/old_process.md", ProcessOnly: true, RetirementReason: "temporary implementation notes"},
+		{Path: "docs/review_checklist.md"},
+		{Path: ".vela/graph.db"},
+		{Path: "captures/home/config.json", Content: `{"token":"fake-token-for-test"}`},
+	}
+
+	report := PrepareWorkflowArtifactCleanupGuidance(inputs)
+
+	assertCleanupGuidanceAction(t, report, "specs/workflow_artifact_lifecycle.md", WorkflowArtifactCleanupTrack)
+	assertCleanupGuidanceAction(t, report, "features/workflow_artifact_lifecycle.feature", WorkflowArtifactCleanupTrack)
+	assertCleanupGuidanceAction(t, report, "features/pending_contract.feature", WorkflowArtifactCleanupKeepPending)
+	assertCleanupGuidanceAction(t, report, "docs/old_process.md", WorkflowArtifactCleanupArchive)
+	assertCleanupGuidanceAction(t, report, "docs/review_checklist.md", WorkflowArtifactCleanupTrack)
+	assertCleanupGuidanceAction(t, report, ".vela/graph.db", WorkflowArtifactCleanupIgnore)
+	assertCleanupGuidanceAction(t, report, "captures/home/config.json", WorkflowArtifactCleanupDelete)
+	assertCleanupGuidanceDoesNotUseAction(t, report, "features/workflow_artifact_lifecycle.feature", WorkflowArtifactCleanupDelete)
+	assertCleanupGuidanceReason(t, report, "features/pending_contract.feature", "pending contract remains pending until human approval")
+	assertCleanupGuidanceReason(t, report, "features/workflow_artifact_lifecycle.feature", "active behavior contract remains tracked")
+}
+
+func TestSCN024_WorkflowCleanupGuidanceKeepsPendingContractBeforeArchiveCandidate(t *testing.T) {
+	// REQ-020 → SCN-024 → TestSCN024_WorkflowCleanupGuidanceKeepsPendingContractBeforeArchiveCandidate
+	// Scenario: Workflow cleanup explains artifact lifecycle actions explicitly
+	inputs := []WorkflowArtifactLifecycleInput{
+		{Path: "specs/pending_contract.md", ProcessOnly: true, RetirementReason: "stale draft contract"},
+	}
+
+	report := PrepareWorkflowArtifactCleanupGuidance(inputs)
+
+	assertCleanupGuidanceAction(t, report, "specs/pending_contract.md", WorkflowArtifactCleanupKeepPending)
+	assertCleanupGuidanceDoesNotUseAction(t, report, "specs/pending_contract.md", WorkflowArtifactCleanupArchive)
+	assertCleanupGuidanceReason(t, report, "specs/pending_contract.md", "pending contract remains pending until human approval")
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -727,6 +768,44 @@ func assertReviewSetExcludesPath(t *testing.T, plan WorkflowArtifactReviewSetPla
 		}
 	}
 	t.Fatalf("expected review set to exclude %s, got %#v", path, plan)
+}
+
+func assertCleanupGuidanceAction(t *testing.T, report WorkflowArtifactCleanupGuidanceReport, path string, want WorkflowArtifactCleanupActionKind) {
+	t.Helper()
+	for _, item := range report.Items {
+		if item.Path == path {
+			if item.Action != want {
+				t.Fatalf("expected cleanup action %q for %s, got %#v", want, path, item)
+			}
+			if item.Reason == "" {
+				t.Fatalf("expected cleanup guidance reason for %s, got %#v", path, item)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected cleanup guidance for %s in %#v", path, report)
+}
+
+func assertCleanupGuidanceDoesNotUseAction(t *testing.T, report WorkflowArtifactCleanupGuidanceReport, path string, forbidden WorkflowArtifactCleanupActionKind) {
+	t.Helper()
+	for _, item := range report.Items {
+		if item.Path == path && item.Action == forbidden {
+			t.Fatalf("expected cleanup guidance for %s not to use %q, got %#v", path, forbidden, item)
+		}
+	}
+}
+
+func assertCleanupGuidanceReason(t *testing.T, report WorkflowArtifactCleanupGuidanceReport, path, want string) {
+	t.Helper()
+	for _, item := range report.Items {
+		if item.Path == path {
+			if item.Reason != want {
+				t.Fatalf("expected cleanup reason %q for %s, got %#v", want, path, item)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected cleanup guidance reason for %s in %#v", path, report)
 }
 
 func assertPointerIssue(t *testing.T, report WorkflowPointerValidationReport, path string, want PointerIssueKind) {

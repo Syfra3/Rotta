@@ -625,3 +625,36 @@
   - `make fmt-check`
   - `make lint`
   - `git diff --check`
+
+## SCN-024 — Workflow cleanup explains artifact lifecycle actions explicitly
+
+### RED
+- Added `TestSCN024_WorkflowCleanupGuidanceLabelsArtifactLifecycleActions` for `REQ-020 → SCN-024`.
+- The test uses synthetic lifecycle inputs for active contracts, pending contracts, archive candidates, local caches, and sensitive outputs, then asserts each cleanup guidance item has an explicit action label and actionable reason.
+- Focused command: `go test ./internal/workflow -run TestSCN024_WorkflowCleanupGuidanceLabelsArtifactLifecycleActions -count=1`.
+- Expected failure observed before production code:
+  - `undefined: PrepareWorkflowArtifactCleanupGuidance`
+  - `undefined: WorkflowArtifactCleanupTrack`
+  - `undefined: WorkflowArtifactCleanupKeepPending`
+  - `undefined: WorkflowArtifactCleanupArchive`
+  - `undefined: WorkflowArtifactCleanupIgnore`
+  - `undefined: WorkflowArtifactCleanupDelete`
+
+### GREEN
+- Added pure cleanup guidance planning with the explicit labels `track`, `keep pending`, `archive`, `ignore`, and `delete`.
+- Active approved behavior contracts are labeled `track` rather than `delete`, pending contracts are labeled `keep pending` until human approval, archive candidates retain their archive reason, generated caches are ignored, and sensitive outputs are labeled for deletion guidance without moving or deleting files.
+- Focused command passed: `go test ./internal/workflow -run TestSCN024_WorkflowCleanupGuidanceLabelsArtifactLifecycleActions -count=1`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept SCN-024 as guidance/reporting only over synthetic fixtures; no real artifacts are deleted, moved, or read from private locations.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
+
+### REMEDIATION — Pending contract/archive precedence
+- Fresh review found a pending workflow contract path could be labeled `archive` when the same input also carried archive-candidate metadata.
+- RED: added `TestSCN024_WorkflowCleanupGuidanceKeepsPendingContractBeforeArchiveCandidate` with unapproved `specs/pending_contract.md` plus `ProcessOnly` and `RetirementReason`; focused command failed because the action was `archive` instead of `keep pending`.
+- GREEN: moved unapproved workflow contract handling before archive-candidate handling in `PrepareWorkflowArtifactCleanupGuidance`, while keeping sensitive rejection and generated-cache guidance ahead of contract/archive guidance.
+- Focused command passed: `go test ./internal/workflow -run 'TestSCN024_WorkflowCleanupGuidance(LabelsArtifactLifecycleActions|KeepsPendingContractBeforeArchiveCandidate)' -count=1`.
