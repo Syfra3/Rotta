@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/Syfra3/clean-workflow/compare/clean-workflow-v1.1.0...clean-workflow-v1.2.0) (2026-06-30)
+
+
+### Features
+
+* **installer:** add recovery backup restore ([f470a6d](https://github.com/Syfra3/clean-workflow/commit/f470a6d54db9846800b5b04a2272c25c86b8c4ca))
+
 ## [1.1.0](https://github.com/Syfra3/clean-workflow/compare/clean-workflow-v1.0.0...clean-workflow-v1.1.0) (2026-06-29)
 
 
