@@ -348,6 +348,29 @@
   - `make lint`
   - `git diff --check`
 
+## SCN-015 — Tests reference stable scenario IDs from feature files
+
+### RED
+- Added SCN-015 traceability coverage for `REQ-013 → REQ-019 → SCN-015`:
+  - `TestSCN015_FeatureScenarioParserKeepsStableIDsWhenScenarioOrderChanges` verifies feature parsing preserves `@SCN-015`, requirement tags, and feature identity even when scenario order changes.
+  - `TestSCN015_TestTraceValidatorRequiresScenarioIDAndFeatureIdentity` verifies test traces must include stable scenario IDs and feature identity when local scenario IDs can collide across feature files, including metadata and subtest naming conventions.
+- Focused command: `go test ./internal/workflow -run TestSCN015 -count=1`.
+- Expected failure observed before production code:
+  - `undefined: ParseFeatureScenarioTags`
+  - `undefined: FeatureScenario`
+  - `undefined: ValidateTestScenarioTrace`
+  - `undefined: TestScenarioTrace`
+
+### GREEN
+- Added pure feature scenario tag parsing and test trace validation seams in `internal/workflow/scenario_trace.go`.
+- The parser extracts feature path, stable `SCN-*` tags, requirement tags, and scenario names from repository feature text without relying on scenario order.
+- The validator accepts scenario IDs in test names, metadata, subtest names, or equivalent trace fields, and requires feature-qualified identity such as `features/workflow_artifact_lifecycle.feature#SCN-015` when another feature can contain the same local scenario ID.
+- Focused command passed: `go test ./internal/workflow -run TestSCN015 -count=1`.
+
+### REFACTOR
+- Formatted the new workflow parser and trace tests with `gofmt` and kept behavior pure with no live external service calls.
+- Focused command stayed green: `go test ./internal/workflow -run TestSCN015 -count=1`.
+
 ## SCN-016 — Ancora records pointer-only workflow state
 
 ### RED
