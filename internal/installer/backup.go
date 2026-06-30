@@ -35,6 +35,131 @@ type optionalIntegrations struct {
 	Vela   bool `json:"vela"`
 }
 
+type RestoreResult struct {
+	PreRestoreBackupDir string
+}
+
+func Backup(opts Options) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve home directory: %w", err)
+	}
+	projectPath := resolveProjectPath(opts.ProjectPath, home)
+	return createInstallBackup(opts, home, projectPath)
+}
+
+type restoreHooks struct {
+	afterRestorePath func(string) error
+}
+
+func RestoreBackup(backupDir string) (*RestoreResult, error) {
+	return restoreBackupWithHooks(backupDir, restoreHooks{})
+}
+
+func restoreBackupWithHooks(backupDir string, hooks restoreHooks) (*RestoreResult, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve home directory: %w", err)
+	}
+
+	manifest, err := loadBackupManifest(filepath.Join(backupDir, "manifest.json"))
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Status != "complete" {
+		return nil, fmt.Errorf("cannot restore incomplete backup")
+	}
+
+	opts := optionsFromManifest(manifest)
+	preRestoreBackupDir, err := createInstallBackup(opts, home, manifest.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("pre-restore safety backup: %w", err)
+	}
+	result := &RestoreResult{PreRestoreBackupDir: preRestoreBackupDir}
+
+	if err := applyBackupContents(backupDir, home, manifest, hooks); err != nil {
+		rollbackErr := restorePreRestoreBackup(preRestoreBackupDir, home)
+		if rollbackErr != nil {
+			return result, fmt.Errorf("restore failed for selected backup %s and rollback to pre-restore safety backup %s failed: %w", backupDir, preRestoreBackupDir, rollbackErr)
+		}
+		return result, fmt.Errorf("restore failed for selected backup %s: %w; rollback to pre-restore state succeeded", backupDir, err)
+	}
+
+	return result, nil
+}
+
+func applyBackupContents(backupDir, home string, manifest backupManifest, hooks restoreHooks) error {
+	for _, path := range manifest.BackedUpPaths {
+		if err := restoreBackedUpPath(backupDir, home, path); err != nil {
+			return err
+		}
+		if hooks.afterRestorePath != nil {
+			if err := hooks.afterRestorePath(path); err != nil {
+				return fmt.Errorf("restore failed after changing %s: %w", path, err)
+			}
+		}
+	}
+	for _, path := range manifest.MissingPaths {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("cannot remove path absent in backup %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func restorePreRestoreBackup(preRestoreBackupDir, home string) error {
+	manifest, err := loadBackupManifest(filepath.Join(preRestoreBackupDir, "manifest.json"))
+	if err != nil {
+		return err
+	}
+	return applyBackupContents(preRestoreBackupDir, home, manifest, restoreHooks{})
+}
+
+func loadBackupManifest(path string) (backupManifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return backupManifest{}, fmt.Errorf("cannot read backup manifest: %w", err)
+	}
+	var manifest backupManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return backupManifest{}, fmt.Errorf("cannot parse backup manifest: %w", err)
+	}
+	return manifest, nil
+}
+
+func optionsFromManifest(manifest backupManifest) Options {
+	return Options{
+		Target:        manifest.Target,
+		ProjectPath:   manifest.ProjectPath,
+		InstallSpec:   manifest.SelectedModes.Spec,
+		InstallImpl:   manifest.SelectedModes.Implementation,
+		InstallReview: manifest.SelectedModes.Review,
+		SetupAncora:   manifest.OptionalIntegrations.Ancora,
+		SetupVela:     manifest.OptionalIntegrations.Vela,
+	}
+}
+
+func restoreBackedUpPath(backupDir, home, path string) error {
+	src := backupDestination(backupDir, home, path)
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("cannot read backed-up path %s: %w", path, err)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("cannot prepare restore destination %s: %w", path, err)
+	}
+	if info.IsDir() {
+		if err := copyDir(src, path); err != nil {
+			return fmt.Errorf("cannot restore directory %s: %w", path, err)
+		}
+		return nil
+	}
+	if err := copyFile(src, path, info.Mode()); err != nil {
+		return fmt.Errorf("cannot restore file %s: %w", path, err)
+	}
+	return nil
+}
+
 func createInstallBackup(opts Options, home, projectPath string) (string, error) {
 	backupDir, timestamp, err := nextBackupDir(home)
 	if err != nil {

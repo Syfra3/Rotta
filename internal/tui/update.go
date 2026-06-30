@@ -1,6 +1,12 @@
 package tui
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+
 	"github.com/Syfra3/clean-workflow/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,6 +73,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case ScreenSuccess, ScreenError:
 		return m.updateDone(msg)
+	case ScreenRecoveryList:
+		return m.updateRecoveryList(msg)
+	case ScreenRecoveryPreview:
+		return m.updateRecoveryPreview(msg)
+	case ScreenRecoveryConfirm:
+		return m.updateRecoveryConfirm(msg)
 	}
 	return m, nil
 }
@@ -76,10 +88,70 @@ func (m Model) updateWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.PrevScreen = ScreenWelcome
 		m.Screen = ScreenTargetSelect
+	case "r":
+		m.PrevScreen = ScreenWelcome
+		m.Screen = ScreenRecoveryList
+		m.RecoveryBackups, m.RecoveryError = loadRecoveryBackups()
 	case "q":
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m Model) updateRecoveryList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.RecoveryCursor < len(m.RecoveryBackups)-1 {
+			m.RecoveryCursor++
+		}
+	case "k", "up":
+		if m.RecoveryCursor > 0 {
+			m.RecoveryCursor--
+		}
+	case "enter", " ":
+		if len(m.RecoveryBackups) > 0 {
+			m.Screen = ScreenRecoveryPreview
+		}
+	case "esc", "b":
+		m.Screen = ScreenWelcome
+	}
+	return m, nil
+}
+
+func (m Model) updateRecoveryPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		m.Screen = ScreenRecoveryConfirm
+	case "esc", "b":
+		m.Screen = ScreenRecoveryList
+	}
+	return m, nil
+}
+
+func (m Model) updateRecoveryConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "enter":
+		if len(m.RecoveryBackups) == 0 || m.RecoveryCursor >= len(m.RecoveryBackups) {
+			return m, nil
+		}
+		backupDir := m.RecoveryBackups[m.RecoveryCursor].BackupDir
+		m.Installing = true
+		m.Screen = ScreenInstalling
+		return m, restoreBackupCmd(backupDir)
+	case "esc", "b":
+		m.Screen = ScreenRecoveryPreview
+	}
+	return m, nil
+}
+
+func restoreBackupCmd(backupDir string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := installer.RestoreBackup(backupDir)
+		return installDoneMsg{
+			result: &installer.Result{Target: "restore", Files: []string{"Restored backup: " + backupDir}},
+			err:    err,
+		}
+	}
 }
 
 func (m Model) updateTargetSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -258,4 +330,68 @@ func runInstall(m Model) tea.Cmd {
 		result, err := installer.Install(opts)
 		return installDoneMsg{result: result, err: err}
 	}
+}
+
+func loadRecoveryBackups() ([]recoveryBackup, string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Sprintf("cannot resolve home directory: %v", err)
+	}
+	root := filepath.Join(home, ".clean-workflow", "backups")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ""
+		}
+		return nil, fmt.Sprintf("cannot read backups: %v", err)
+	}
+
+	var backups []recoveryBackup
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		backupDir := filepath.Join(root, entry.Name())
+		backup, ok := readRecoveryBackup(filepath.Join(backupDir, "manifest.json"))
+		if ok {
+			backup.BackupDir = backupDir
+			backups = append(backups, backup)
+		}
+	}
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].Timestamp > backups[j].Timestamp
+	})
+	return backups, ""
+}
+
+func readRecoveryBackup(path string) (recoveryBackup, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return recoveryBackup{}, false
+	}
+	var manifest struct {
+		Timestamp            string                       `json:"timestamp"`
+		ProjectPath          string                       `json:"project_path"`
+		Target               string                       `json:"target"`
+		SelectedModes        recoverySelectedModes        `json:"selected_modes"`
+		OptionalIntegrations recoveryOptionalIntegrations `json:"optional_integrations"`
+		BackedUpPaths        []string                     `json:"backed_up_paths"`
+		MissingPaths         []string                     `json:"missing_paths"`
+		Status               string                       `json:"status"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return recoveryBackup{}, false
+	}
+	if manifest.Status != "complete" || manifest.Timestamp == "" || manifest.ProjectPath == "" {
+		return recoveryBackup{}, false
+	}
+	return recoveryBackup{
+		Timestamp:            manifest.Timestamp,
+		ProjectPath:          manifest.ProjectPath,
+		Target:               manifest.Target,
+		SelectedModes:        manifest.SelectedModes,
+		OptionalIntegrations: manifest.OptionalIntegrations,
+		BackedUpPaths:        manifest.BackedUpPaths,
+		MissingPaths:         manifest.MissingPaths,
+	}, true
 }
