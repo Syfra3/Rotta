@@ -586,3 +586,42 @@
   - `make fmt-check`
   - `make lint`
   - `git diff --check`
+
+## SCN-022 — Backup outputs and sensitive config captures are rejected as workflow artifacts
+
+### RED
+- Added SCN-022 lifecycle coverage for `REQ-018 → SCN-022`:
+  - `TestSCN022_SensitiveBackupAndMachineStateArtifactsAreRejected` verifies backup outputs, restore snapshots, user config captures, token-bearing files, and private machine-state files are rejected as workflow artifacts and require delete/ignore/sanitized replacement handling.
+  - `TestSCN022_ReviewSetRejectsSensitiveFixturesAndKeepsSanitizedExamples` verifies review-set preparation excludes sensitive active spec/config captures while keeping active features and sanitized authored examples.
+- Focused command: `go test ./internal/workflow -run TestSCN022 -count=1`.
+- Expected failure observed before production code:
+  - `unknown field Content in struct literal of type WorkflowArtifactLifecycleInput`
+  - `undefined: WorkflowArtifactRejectedSensitive`
+  - `classification.RequiresSanitizedReplacement undefined`
+
+### GREEN
+- Added sensitive artifact classification for backup/restore paths, captured user config paths, token/secret-bearing paths or contents, and private machine-state markers.
+- Sensitive artifacts fail closed outside the review set and require deletion, ignore, or replacement with a sanitized authored example; examples containing redacted placeholders remain review candidates.
+- Focused command passed: `go test ./internal/workflow -run TestSCN022 -count=1`.
+
+### REFACTOR
+- Formatted changed workflow files with `gofmt` and kept SCN-022 as pure classification/review planning over synthetic test content only; no real secret files or private machine-state files are read, moved, or deleted.
+- Focused command stayed green: `go test ./internal/workflow -run TestSCN022 -count=1`.
+- Coverage evidence: `go test ./internal/workflow -coverprofile=/tmp/opencode/scn022-workflow.cover -covermode=count -count=1` and `go tool cover -func=/tmp/opencode/scn022-workflow.cover` reported package coverage at 92.5%, with SCN-022 changed functions at 100.0% except unchanged pre-existing functions outside this scenario.
+- Final verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
+
+### REVIEW REMEDIATION
+- Added adversarial SCN-022 regression coverage for redacted example content under sensitive backup, capture, token-bearing, and private machine-state paths.
+- Confirmed RED failure exposed the review finding: sanitized example allowance let `backups/example/...`, `captures/example/...`, `docs/examples/api-token...`, and `machine-state/example/...` stay review candidates despite sensitive path markers.
+- Fixed classification order so sensitive path and path-marker checks fail closed before sanitized authored examples can be allowed.
+- Focused remediation command passed: `go test ./internal/workflow -run TestSCN022 -count=1`.
+- Focused remediation coverage command passed: `go test ./internal/workflow -run TestSCN022 -coverprofile=/tmp/opencode/scn022-remediation.cover -covermode=count -count=1`; changed sensitive classifier helpers reported 100.0% coverage.
+- Final remediation verification stayed green:
+  - `go test ./...`
+  - `make fmt-check`
+  - `make lint`
+  - `git diff --check`
