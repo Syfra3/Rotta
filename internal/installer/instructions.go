@@ -69,11 +69,11 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 
 - Rotta controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
 - %s
-- Rotta install persists a host-level Vela freshness guard (OpenCode plugin and Claude Code hooks) that updates or builds the current registered workspace graph only before Vela graph query tools run, with visible start/end/fallback feedback on stderr.
-- At session start, run `+"`vela_status`"+` once like `+"`ancora_context`"+` to cache graph freshness/readiness before any structural graph answer.
+- Rotta install persists a host-level Vela freshness guard (OpenCode plugin and Claude Code hooks) that schedules non-blocking background graph refresh before Vela graph query tools run.
+- Do not run Vela status, update, or build at session start just because Vela is enabled.
 - If Vela is intentionally skipped for an answer, do not call graph tools just because they are available.
-- Before any `+"`vela_explore`"+`, dependency, impact, path, or architecture query, use the cached `+"`vela_status`"+` result; if no status exists, run `+"`vela_status`"+` first.
-- If graph data is missing or stale, trigger extraction/indexing first with `+"`vela update`"+`, `+"`vela build`"+`, `+"`vela extract <project>`"+`, or the available Vela install/build command, then query the graph.
+- Before any `+"`vela_explore`"+`, dependency, impact, path, or architecture query, expect the guard to schedule refresh in the background; the cached graph may be used while refresh runs.
+- If the user asks for a foreground refresh, run `+"`vela update <workspace>`"+` or `+"`vela build <workspace>`"+` explicitly and report the result before querying.
 - Use Vela for structural questions only: dependencies, reverse dependencies, impact, paths, ownership, and architecture explanation.
 - Do not send bag-of-words or broad feature descriptions directly to Vela. First identify concrete files, symbols, types, DTOs, services, handlers, or modules.
 - If confidence is low, graph data is stale, or graph gaps remain, report the gaps and confidence level to the orchestrator. The orchestrator decides whether to spend more exploration effort.
