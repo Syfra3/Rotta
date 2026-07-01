@@ -277,7 +277,7 @@ func (m Model) viewVela() string {
 	b.WriteString(sectionStyle.Render("What Vela does") + "\n")
 	b.WriteString(menuItemStyle.Render("  Extracts local code graphs for structural, dependency, and impact questions") + "\n")
 	b.WriteString(menuItemStyle.Render("  Provides vela_* graph tools when graph data exists and is fresh") + "\n")
-	b.WriteString(menuItemStyle.Render("  Installs a freshness guard that updates or builds stale graphs before graph queries") + "\n")
+	b.WriteString(menuItemStyle.Render("  Installs a freshness guard that shows update/build feedback before graph queries") + "\n")
 	b.WriteString(menuItemStyle.Render("  Enriches workflow exploration with facts, provenance, confidence, and source") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("Workflow boundary") + "\n")
@@ -290,8 +290,8 @@ func (m Model) viewVela() string {
 	}
 
 	b.WriteString(sectionStyle.Render("Freshness guard") + "\n")
-	b.WriteString(menuItemStyle.Render("  OpenCode plugin: runs before Vela graph tools and refreshes the current workspace graph") + "\n")
-	b.WriteString(menuItemStyle.Render("  Claude Code hooks: warm graph freshness on session start and before Vela graph tools") + "\n\n")
+	b.WriteString(menuItemStyle.Render("  OpenCode plugin: runs before Vela graph tools and prints update/build progress") + "\n")
+	b.WriteString(menuItemStyle.Render("  Claude Code hook: runs before Vela graph tools and prints update/build progress to stderr") + "\n\n")
 
 	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("If Vela is missing, the installer tries Homebrew. If unavailable, install Vela from source and rerun setup.") + "\n\n")
 
@@ -424,10 +424,10 @@ func (m Model) viewConfirm() string {
 	}
 	if m.SetupVela {
 		b.WriteString(menuItemStyle.Render("  <project>/.vela/graph.db  (initialized, not extracted)") + "\n")
-		b.WriteString(menuItemStyle.Render("  graph freshness guard  (updates/builds before Vela graph queries)") + "\n")
+		b.WriteString(menuItemStyle.Render("  graph freshness guard  (visible update/build feedback before Vela graph queries)") + "\n")
 		if m.Target == "claude-code" || m.Target == "both" {
 			b.WriteString(menuItemStyle.Render("  ~/.claude/hooks/rotta-vela-freshness-guard.sh") + "\n")
-			b.WriteString(menuItemStyle.Render("  ~/.claude/settings.json  (SessionStart + PreToolUse hooks)") + "\n")
+			b.WriteString(menuItemStyle.Render("  ~/.claude/settings.json  (PreToolUse hook)") + "\n")
 		}
 		if m.Target == "opencode" || m.Target == "both" {
 			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/plugin/rotta-vela-freshness-guard.js") + "\n")

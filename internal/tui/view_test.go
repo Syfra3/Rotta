@@ -105,9 +105,10 @@ func TestSCN002_TUIVelaCopyMentionsFreshnessGuard(t *testing.T) {
 	velaView := model.viewVela()
 	for _, want := range []string{
 		"freshness guard",
-		"updates or builds stale graphs before graph queries",
+		"shows update/build feedback before graph queries",
 		"OpenCode plugin",
-		"Claude Code hooks",
+		"Claude Code hook",
+		"stderr",
 	} {
 		if !strings.Contains(velaView, want) {
 			t.Fatalf("expected Vela screen to mention %q:\n%s", want, velaView)
