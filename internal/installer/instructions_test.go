@@ -41,13 +41,16 @@ func TestIntegrationInstructionsWhenAncoraDisabledAndVelaEnabled(t *testing.T) {
 		"Do not call `ancora_*` tools",
 		"### Vela Graph Intelligence Enabled",
 		"Vela may be available as standalone `vela_*` MCP tools",
-		"vela_status",
+		"non-blocking background graph refresh",
+		"cached graph may be used while refresh runs",
 		"vela update",
 		"vela build",
-		"trigger extraction/indexing first",
+		"foreground refresh",
 		"provenance",
 		"confidence",
 	})
+	assertNotContains(t, got, "At session start, run `vela_status`")
+	assertNotContains(t, got, "visible start/end/fallback feedback")
 	assertNotContains(t, got, "Ancora remains the primary MCP surface")
 }
 
@@ -58,11 +61,13 @@ func TestIntegrationInstructionsWhenAncoraAndVelaEnabled(t *testing.T) {
 		"### Ancora Memory Enabled",
 		"### Vela Graph Intelligence Enabled",
 		"Ancora remains the primary MCP surface",
-		"vela_status",
-		"trigger extraction/indexing first",
+		"non-blocking background graph refresh",
+		"cached graph may be used while refresh runs",
+		"foreground refresh",
 		"provenance",
 		"confidence",
 	})
+	assertNotContains(t, got, "At session start, run `vela_status`")
 }
 
 func TestReadRenderedAssetAppendsDisabledIntegrationInstructions(t *testing.T) {
@@ -97,8 +102,9 @@ func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
 		"ancora_save",
 		"### Vela Graph Intelligence Enabled",
 		"Ancora remains the primary MCP surface",
-		"vela_status",
+		"non-blocking background graph refresh",
 	})
+	assertNotContains(t, got, "At session start, run `vela_status`")
 }
 
 func TestVelaBinCandidatesIncludesLinuxbrew(t *testing.T) {

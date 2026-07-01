@@ -337,10 +337,13 @@ func shellCommandForPath(path string) string {
 }
 
 func openCodeVelaFreshnessGuardPlugin() string {
-	return `import { spawnSync } from "node:child_process";
+	return `import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
+
+const REFRESH_DEBOUNCE_MS = 60_000;
+const scheduledRefreshes = new Map();
 
 const GRAPH_QUERY_TOOLS = new Set([
   "vela_explore",
@@ -418,47 +421,29 @@ function resolveWorkspace(input, output, context) {
   return matches[0] || null;
 }
 
-function runVela(command, workspace) {
-  return spawnSync("vela", [command, workspace], {
-    cwd: workspace,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
-function elapsed(startedAt) {
-  return ((Date.now() - startedAt) / 1000).toFixed(1) + "s";
-}
-
-function refreshVelaGraph(workspace, reason) {
+function scheduleVelaGraphRefresh(workspace, reason) {
   if (!workspace) return;
-  const updateStartedAt = Date.now();
-  console.error("Rotta Vela: updating graph for " + workspace + " before " + reason + "...");
-  const update = runVela("update", workspace); // vela update <workspace>
-  if (update.status === 0) {
-    console.error("Rotta Vela: update complete in " + elapsed(updateStartedAt) + ".");
+  const now = Date.now();
+  const previous = scheduledRefreshes.get(workspace) || 0;
+  if (now - previous < REFRESH_DEBOUNCE_MS) {
     return;
   }
+  scheduledRefreshes.set(workspace, now);
 
-  console.error("Rotta Vela: update failed; rebuilding graph for " + workspace + "...");
-  const buildStartedAt = Date.now();
-  const build = runVela("build", workspace); // vela build <workspace>
-  if (build.status === 0) {
-    console.error("Rotta Vela: build complete in " + elapsed(buildStartedAt) + ".");
-    return;
+  try {
+    const child = spawn("sh", ["-c", "vela update \"$1\" >/dev/null 2>&1 || vela build \"$1\" >/dev/null 2>&1", "sh", workspace], {
+      cwd: workspace,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", (error) => {
+      console.error("Rotta Vela refresh not scheduled for " + workspace + ": " + (error?.message || error));
+    });
+    child.unref();
+    console.error("Rotta Vela refresh scheduled in background for " + workspace + " before " + reason + ".");
+  } catch (error) {
+    console.error("Rotta Vela refresh not scheduled for " + workspace + ": " + (error?.message || error));
   }
-
-  console.error(
-    "Rotta Vela: build failed after update failure. " +
-      "update: " + (update.stderr || update.stdout || update.error || "failed") + "; " +
-      "build: " + (build.stderr || build.stdout || build.error || "failed"),
-  );
-  throw new Error(
-    "Rotta Vela freshness guard blocked " + reason + " for " + workspace + ". " +
-      "Tried \"vela update " + workspace + "\" and \"vela build " + workspace + "\". " +
-      "update: " + (update.stderr || update.stdout || update.error || "failed") + "; " +
-      "build: " + (build.stderr || build.stdout || build.error || "failed"),
-  );
 }
 
 export const RottaVelaFreshnessGuard = async ({ directory, worktree }) => {
@@ -468,7 +453,7 @@ export const RottaVelaFreshnessGuard = async ({ directory, worktree }) => {
     "tool.execute.before": async (input, output) => {
       const toolName = input?.tool || input?.toolName || output?.tool || output?.name || "";
       if (!isVelaGraphQueryTool(toolName)) return;
-      refreshVelaGraph(resolveWorkspace(input, output, context), "graph query " + toolName);
+      scheduleVelaGraphRefresh(resolveWorkspace(input, output, context), "graph query " + toolName);
     },
   };
 };
@@ -616,30 +601,52 @@ if [ -z "$workspace" ]; then
 fi
 
 if ! command -v vela >/dev/null 2>&1; then
-  echo "Rotta Vela freshness guard blocked graph query: vela binary not found. Install Vela, then rerun rotta install." >&2
-  exit 2
-fi
-
-update_started_at=$SECONDS
-echo "Rotta Vela: updating graph for $workspace before graph query $tool_name..." >&2
-if vela update "$workspace" >&2; then # vela update <workspace>
-  echo "Rotta Vela: update complete in $((SECONDS - update_started_at))s." >&2
+  echo "Rotta Vela refresh not scheduled: vela binary not found. Install Vela, then rerun rotta install." >&2
   exit 0
 fi
-update_status=$?
 
-echo "Rotta Vela: update failed; rebuilding graph for $workspace..." >&2
-build_started_at=$SECONDS
-if vela build "$workspace" >&2; then # vela build <workspace>
-  echo "Rotta Vela: build complete in $((SECONDS - build_started_at))s." >&2
-  exit 0
-fi
-build_status=$?
+schedule_refresh() {
+  local workspace="$1"
+  local tool_name="$2"
+  local cache_root
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    cache_root="$XDG_CACHE_HOME/rotta-vela-freshness"
+  else
+    cache_root="${TMPDIR:-/tmp}/rotta-vela-freshness"
+  fi
+  local key
+  if command -v sha256sum >/dev/null 2>&1; then
+    key="$(printf '%s' "$workspace" | sha256sum | cut -d ' ' -f 1)"
+  else
+    key="$(printf '%s' "$workspace" | tr '/ :' '___')"
+  fi
+  local stamp="$cache_root/$key.stamp"
+  local lock="$cache_root/$key.lock"
+  mkdir -p "$cache_root" || return 0
 
-echo "Rotta Vela: build failed after update failure." >&2
-echo "Rotta Vela freshness guard blocked graph query for $workspace." >&2
-echo "Tried: vela update $workspace (exit $update_status), then vela build $workspace (exit $build_status)." >&2
-echo "Run 'vela build $workspace' manually or fix Vela installation, then retry the graph query." >&2
-exit 2
+  if [ -f "$stamp" ]; then
+    local now
+    local modified
+    now="$(date +%s)"
+    modified="$(stat -c %Y "$stamp" 2>/dev/null || date -r "$stamp" +%s 2>/dev/null || printf 0)"
+    if [ $((now - modified)) -lt 60 ]; then
+      return 0
+    fi
+  fi
+  if ! ( set -C; : > "$lock" ) 2>/dev/null; then
+    return 0
+  fi
+  : > "$stamp"
+
+  (
+    trap 'rm -f "$lock"' EXIT
+    vela update "$workspace" >/dev/null 2>&1 || vela build "$workspace" >/dev/null 2>&1
+  ) </dev/null >/dev/null 2>&1 &
+
+  echo "Rotta Vela refresh scheduled in background for $workspace before graph query $tool_name." >&2
+}
+
+schedule_refresh "$workspace" "$tool_name"
+exit 0
 `
 }

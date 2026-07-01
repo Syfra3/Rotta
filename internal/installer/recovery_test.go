@@ -186,6 +186,12 @@ func TestSCN002_OpenCodeInstallMigratesLegacyBobAndCleanAgents(t *testing.T) {
 	if rottaOrchestrator["mode"] != "primary" || rottaOrchestrator["prompt"] == "old" {
 		t.Fatalf("expected Rotta orchestrator to be freshly installed as primary, got %#v", rottaOrchestrator)
 	}
+	for _, builtIn := range []string{"build", "plan"} {
+		entry := agents[builtIn].(map[string]interface{})
+		if entry["disable"] != true {
+			t.Fatalf("expected OpenCode built-in agent %s to be disabled by default, got %#v", builtIn, entry)
+		}
+	}
 	for _, rottaSubagent := range []string{"rotta-spec", "rotta-impl", "rotta-review"} {
 		entry := agents[rottaSubagent].(map[string]interface{})
 		if entry["mode"] != "subagent" || entry["hidden"] != true {
@@ -257,6 +263,88 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	assertPathMissing(t, filepath.Join(home, ".claude", "vela-mcp.json"))
 	assertPathMissing(t, filepath.Join(home, ".claude", "vela-instructions.md"))
 	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "instructions.md"))
+}
+
+func TestSCN002_OpenCodeAncoraAndVelaInstallSeparateMCPServers(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_OpenCodeAncoraAndVelaInstallSeparateMCPServers
+	// Scenario: Successful install configures selected optional integrations for OpenCode.
+	for _, target := range []string{"opencode", "both"} {
+		t.Run(target, func(t *testing.T) {
+			home := t.TempDir()
+			projectPath := filepath.Join(home, "project")
+			binDir := filepath.Join(home, "bin")
+			logPath := filepath.Join(home, "setup.log")
+			t.Setenv("HOME", home)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+printf 'ancora %s\n' "$*" >> "$HOME/setup.log"
+if [ "$1" = setup ] && [ "$2" = opencode ]; then
+  mkdir -p "$HOME/.config/opencode"
+  printf '{"mcp":{"ancora":{"type":"local","enabled":true}}}' > "$HOME/.config/opencode/opencode.jsonc"
+fi
+`)
+			writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+project=""
+agent=""
+opencode_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+    --agent) shift; agent="$1" ;;
+    --opencode-dir) shift; opencode_dir="$1" ;;
+  esac
+  shift
+done
+mkdir -p "$project/.vela"
+printf 'fresh graph' > "$project/.vela/graph.db"
+if [ "$agent" = opencode ]; then
+  mkdir -p "$opencode_dir"
+  printf '{"mcp":{"vela":{"type":"local","enabled":true}}}' > "$opencode_dir/opencode.json"
+fi
+`)
+
+			_, err := Install(Options{
+				Target:      target,
+				ProjectPath: projectPath,
+				InstallSpec: true,
+				SetupAncora: true,
+				SetupVela:   true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			opencodeJSONC := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"))
+			opencodeJSON := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
+			assertMCPEntryExists(t, opencodeJSONC, "ancora")
+			assertMCPEntryExists(t, opencodeJSON, "vela")
+			if _, ok := opencodeJSONC["mcp"].(map[string]interface{})["vela"]; ok {
+				t.Fatalf("expected Ancora config not to contain direct Vela MCP, got %#v", opencodeJSONC)
+			}
+			if _, ok := opencodeJSON["mcp"].(map[string]interface{})["ancora"]; ok {
+				t.Fatalf("expected Vela config not to contain Ancora MCP, got %#v", opencodeJSON)
+			}
+			assertFileContains(t, logPath, "ancora setup opencode")
+			assertFileContains(t, logPath, "vela install --project "+projectPath+" --agent opencode")
+		})
+	}
+}
+
+func assertMCPEntryExists(t *testing.T, config map[string]interface{}, name string) {
+	t.Helper()
+	mcp, ok := config["mcp"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected mcp map in config, got %#v", config)
+	}
+	entry, ok := mcp[name].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected mcp.%s entry in config, got %#v", name, config)
+	}
+	if entry["enabled"] != true {
+		t.Fatalf("expected mcp.%s to be enabled, got %#v", name, entry)
+	}
 }
 
 func TestSCN023_ExternalSetupOutputIsRoutedThroughInstallOptions(t *testing.T) {

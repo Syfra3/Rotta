@@ -105,10 +105,10 @@ func TestSCN002_TUIVelaCopyMentionsFreshnessGuard(t *testing.T) {
 	velaView := model.viewVela()
 	for _, want := range []string{
 		"freshness guard",
-		"shows update/build feedback before graph queries",
+		"schedules non-blocking refresh before graph queries",
 		"OpenCode plugin",
 		"Claude Code hook",
-		"stderr",
+		"cached graph may be used while refresh runs",
 	} {
 		if !strings.Contains(velaView, want) {
 			t.Fatalf("expected Vela screen to mention %q:\n%s", want, velaView)
@@ -122,10 +122,36 @@ func TestSCN002_TUIVelaCopyMentionsFreshnessGuard(t *testing.T) {
 		"~/.config/opencode/plugin/rotta-vela-freshness-guard.js",
 		"~/.claude/hooks/rotta-vela-freshness-guard.sh",
 		"graph freshness guard",
+		"non-blocking refresh before Vela graph queries",
 	} {
 		if !strings.Contains(confirmView, want) {
 			t.Fatalf("expected confirm screen to mention %q:\n%s", want, confirmView)
 		}
+	}
+}
+
+func TestSCN002_TUIOpenCodePreviewShowsSeparateAncoraAndVelaMCPs(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_TUIOpenCodePreviewShowsSeparateAncoraAndVelaMCPs
+	// Scenario: Successful install configures selected optional integrations for OpenCode.
+	for _, target := range []string{TargetOpenCode, TargetBoth} {
+		t.Run(target, func(t *testing.T) {
+			model := New()
+			model.Screen = ScreenConfirm
+			model.Target = target
+			model.ProjectPath = "/tmp/project"
+			model.SetupAncora = true
+			model.SetupVela = true
+
+			got := model.viewConfirm()
+			for _, want := range []string{
+				"~/.config/opencode/opencode.jsonc  (mcp.ancora)",
+				"~/.config/opencode/opencode.json  (mcp.vela)",
+			} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("missing %q:\n%s", want, got)
+				}
+			}
+		})
 	}
 }
 

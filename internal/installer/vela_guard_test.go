@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSCN002_OpenCodeInstallPersistsVelaFreshnessGuard(t *testing.T) {
@@ -50,8 +51,13 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 
 	assertPathExists(t, pluginPath)
 	assertFileContains(t, pluginPath, "tool.execute.before")
+	assertFileContains(t, pluginPath, "scheduleVelaGraphRefresh")
+	assertFileContains(t, pluginPath, "Vela refresh scheduled in background")
 	assertFileContains(t, pluginPath, "vela update")
 	assertFileContains(t, pluginPath, "vela build")
+	assertFileDoesNotContain(t, pluginPath, "stale plugin should be backed up")
+	assertFileDoesNotContain(t, pluginPath, "session.created")
+	assertFileDoesNotContain(t, pluginPath, "spawnSync")
 	assertStringListContains(t, result.Files, pluginPath)
 
 	manifest := readBackupManifest(t, filepath.Join(result.BackupDir, "manifest.json"))
@@ -222,6 +228,7 @@ func TestSCN002_VelaFreshnessGuardContentTargetsGraphQueriesOnly(t *testing.T) {
 			"vela build",
 			"vela_status",
 			"isVelaGraphQueryTool",
+			"Vela refresh scheduled in background",
 			"vela_explore",
 			"vela_lookup",
 			"vela_dependencies",
@@ -243,19 +250,20 @@ func TestSCN002_VelaFreshnessGuardContentTargetsGraphQueriesOnly(t *testing.T) {
 	assertFileContains(t, pluginPath, "homeRoot")
 	assertFileContains(t, hookPath, "registry.json")
 	assertFileContains(t, hookPath, "repo_root")
-	assertFileContains(t, pluginPath, "console.error")
-	assertFileContains(t, pluginPath, "Rotta Vela: updating graph for")
-	assertFileContains(t, pluginPath, "Rotta Vela: update complete")
-	assertFileContains(t, pluginPath, "Rotta Vela: update failed; rebuilding")
-	assertFileContains(t, pluginPath, "Rotta Vela: build complete")
-	assertFileContains(t, hookPath, "Rotta Vela: updating graph for")
-	assertFileContains(t, hookPath, "Rotta Vela: update complete")
-	assertFileContains(t, hookPath, "Rotta Vela: update failed; rebuilding")
-	assertFileContains(t, hookPath, "Rotta Vela: build complete")
+	assertFileContains(t, pluginPath, "spawn(")
+	assertFileContains(t, pluginPath, "child.on(\"error\"")
+	assertFileContains(t, pluginPath, "detached: true")
+	assertFileContains(t, pluginPath, "scheduleVelaGraphRefresh")
+	assertFileDoesNotContain(t, pluginPath, "spawnSync")
+	assertFileDoesNotContain(t, pluginPath, "throw new Error")
+	assertFileContains(t, hookPath, "schedule_refresh")
+	assertFileContains(t, hookPath, "Vela refresh scheduled in background")
+	assertFileContains(t, hookPath, "&")
+	assertFileDoesNotContain(t, hookPath, "freshness guard blocked")
 }
 
-func TestSCN002_ClaudeVelaFreshnessHookUsesRegisteredWorkspaceAndBuildsWhenUpdateFails(t *testing.T) {
-	// REQ-004 → SCN-002 → TestSCN002_ClaudeVelaFreshnessHookUsesRegisteredWorkspaceAndBuildsWhenUpdateFails
+func TestSCN002_ClaudeVelaFreshnessHookSchedulesRegisteredWorkspaceRefreshInBackground(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_ClaudeVelaFreshnessHookSchedulesRegisteredWorkspaceRefreshInBackground
 	// Scenario: Successful install cleans previous rotta settings before fresh install
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
@@ -289,8 +297,14 @@ exit 0
 		t.Fatalf("expected non-query and vela_status hooks not to run vela, stat err=%v", err)
 	}
 
-	runHook(t, hookPath, `{"tool_name":"mcp__vela__dependencies","cwd":"`+nestedPath+`"}`)
-	log := readFileString(t, logPath)
+	stdout, stderr := runHookOutput(t, hookPath, `{"tool_name":"mcp__vela__dependencies","cwd":"`+nestedPath+`"}`)
+	if stdout != "" {
+		t.Fatalf("expected hook stdout to stay clean, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Vela refresh scheduled in background") {
+		t.Fatalf("expected scheduled feedback, got stderr %q", stderr)
+	}
+	log := waitForFileContains(t, logPath, "build "+projectPath)
 	if !strings.Contains(log, "update "+projectPath) || !strings.Contains(log, "build "+projectPath) {
 		t.Fatalf("expected hook to try update then build for registered project root, got log %q", log)
 	}
@@ -299,7 +313,7 @@ exit 0
 	}
 }
 
-func TestSCN002_ClaudeVelaFreshnessHookPrintsFeedbackToStderrAndKeepsStdoutClean(t *testing.T) {
+func TestSCN002_ClaudeVelaFreshnessHookPrintsScheduledFeedbackToStderrAndKeepsStdoutClean(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_ClaudeVelaFreshnessHookPrintsFeedbackToStderrAndKeepsStdoutClean
 	// Scenario: Successful install cleans previous rotta settings before fresh install
 	home := t.TempDir()
@@ -309,8 +323,7 @@ func TestSCN002_ClaudeVelaFreshnessHookPrintsFeedbackToStderrAndKeepsStdoutClean
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	writeTestFile(t, filepath.Join(home, ".vela", "registry.json"), []byte(`{"workspaces":[{"repo_root":"`+projectPath+`"}]}`))
 	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
-printf 'stdout from vela %s\n' "$1"
-printf 'stderr from vela %s\n' "$1" >&2
+printf '%s\n' "$1" >> "$HOME/vela.log"
 if [ "$1" = update ]; then
   exit 42
 fi
@@ -325,17 +338,53 @@ exit 0
 	if stdout != "" {
 		t.Fatalf("expected Claude hook stdout to stay clean, got %q", stdout)
 	}
-	for _, want := range []string{
-		"Rotta Vela: updating graph for " + projectPath,
-		"stdout from vela update",
-		"stderr from vela update",
-		"Rotta Vela: update failed; rebuilding",
-		"stdout from vela build",
-		"stderr from vela build",
-		"Rotta Vela: build complete",
-	} {
-		if !strings.Contains(stderr, want) {
-			t.Fatalf("expected stderr to contain %q, got %q", want, stderr)
+	if !strings.Contains(stderr, "Rotta Vela refresh scheduled in background for "+projectPath) {
+		t.Fatalf("expected concise scheduled feedback, got %q", stderr)
+	}
+	if strings.Contains(stderr, "stdout from vela") || strings.Contains(stderr, "stderr from vela") || strings.Contains(stderr, "update failed") {
+		t.Fatalf("expected hook not to stream background refresh output, got %q", stderr)
+	}
+	waitForFileContains(t, filepath.Join(home, "vela.log"), "build")
+}
+
+func TestSCN002_ClaudeVelaFreshnessHookUsesXDGCacheSubdirectory(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_ClaudeVelaFreshnessHookUsesXDGCacheSubdirectory
+	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	xdgCacheHome := filepath.Join(home, "xdg-cache")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", xdgCacheHome)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeTestFile(t, filepath.Join(home, ".vela", "registry.json"), []byte(`{"workspaces":[{"repo_root":"`+projectPath+`"}]}`))
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf '%s\n' "$1" >> "$HOME/vela.log"
+exit 0
+`)
+	if _, err := installClaudeCodeVelaFreshnessGuard(home); err != nil {
+		t.Fatal(err)
+	}
+	hookPath := filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh")
+
+	runHook(t, hookPath, `{"tool_name":"mcp__vela__dependencies","cwd":"`+projectPath+`"}`)
+	waitForFileContains(t, filepath.Join(home, "vela.log"), "update")
+	cacheDir := filepath.Join(xdgCacheHome, "rotta-vela-freshness")
+	assertPathExists(t, cacheDir)
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatalf("read cache dir %s: %v", cacheDir, err)
+	}
+	if len(entries) == 0 {
+		t.Fatalf("expected debounce files under %s", cacheDir)
+	}
+	rootEntries, err := os.ReadDir(xdgCacheHome)
+	if err != nil {
+		t.Fatalf("read XDG cache home %s: %v", xdgCacheHome, err)
+	}
+	for _, entry := range rootEntries {
+		if strings.HasSuffix(entry.Name(), ".stamp") || strings.HasSuffix(entry.Name(), ".lock") {
+			t.Fatalf("expected debounce files under rotta-vela-freshness subdir, found %s in XDG cache root", entry.Name())
 		}
 	}
 }
@@ -485,6 +534,26 @@ func runHookOutput(t *testing.T, hookPath, input string) (string, string) {
 		t.Fatalf("run hook %s with %s: %v\nstdout: %s\nstderr: %s", hookPath, input, err, stdout.String(), stderr.String())
 	}
 	return stdout.String(), stderr.String()
+}
+
+func waitForFileContains(t *testing.T, path, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			last = string(data)
+			if strings.Contains(last, want) {
+				return last
+			}
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("read %s while waiting for %q: %v", path, want, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s to contain %q; last content %q", path, want, last)
+	return ""
 }
 
 func TestSCN002_OpenCodePluginRegistrationAvoidsDuplicates(t *testing.T) {
