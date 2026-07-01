@@ -99,6 +99,12 @@ func Install(opts Options) (*Result, error) {
 		result.Files = append(result.Files, vr.Files...)
 		result.VelaInstalled = vr.Installed
 		result.VelaBin = vr.BinPath
+
+		files, err := installVelaFreshnessGuards(opts, home)
+		if err != nil {
+			return nil, fmt.Errorf("vela freshness guard setup: %w", err)
+		}
+		result.Files = append(result.Files, files...)
 	}
 
 	return result, nil
@@ -161,12 +167,18 @@ func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) e
 	if opts.SetupVela {
 		paths := []string{filepath.Join(projectPath, ".vela", "graph.db")}
 		if opts.Target == "claude-code" || opts.Target == "both" {
+			if err := cleanClaudeCodeVelaFreshnessGuard(home); err != nil {
+				return err
+			}
 			paths = append(paths,
 				filepath.Join(home, ".claude", "vela-mcp.json"),
 				filepath.Join(home, ".claude", "vela-instructions.md"),
 			)
 		}
 		if opts.Target == "opencode" || opts.Target == "both" {
+			if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
+				return err
+			}
 			paths = append(paths, filepath.Join(home, ".config", "opencode", "instructions.md"))
 		}
 		for _, path := range paths {

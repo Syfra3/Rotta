@@ -186,6 +186,9 @@ func cleanPreviousOpenCodeInstallation(home string) error {
 			return fmt.Errorf("cannot remove legacy opencode skill %s: %w", path, err)
 		}
 	}
+	if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
+		return err
+	}
 	return nil
 }
 

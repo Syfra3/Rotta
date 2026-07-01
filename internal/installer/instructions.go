@@ -69,6 +69,7 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 
 - Rotta controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
 - %s
+- Rotta install persists a host-level Vela freshness guard (OpenCode plugin and Claude Code hooks) that updates or builds the current workspace graph before graph query tools run and warms freshness at session start where supported.
 - At session start, run `+"`vela_status`"+` once like `+"`ancora_context`"+` to cache graph freshness/readiness before any structural graph answer.
 - If Vela is intentionally skipped for an answer, do not call graph tools just because they are available.
 - Before any `+"`vela_explore`"+`, dependency, impact, path, or architecture query, use the cached `+"`vela_status`"+` result; if no status exists, run `+"`vela_status`"+` first.

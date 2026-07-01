@@ -94,6 +94,40 @@ func TestViewConfirmRendersAncoraVelaCombinations(t *testing.T) {
 	}
 }
 
+func TestSCN002_TUIVelaCopyMentionsFreshnessGuard(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_TUIVelaCopyMentionsFreshnessGuard
+	// Scenario: Successful install cleans previous rotta settings before fresh install
+	model := New()
+	model.Screen = ScreenVela
+	model.Target = TargetBoth
+	model.SetupAncora = true
+
+	velaView := model.viewVela()
+	for _, want := range []string{
+		"freshness guard",
+		"updates or builds stale graphs before graph queries",
+		"OpenCode plugin",
+		"Claude Code hooks",
+	} {
+		if !strings.Contains(velaView, want) {
+			t.Fatalf("expected Vela screen to mention %q:\n%s", want, velaView)
+		}
+	}
+
+	model.Screen = ScreenConfirm
+	model.SetupVela = true
+	confirmView := model.viewConfirm()
+	for _, want := range []string{
+		"~/.config/opencode/plugin/rotta-vela-freshness-guard.js",
+		"~/.claude/hooks/rotta-vela-freshness-guard.sh",
+		"graph freshness guard",
+	} {
+		if !strings.Contains(confirmView, want) {
+			t.Fatalf("expected confirm screen to mention %q:\n%s", want, confirmView)
+		}
+	}
+}
+
 func TestSCN004_TUIListsAvailableBackupsFromRecovery(t *testing.T) {
 	// REQ-006 → SCN-004 → TestSCN004_TUIListsAvailableBackupsFromRecovery
 	// Scenario: TUI lists available backups from recovery

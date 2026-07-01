@@ -253,6 +253,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 			filepath.Join(home, ".config", "opencode", "opencode.json"),
 			filepath.Join(home, ".config", "opencode", "opencode.jsonc"),
 			filepath.Join(home, ".config", "opencode", "instructions.md"),
+			filepath.Join(home, ".config", "opencode", "plugin", "rotta-vela-freshness-guard.js"),
 			filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator"),
 			filepath.Join(home, ".config", "opencode", "skills", "rotta-spec"),
 			filepath.Join(home, ".config", "opencode", "skills", "rotta-impl"),
@@ -271,6 +272,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 	if opts.Target == "claude-code" || opts.Target == "both" {
 		paths = append(paths,
 			filepath.Join(home, ".claude", "settings.json"),
+			filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh"),
 			filepath.Join(home, ".claude", "skills", "rotta"),
 			filepath.Join(home, ".claude", "skills", "clean-workflow"),
 			filepath.Join(home, ".claude", "mcp", "ancora.json"),
