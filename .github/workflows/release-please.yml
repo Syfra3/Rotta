@@ -140,20 +140,20 @@ jobs:
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
                 sha256 "${CHECKSUMS[darwin-arm64]}"
               else
-                url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
                 sha256 "${CHECKSUMS[darwin-amd64]}"
               end
             end
 
             on_linux do
               if Hardware::CPU.arm?
-                url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-linux-arm64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-arm64.tar.gz"
                 sha256 "${CHECKSUMS[linux-arm64]}"
               else
-                url "https://github.com/Syfra3/Rotta/releases/download/rotta-v#{version}/rotta-#{version}-linux-amd64.tar.gz"
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-amd64.tar.gz"
                 sha256 "${CHECKSUMS[linux-amd64]}"
               end
             end
