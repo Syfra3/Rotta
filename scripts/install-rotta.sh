@@ -72,14 +72,17 @@ detect_platform() {
 get_latest_version() {
   log_info "Fetching latest rotta version" >&2
   local latest
-  latest=$(curl -s "https://api.github.com/repos/${REPO}/releases" | sed -n 's/.*"tag_name": "\(rotta-v[^\"]*\)".*/\1/p' | head -n1)
+  latest=$(curl -s "https://api.github.com/repos/${REPO}/releases" | sed -n 's/.*"tag_name": "\(v[^\"]*\)".*/\1/p' | head -n1)
+  if [ -z "${latest}" ]; then
+    latest=$(curl -s "https://api.github.com/repos/${REPO}/releases" | sed -n 's/.*"tag_name": "\(rotta-v[^\"]*\)".*/\1/p' | head -n1)
+  fi
 
   if [ -z "${latest}" ]; then
-    log_error "Unable to detect latest rotta-v release from GitHub"
+    log_error "Unable to detect latest v-prefixed rotta release from GitHub"
     exit 1
   fi
 
-  echo "${latest}"
+  normalize_release_tag "${latest}"
 }
 
 normalize_release_tag() {
@@ -87,8 +90,8 @@ normalize_release_tag() {
 
   case "${input}" in
     rotta-v*) echo "${input}" ;;
-    v*) echo "rotta-${input}" ;;
-    *) echo "rotta-v${input}" ;;
+    v*) echo "${input}" ;;
+    *) echo "v${input}" ;;
   esac
 }
 
