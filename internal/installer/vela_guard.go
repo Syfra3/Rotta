@@ -185,7 +185,6 @@ func addClaudeCodeVelaFreshnessHooks(settingsPath, hookPath string) error {
 	}
 	hooks := claudeHooksMap(settings)
 	command := shellCommandForPath(hookPath)
-	appendClaudeCommandHook(hooks, "SessionStart", "", command)
 	appendClaudeCommandHook(hooks, "PreToolUse", claudeVelaPreToolUseMatcher, command)
 	settings["hooks"] = hooks
 	return writeClaudeSettings(settingsPath, settings)
@@ -339,6 +338,9 @@ func shellCommandForPath(path string) string {
 
 func openCodeVelaFreshnessGuardPlugin() string {
 	return `import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve, sep } from "node:path";
 
 const GRAPH_QUERY_TOOLS = new Set([
   "vela_explore",
@@ -376,9 +378,44 @@ function isVelaGraphQueryTool(toolName) {
   return GRAPH_QUERY_TOOLS.has(toolName) || toolName.startsWith("ancora_vela_");
 }
 
-function resolveWorkspace(input, output, context) {
+function candidateDirectory(input, output, context) {
   return input?.cwd || input?.directory || input?.session?.cwd || input?.session?.directory ||
     output?.args?.cwd || output?.args?.directory || context.directory || context.worktree || process.cwd();
+}
+
+function normalizeDir(dir) {
+  return resolve(String(dir || ""));
+}
+
+function isSameOrChild(candidate, root) {
+  return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+function registeredRepoRoots(registry) {
+  const workspaces = Array.isArray(registry) ? registry : registry?.workspaces;
+  if (Array.isArray(workspaces)) {
+    return workspaces.map((workspace) => workspace?.repo_root || workspace?.repoRoot || workspace?.path).filter(Boolean);
+  }
+  if (registry && typeof registry === "object") {
+    return Object.values(registry).map((workspace) => workspace?.repo_root || workspace?.repoRoot || workspace?.path).filter(Boolean);
+  }
+  return [];
+}
+
+function resolveWorkspace(input, output, context) {
+  const candidate = normalizeDir(candidateDirectory(input, output, context));
+  const homeRoot = normalizeDir(homedir());
+  let registry;
+  try {
+    registry = JSON.parse(readFileSync(resolve(homeRoot, ".vela/registry.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  const matches = registeredRepoRoots(registry)
+    .map(normalizeDir)
+    .filter((repoRoot) => repoRoot && repoRoot !== homeRoot && isSameOrChild(candidate, repoRoot))
+    .sort((a, b) => b.length - a.length);
+  return matches[0] || null;
 }
 
 function runVela(command, workspace) {
@@ -389,13 +426,33 @@ function runVela(command, workspace) {
   });
 }
 
+function elapsed(startedAt) {
+  return ((Date.now() - startedAt) / 1000).toFixed(1) + "s";
+}
+
 function refreshVelaGraph(workspace, reason) {
+  if (!workspace) return;
+  const updateStartedAt = Date.now();
+  console.error("Rotta Vela: updating graph for " + workspace + " before " + reason + "...");
   const update = runVela("update", workspace); // vela update <workspace>
-  if (update.status === 0) return;
+  if (update.status === 0) {
+    console.error("Rotta Vela: update complete in " + elapsed(updateStartedAt) + ".");
+    return;
+  }
 
+  console.error("Rotta Vela: update failed; rebuilding graph for " + workspace + "...");
+  const buildStartedAt = Date.now();
   const build = runVela("build", workspace); // vela build <workspace>
-  if (build.status === 0) return;
+  if (build.status === 0) {
+    console.error("Rotta Vela: build complete in " + elapsed(buildStartedAt) + ".");
+    return;
+  }
 
+  console.error(
+    "Rotta Vela: build failed after update failure. " +
+      "update: " + (update.stderr || update.stdout || update.error || "failed") + "; " +
+      "build: " + (build.stderr || build.stdout || build.error || "failed"),
+  );
   throw new Error(
     "Rotta Vela freshness guard blocked " + reason + " for " + workspace + ". " +
       "Tried \"vela update " + workspace + "\" and \"vela build " + workspace + "\". " +
@@ -406,14 +463,8 @@ function refreshVelaGraph(workspace, reason) {
 
 export const RottaVelaFreshnessGuard = async ({ directory, worktree }) => {
   const context = { directory, worktree };
-  let warmedSession = false;
 
   return {
-    event: async ({ event }) => {
-      if (event?.type !== "session.created" || warmedSession) return;
-      warmedSession = true;
-      refreshVelaGraph(resolveWorkspace({}, {}, context), "OpenCode session start");
-    },
     "tool.execute.before": async (input, output) => {
       const toolName = input?.tool || input?.toolName || output?.tool || output?.name || "";
       if (!isVelaGraphQueryTool(toolName)) return;
@@ -503,7 +554,7 @@ isVelaGraphQueryTool() {
   esac
 }
 
-if [ -n "$tool_name" ] && ! isVelaGraphQueryTool "$tool_name"; then
+if [ -z "$tool_name" ] || ! isVelaGraphQueryTool "$tool_name"; then
   exit 0
 fi
 
@@ -515,24 +566,80 @@ if [ -z "$project_dir" ]; then
   project_dir="$(pwd)"
 fi
 
+workspace=""
+if command -v python3 >/dev/null 2>&1; then
+  workspace="$(CANDIDATE_DIR="$project_dir" python3 - <<'PY'
+import json
+import os
+
+home = os.path.abspath(os.path.expanduser(os.environ.get("HOME", "")))
+candidate = os.path.abspath(os.environ.get("CANDIDATE_DIR", "") or os.getcwd())
+registry_path = os.path.join(home, ".vela", "registry.json")
+
+try:
+    with open(registry_path, "r", encoding="utf-8") as handle:
+        registry = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+def repo_roots(data):
+    if isinstance(data, list):
+        values = data
+    elif isinstance(data, dict) and isinstance(data.get("workspaces"), list):
+        values = data["workspaces"]
+    elif isinstance(data, dict):
+        values = list(data.values())
+    else:
+        values = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        root = item.get("repo_root") or item.get("repoRoot") or item.get("path")
+        if isinstance(root, str) and root:
+            yield os.path.abspath(os.path.expanduser(root))
+
+def is_same_or_child(path, root):
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+matches = [root for root in repo_roots(registry) if root != home and is_same_or_child(candidate, root)]
+if matches:
+    print(max(matches, key=len))
+PY
+)"
+fi
+
+if [ -z "$workspace" ]; then
+  exit 0
+fi
+
 if ! command -v vela >/dev/null 2>&1; then
   echo "Rotta Vela freshness guard blocked graph query: vela binary not found. Install Vela, then rerun rotta install." >&2
   exit 2
 fi
 
-if vela update "$project_dir"; then # vela update <workspace>
+update_started_at=$SECONDS
+echo "Rotta Vela: updating graph for $workspace before graph query $tool_name..." >&2
+if vela update "$workspace" >&2; then # vela update <workspace>
+  echo "Rotta Vela: update complete in $((SECONDS - update_started_at))s." >&2
   exit 0
 fi
 update_status=$?
 
-if vela build "$project_dir"; then # vela build <workspace>
+echo "Rotta Vela: update failed; rebuilding graph for $workspace..." >&2
+build_started_at=$SECONDS
+if vela build "$workspace" >&2; then # vela build <workspace>
+  echo "Rotta Vela: build complete in $((SECONDS - build_started_at))s." >&2
   exit 0
 fi
 build_status=$?
 
-echo "Rotta Vela freshness guard blocked graph query for $project_dir." >&2
-echo "Tried: vela update $project_dir (exit $update_status), then vela build $project_dir (exit $build_status)." >&2
-echo "Run 'vela build $project_dir' manually or fix Vela installation, then retry the graph query." >&2
+echo "Rotta Vela: build failed after update failure." >&2
+echo "Rotta Vela freshness guard blocked graph query for $workspace." >&2
+echo "Tried: vela update $workspace (exit $update_status), then vela build $workspace (exit $build_status)." >&2
+echo "Run 'vela build $workspace' manually or fix Vela installation, then retry the graph query." >&2
 exit 2
 `
 }
