@@ -83,6 +83,8 @@ var legacyCleanOpenCodeAgentKeys = []string{
 	"clean-review",
 }
 
+var disabledOpenCodeDefaultAgentKeys = []string{"build", "plan"}
+
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
@@ -103,6 +105,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		agentMap = map[string]interface{}{}
 	}
 	removeLegacyOpenCodeAgents(config, agentMap)
+	disableOpenCodeDefaultAgents(agentMap)
 
 	for _, a := range rottaAgents {
 		if !a.modeFlag(opts) {
@@ -154,6 +157,14 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	files = append(files, configPath)
 
 	return files, nil
+}
+
+func disableOpenCodeDefaultAgents(agentMap map[string]interface{}) {
+	for _, key := range disabledOpenCodeDefaultAgentKeys {
+		agentMap[key] = map[string]interface{}{
+			"disable": true,
+		}
+	}
 }
 
 func cleanPreviousOpenCodeInstallation(home string) error {

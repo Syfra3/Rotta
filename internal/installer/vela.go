@@ -40,10 +40,22 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 	result.BinPath = binPath
 
 	if opts.SetupAncora {
-		if err := runVelaInstall(opts, binPath, projectPath, "", ""); err != nil {
-			return nil, fmt.Errorf("initialize vela project graph: %w", err)
+		if opts.Target == "opencode" || opts.Target == "both" {
+			opencodeDir := filepath.Join(home, ".config", "opencode")
+			if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
+				return nil, fmt.Errorf("vela install opencode: %w", err)
+			}
+			result.addFiles(
+				filepath.Join(projectPath, ".vela", "graph.db"),
+				filepath.Join(opencodeDir, "opencode.json"),
+				filepath.Join(opencodeDir, "instructions.md"),
+			)
+		} else {
+			if err := runVelaInstall(opts, binPath, projectPath, "", ""); err != nil {
+				return nil, fmt.Errorf("initialize vela project graph: %w", err)
+			}
+			result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
 		}
-		result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
 		return result, nil
 	}
 
