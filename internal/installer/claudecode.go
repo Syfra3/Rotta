@@ -36,6 +36,9 @@ func cleanPreviousClaudeCodeInstallation(home string) error {
 	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "clean-workflow")); err != nil {
 		return fmt.Errorf("cannot remove legacy Claude Code skills: %w", err)
 	}
+	if err := cleanClaudeCodeVelaFreshnessGuard(home); err != nil {
+		return err
+	}
 	return cleanClaudeCodePermissions(filepath.Join(home, ".claude", "settings.json"))
 }
 
