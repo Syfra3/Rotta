@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. rotta-v1.0.0)"
+        description: "Release tag to build (e.g. v1.0.0)"
         required: true
         type: string
 
@@ -53,8 +53,11 @@ jobs:
           CGO_ENABLED: 0
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          VERSION="${TAG#rotta-v}"
-          VERSION="${VERSION#v}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "ERROR: tag must use v-prefixed release format, for example v1.0.0"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
           BINARY_NAME="rotta${{ matrix.ext }}"
 
           go build \
@@ -79,3 +82,101 @@ jobs:
           files: |
             rotta-*.tar.gz
             rotta-*.sha256
+
+  update-homebrew-tap:
+    needs: build-and-upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Homebrew tap token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "ERROR: HOMEBREW_TAP_TOKEN is required to update Syfra3/homebrew-tap."
+            echo "Create a repository secret with write access to the tap repository."
+            exit 1
+          fi
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: Syfra3/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "ERROR: tag must use v-prefixed release format, for example v1.0.0"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          REPO="Syfra3/Rotta"
+          PACKAGE="rotta"
+          FORMULA="Formula/${PACKAGE}.rb"
+          mkdir -p "$(dirname "$FORMULA")"
+
+          declare -A CHECKSUMS
+          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            URL="https://github.com/${REPO}/releases/download/v${VERSION}/${PACKAGE}-${VERSION}-${platform}.tar.gz.sha256"
+            SHA256=$(curl -fsSL "$URL" | awk '{print $1}' || true)
+            if [[ ! "$SHA256" =~ ^[a-fA-F0-9]{64}$ ]]; then
+              echo "ERROR: Could not fetch checksum for ${platform}"
+              exit 1
+            fi
+            CHECKSUMS[$platform]="$SHA256"
+            echo "${platform}: ${SHA256}"
+          done
+
+          cat > "$FORMULA" <<RUBY
+          class Rotta < Formula
+            desc "Contract-driven development orchestrator for AI coding agents"
+            homepage "https://github.com/Syfra3/Rotta"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-arm64.tar.gz"
+                sha256 "${CHECKSUMS[darwin-arm64]}"
+              else
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-darwin-amd64.tar.gz"
+                sha256 "${CHECKSUMS[darwin-amd64]}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-arm64.tar.gz"
+                sha256 "${CHECKSUMS[linux-arm64]}"
+              else
+                url "https://github.com/Syfra3/Rotta/releases/download/v#{version}/rotta-#{version}-linux-amd64.tar.gz"
+                sha256 "${CHECKSUMS[linux-amd64]}"
+              end
+            end
+
+            def install
+              bin.install "rotta"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/rotta --version")
+            end
+          end
+          RUBY
+
+          echo "Formula updated to v${VERSION}"
+          cat "$FORMULA"
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/rotta.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: update rotta to v${VERSION}"
+          git push
