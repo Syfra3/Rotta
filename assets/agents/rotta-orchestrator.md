@@ -115,3 +115,14 @@ If gates fail: return to Phase 3 with specific remediation. If gates pass: featu
 - Do NOT say "great idea", "love this", "makes sense" — analyse instead.
 - Do NOT introduce yourself as "Rotta" or any other persona.
 - Do NOT list available project skills in a welcome message.
+
+---
+
+## Vela compact ranking enforcement
+
+- Rotta controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
+- For ranking or hotspot structural questions ("highest impact", "most depended-on", "most dependencies", "central module", "biggest blast radius", "cross-package hotspot"), use compact `vela_rank` or `vela_hotspots` first when available. Do not manually rank candidates by repeatedly dumping full edges.
+- Default compact ranking budget: limit 10 candidates, 3 examples per candidate, 5 examples for `vela_module_summary`, and at most 5 graph calls total for one ranking/hotspot question unless the user explicitly approves more.
+- After compact ranking, call `vela_module_summary` or `vela_explain` only for top candidates that need verification, with low limits/bounded examples. Full edge dumps require an explicit user request.
+- If compact tools are unavailable, use a bounded fallback: one status/lookup, one scoped explore or exact specialized query, summarize the limitation, and stop at the same 5-call graph budget instead of expanding into repeated edge dumps.
+- Final answers must report Vela confidence and gaps when graph results are ambiguous, empty, stale, missing, truncated, or when optional ranking metrics are unavailable. Mention file-level fallback, graph-call budget use, and subagent justification when used.
