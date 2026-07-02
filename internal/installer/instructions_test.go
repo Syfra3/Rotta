@@ -3,6 +3,8 @@ package installer
 import (
 	"strings"
 	"testing"
+
+	"github.com/Syfra3/Rotta/assets"
 )
 
 func TestIntegrationInstructionsWhenAncoraAndVelaDisabled(t *testing.T) {
@@ -49,7 +51,7 @@ func TestIntegrationInstructionsWhenAncoraDisabledAndVelaEnabled(t *testing.T) {
 		"provenance",
 		"confidence",
 	})
-	assertNotContains(t, got, "At session start, run `vela_status`")
+	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
 	assertNotContains(t, got, "visible start/end/fallback feedback")
 	assertNotContains(t, got, "Ancora remains the primary MCP surface")
 }
@@ -67,7 +69,7 @@ func TestIntegrationInstructionsWhenAncoraAndVelaEnabled(t *testing.T) {
 		"provenance",
 		"confidence",
 	})
-	assertNotContains(t, got, "At session start, run `vela_status`")
+	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
 }
 
 func TestReadRenderedAssetAppendsDisabledIntegrationInstructions(t *testing.T) {
@@ -104,7 +106,13 @@ func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
 		"Ancora remains the primary MCP surface",
 		"non-blocking background graph refresh",
 	})
-	assertNotContains(t, got, "At session start, run `vela_status`")
+	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
+}
+
+func TestVelaInstructionsEnforceExactSubjectStructuralQueryWorkflow(t *testing.T) {
+	got := integrationInstructions(Options{SetupVela: true})
+
+	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
 }
 
 func TestVelaBinCandidatesIncludesLinuxbrew(t *testing.T) {
@@ -140,6 +148,57 @@ func assertNotContains(t *testing.T, got, unwanted string) {
 	if strings.Contains(got, unwanted) {
 		t.Fatalf("unexpected %q:\n%s", unwanted, got)
 	}
+}
+
+func velaStructuralQueryEnforcementStrings() []string {
+	return []string{
+		"For structural dependency, reverse-dependency, impact, path, ownership, or architecture questions, run `vela_status` first",
+		"For ranking or hotspot structural questions",
+		"use compact `vela_rank` or `vela_hotspots` first when available",
+		"Do not manually rank candidates by repeatedly dumping full edges",
+		"at most 5 graph calls total for one ranking/hotspot question",
+		"call `vela_module_summary` or `vela_explain` only for top candidates",
+		"Full edge dumps require an explicit user request",
+		"If compact tools are unavailable, use a bounded fallback",
+		"Use `vela_lookup` to resolve concrete subjects before specialized graph calls",
+		"Prefer exact file, module, controller, use-case, service, DTO, route handler, endpoint, or API-client subjects",
+		"If symbol-level `vela_dependencies` or `vela_reverse_dependencies` returns `(none)` or an empty result and a containing file node exists, retry at file level",
+		"`vela_explore` is routing/discovery only, not final proof when ambiguous",
+		"Launch an exploration subagent for structural questions only after the exact Vela workflow fails",
+		"Before launching that subagent, state the specific Vela insufficiency or gap",
+		"Final answers must report Vela confidence and gaps",
+		"graph-call budget use",
+		"Vela is advisory only",
+	}
+}
+
+func TestVelaInstructionsEnforceCompactRankingBudget(t *testing.T) {
+	got := integrationInstructions(Options{SetupVela: true})
+
+	assertContainsAll(t, got, []string{
+		"use compact `vela_rank` or `vela_hotspots` first when available",
+		"limit 10 candidates",
+		"3 examples per candidate",
+		"5 examples for `vela_module_summary`",
+		"at most 5 graph calls total",
+		"bounded fallback",
+	})
+}
+
+func TestRottaOrchestratorAssetEnforcesCompactRankingWorkflow(t *testing.T) {
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+	got := string(data)
+
+	assertContainsAll(t, got, []string{
+		"Vela compact ranking enforcement",
+		"use compact `vela_rank` or `vela_hotspots` first when available",
+		"at most 5 graph calls total",
+		"Do not manually rank candidates by repeatedly dumping full edges",
+		"Vela is advisory graph intelligence only",
+	})
 }
 
 func countOccurrences(items []string, want string) int {
