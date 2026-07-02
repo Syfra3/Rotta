@@ -69,14 +69,21 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 
 - Rotta controls phases, gates, delegation, and final decisions. Vela is advisory graph intelligence only; it must never control the whole workflow.
 - %s
-- Rotta install persists a host-level Vela freshness guard (OpenCode plugin and Claude Code hooks) that schedules non-blocking background graph refresh before Vela graph query tools run.
-- Do not run Vela status, update, or build at session start just because Vela is enabled.
+- Rotta install persists a host-level Vela freshness guard (OpenCode plugin and Claude Code hooks) that schedules non-blocking background graph refresh before Vela graph query tools run; cached graph may be used while refresh runs.
 - If Vela is intentionally skipped for an answer, do not call graph tools just because they are available.
-- Before any `+"`vela_explore`"+`, dependency, impact, path, or architecture query, expect the guard to schedule refresh in the background; the cached graph may be used while refresh runs.
-- If the user asks for a foreground refresh, run `+"`vela update <workspace>`"+` or `+"`vela build <workspace>`"+` explicitly and report the result before querying.
+- For structural dependency, reverse-dependency, impact, path, ownership, or architecture questions, run `+"`vela_status`"+` first and cache the result before any graph query. If graph data is stale, missing, or unavailable, follow the foreground refresh freshness/update/build path (`+"`vela update <workspace>`"+`, `+"`vela build <workspace>`"+`, `+"`vela extract <project>`"+`, or the available install command) before graph proof.
 - Use Vela for structural questions only: dependencies, reverse dependencies, impact, paths, ownership, and architecture explanation.
-- Do not send bag-of-words or broad feature descriptions directly to Vela. First identify concrete files, symbols, types, DTOs, services, handlers, or modules.
-- If confidence is low, graph data is stale, or graph gaps remain, report the gaps and confidence level to the orchestrator. The orchestrator decides whether to spend more exploration effort.
+- For ranking or hotspot structural questions ("highest impact", "most depended-on", "most dependencies", "central module", "biggest blast radius", "cross-package hotspot"), use compact `+"`vela_rank`"+` or `+"`vela_hotspots`"+` first when available. Do not manually rank candidates by repeatedly dumping full edges.
+- Default compact ranking budget: limit 10 candidates, 3 examples per candidate, 5 examples for `+"`vela_module_summary`"+`, and at most 5 graph calls total for one ranking/hotspot question unless the user explicitly approves more.
+- After compact ranking, call `+"`vela_module_summary`"+` or `+"`vela_explain`"+` only for top candidates that need verification, with low limits/bounded examples. Full edge dumps require an explicit user request.
+- If compact tools are unavailable, use a bounded fallback: one status/lookup, one scoped explore or exact specialized query, summarize the limitation, and stop at the same 5-call graph budget instead of expanding into repeated edge dumps.
+- Prefer exact file, module, controller, use-case, service, DTO, route handler, endpoint, or API-client subjects over broad prose. Do not send bag-of-words or broad feature descriptions directly to graph tools.
+- Use `+"`vela_lookup`"+` to resolve concrete subjects before specialized graph calls such as `+"`vela_dependencies`"+`, `+"`vela_reverse_dependencies`"+`, `+"`vela_impact`"+`, `+"`vela_path`"+`, or `+"`vela_explain`"+`.
+- `+"`vela_explore`"+` is routing/discovery only, not final proof when ambiguous. Follow it with lookup and specialized graph queries whenever possible.
+- If symbol-level `+"`vela_dependencies`"+` or `+"`vela_reverse_dependencies`"+` returns `+"`(none)`"+` or an empty result and a containing file node exists, retry at file level before treating Vela as insufficient.
+- Launch an exploration subagent for structural questions only after the exact Vela workflow fails or text/app caller verification is required. Before launching that subagent, state the specific Vela insufficiency or gap, such as empty symbol and file results, ambiguous/truncated graph data, stale/missing graph after refresh, or required source verification.
+- Final answers must report Vela confidence and gaps when graph results are ambiguous, empty, stale, missing, truncated, or when optional ranking metrics are unavailable. Mention file-level fallback, graph-call budget use, and subagent justification when used.
+- Vela is advisory only: do not let Vela control Rotta phase decisions, approvals, or review outcomes.
 `, surface)
 }
 
