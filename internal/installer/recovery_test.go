@@ -332,6 +332,66 @@ fi
 	}
 }
 
+func TestSCN002_VelaSetupUpgradesExistingHomebrewInstallBeforeAgentInstall(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_VelaSetupUpgradesExistingHomebrewInstallBeforeAgentInstall
+	// Scenario: Successful install refreshes an existing Vela CLI before configuring integration.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	logPath := filepath.Join(home, "setup.log")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+`)
+	writeExecutable(t, filepath.Join(binDir, "brew"), `#!/bin/sh
+printf 'brew %s\n' "$*" >> "$HOME/setup.log"
+`)
+
+	_, err := SetupVela(Options{
+		Target:      "opencode",
+		ProjectPath: projectPath,
+		SetupVela:   true,
+	}, home, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContains(t, logPath, "brew tap Syfra3/tap")
+	assertFileContains(t, logPath, "brew update")
+	assertFileContains(t, logPath, "brew upgrade vela")
+	assertFileContains(t, logPath, "vela install --project "+projectPath+" --agent opencode")
+}
+
+func TestSCN002_VelaSetupUsesVelaCLIForProjectClusteringDependencies(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_VelaSetupUsesVelaCLIForProjectClusteringDependencies
+	// Scenario: Successful install delegates clustering dependency setup to the Vela CLI installer.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	logPath := filepath.Join(home, "setup.log")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeTestFile(t, filepath.Join(projectPath, "requirements-clustering.txt"), []byte("networkx\n"))
+
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+`)
+
+	_, err := SetupVela(Options{
+		Target:      "opencode",
+		ProjectPath: projectPath,
+		SetupVela:   true,
+	}, home, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContains(t, logPath, "vela install --project "+projectPath+" --clustering --repair-venv")
+	assertFileContains(t, logPath, "vela install --project "+projectPath+" --agent opencode")
+}
+
 func assertMCPEntryExists(t *testing.T, config map[string]interface{}, name string) {
 	t.Helper()
 	mcp, ok := config["mcp"].(map[string]interface{})
@@ -451,11 +511,14 @@ echo "brew stderr $*" >&2
 	if err := installVela(opts); err != nil {
 		t.Fatalf("install vela via brew: %v", err)
 	}
-	if strings.Count(stdout.String(), "brew stdout") != 6 {
+	if strings.Count(stdout.String(), "brew stdout") != 7 {
 		t.Fatalf("expected all brew stdout to be routed through options, got %q", stdout.String())
 	}
-	if strings.Count(stderr.String(), "brew stderr") != 6 {
+	if strings.Count(stderr.String(), "brew stderr") != 7 {
 		t.Fatalf("expected all brew stderr to be routed through options, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "brew stdout update") {
+		t.Fatalf("expected Vela Homebrew install to refresh formula metadata, got %q", stdout.String())
 	}
 }
 
