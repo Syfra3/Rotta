@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 )
 
+const (
+	velaHomebrewTap = "Syfra3/tap"
+	velaFormula     = "vela"
+)
+
 // VelaResult describes what Vela setup did.
 type VelaResult struct {
 	BinPath   string
@@ -36,8 +41,18 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 		if binPath == "" {
 			binPath = "/opt/homebrew/bin/vela"
 		}
+	} else {
+		if err := upgradeVela(opts, binPath); err != nil {
+			return nil, fmt.Errorf("refresh homebrew vela: %w", err)
+		}
+		if upgradedBinPath, detectErr := detectVelaBin(); detectErr == nil && upgradedBinPath != "" {
+			binPath = upgradedBinPath
+		}
 	}
 	result.BinPath = binPath
+	if err := runVelaClusteringInstallIfConfigured(opts, binPath, projectPath); err != nil {
+		return nil, err
+	}
 
 	if opts.SetupAncora {
 		if opts.Target == "opencode" || opts.Target == "both" {
@@ -130,13 +145,46 @@ func installVela(opts Options) error {
 	if err != nil {
 		return fmt.Errorf("brew not found")
 	}
-	if err := runCommand(opts, brew, "tap", "Syfra3/tap"); err != nil {
-		return fmt.Errorf("brew tap Syfra3/tap: %w", err)
+	if err := prepareVelaHomebrewFormula(opts, brew); err != nil {
+		return err
 	}
-	if err := runCommand(opts, brew, "trust", "Syfra3/tap"); err != nil {
-		return fmt.Errorf("brew trust Syfra3/tap: %w", err)
+	return runCommand(opts, brew, "install", velaFormula)
+}
+
+func upgradeVela(opts Options, binPath string) error {
+	brew, err := exec.LookPath("brew")
+	if err != nil {
+		return nil
 	}
-	return runCommand(opts, brew, "install", "vela")
+	if filepath.Dir(brew) != filepath.Dir(binPath) {
+		return nil
+	}
+	if err := prepareVelaHomebrewFormula(opts, brew); err != nil {
+		return err
+	}
+	return runCommand(opts, brew, "upgrade", velaFormula)
+}
+
+func prepareVelaHomebrewFormula(opts Options, brew string) error {
+	if err := runCommand(opts, brew, "tap", velaHomebrewTap); err != nil {
+		return fmt.Errorf("brew tap %s: %w", velaHomebrewTap, err)
+	}
+	if err := runCommand(opts, brew, "trust", velaHomebrewTap); err != nil {
+		return fmt.Errorf("brew trust %s: %w", velaHomebrewTap, err)
+	}
+	if err := runCommand(opts, brew, "update"); err != nil {
+		return fmt.Errorf("brew update: %w", err)
+	}
+	return nil
+}
+
+func runVelaClusteringInstallIfConfigured(opts Options, binPath, projectPath string) error {
+	if _, err := os.Stat(filepath.Join(projectPath, "requirements-clustering.txt")); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect vela clustering requirements: %w", err)
+	}
+	return runCommand(opts, binPath, "install", "--project", projectPath, "--clustering", "--repair-venv")
 }
 
 func runVelaInstall(opts Options, binPath, projectPath, agent, configDir string) error {
