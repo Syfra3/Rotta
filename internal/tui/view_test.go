@@ -320,6 +320,45 @@ fi
 	}
 }
 
+func TestSCN002_TUIRunInstallMaintainsHomebrewVelaBeforeSetup(t *testing.T) {
+	// REQ-004 → SCN-002 → TestSCN002_TUIRunInstallMaintainsHomebrewVelaBeforeSetup
+	// Scenario: TUI install refreshes Homebrew package metadata and upgrades an existing Vela before configuring integration.
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	logPath := filepath.Join(home, "setup.log")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeTUITestExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+`)
+	writeTUITestExecutable(t, filepath.Join(binDir, "brew"), `#!/bin/sh
+printf 'brew %s\n' "$*" >> "$HOME/setup.log"
+`)
+
+	model := New()
+	model.Target = TargetOpenCode
+	model.ProjectPath = projectPath
+	model.SelectedModes = [3]bool{true, false, false}
+	model.SetupAncora = false
+	model.SetupVela = true
+
+	msg := runInstall(model)()
+	done, ok := msg.(installDoneMsg)
+	if !ok {
+		t.Fatalf("expected installDoneMsg, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("expected TUI Vela setup to complete, got %v", done.err)
+	}
+
+	assertTUIFileContains(t, logPath, "brew tap Syfra3/tap")
+	assertTUIFileContains(t, logPath, "brew update")
+	assertTUIFileContains(t, logPath, "brew upgrade vela")
+	assertTUIFileContains(t, logPath, "vela install --project "+projectPath+" --agent opencode")
+}
+
 func writeBackupManifest(t *testing.T, home, timestamp, projectPath, target string) {
 	t.Helper()
 	dir := filepath.Join(home, ".rotta", "backups", timestamp)
@@ -339,6 +378,17 @@ func writeTUITestExecutable(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertTUIFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %s: %v", path, err)
+	}
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("expected %s to contain %q, got %q", path, want, string(data))
 	}
 }
 
