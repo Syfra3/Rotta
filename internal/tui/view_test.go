@@ -94,6 +94,129 @@ func TestViewConfirmRendersAncoraVelaCombinations(t *testing.T) {
 	}
 }
 
+func TestSCN101_TUIContext7VisibleSelectedByDefault(t *testing.T) {
+	// REQ-001, REQ-005 → SCN-101 → TestSCN101_TUIContext7VisibleSelectedByDefault
+	// Scenario: Context7 is visible and selected by default.
+	model := New()
+
+	if !model.SetupContext7 {
+		t.Fatal("expected Context7 to be selected by default")
+	}
+
+	model.Screen = ScreenContext7
+	view := model.View()
+	for _, want := range []string{
+		"Context7",
+		"Ancora",
+		"Vela",
+		"up-to-date library/API documentation through MCP",
+		"Install + configure Context7",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected Context7 selection view to contain %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSCN101_TUIConfirmShowsSelectedContext7ByDefault(t *testing.T) {
+	// REQ-001, REQ-005 → SCN-101 → TestSCN101_TUIConfirmShowsSelectedContext7ByDefault
+	// Scenario: Context7 is visible and selected by default.
+	model := New()
+	model.Screen = ScreenConfirm
+
+	confirm := model.viewConfirm()
+	if !strings.Contains(context7SummaryLine(confirm), "yes (install + configure)") {
+		t.Fatalf("expected confirmation to show default selected Context7:\n%s", confirm)
+	}
+}
+
+func TestSCN111_TUIContext7CanBeDeselectedBeforeInstall(t *testing.T) {
+	// REQ-001, REQ-005 → SCN-111 → TestSCN111_TUIContext7CanBeDeselectedBeforeInstall
+	// Scenario: User can deselect the default-checked Context7 option before installation.
+	model := New()
+	model.Screen = ScreenContext7
+
+	moved, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	selected, _ := moved.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := selected.(Model)
+
+	if updated.SetupContext7 {
+		t.Fatal("expected Context7 to be deselected")
+	}
+	if updated.Screen != ScreenConfirm {
+		t.Fatalf("expected deselection to continue to confirmation, got screen %v", updated.Screen)
+	}
+	confirm := updated.viewConfirm()
+	if !strings.Contains(context7SummaryLine(confirm), "skip") {
+		t.Fatalf("expected confirmation to show Context7 skipped:\n%s", confirm)
+	}
+}
+
+func context7SummaryLine(view string) string {
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Context7 docs:") {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestSCN102_TUIContext7SelectionDoesNotChangeOtherTools(t *testing.T) {
+	// REQ-001, REQ-006 → SCN-102 → TestSCN102_TUIContext7SelectionDoesNotChangeOtherTools
+	// Scenario: Selecting Context7 does not change other optional MCP choices.
+	model := New()
+	model.Screen = ScreenContext7
+	model.SetupAncora = false
+	model.SetupVela = true
+	model.Context7Cursor = 0
+
+	selected, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := selected.(Model)
+
+	if !updated.SetupContext7 {
+		t.Fatal("expected Context7 selected")
+	}
+	if updated.SetupAncora {
+		t.Fatal("expected Ancora to remain not selected")
+	}
+	if !updated.SetupVela {
+		t.Fatal("expected Vela to remain selected")
+	}
+}
+
+func TestSCN101_Context7NavigationBackAndRecoveryFormatting(t *testing.T) {
+	// REQ-001, REQ-005 → SCN-101 → TestSCN101_Context7NavigationBackAndRecoveryFormatting
+	// Scenario: Context7 is visible and selected by default.
+	model := New()
+	model.Screen = ScreenVela
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	context7Screen := next.(Model)
+	if context7Screen.Screen != ScreenContext7 {
+		t.Fatalf("expected Vela selection to advance to Context7, got %v", context7Screen.Screen)
+	}
+
+	up, _ := context7Screen.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	if up.(Model).Context7Cursor != 0 {
+		t.Fatalf("expected Context7 cursor to stay at first item, got %d", up.(Model).Context7Cursor)
+	}
+	back, _ := context7Screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if back.(Model).Screen != ScreenVela {
+		t.Fatalf("expected Context7 back navigation to return to Vela, got %v", back.(Model).Screen)
+	}
+
+	context7Screen.Screen = ScreenConfirm
+	confirmBack, _ := context7Screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if confirmBack.(Model).Screen != ScreenContext7 {
+		t.Fatalf("expected confirmation back navigation to return to Context7, got %v", confirmBack.(Model).Screen)
+	}
+
+	formatted := formatRecoveryIntegrations(recoveryOptionalIntegrations{Ancora: true, Vela: true, Context7: true})
+	if !strings.Contains(formatted, "Context7: yes") {
+		t.Fatalf("expected recovery integration summary to include Context7 yes, got %q", formatted)
+	}
+}
+
 func TestSCN002_TUIVelaCopyMentionsFreshnessGuard(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_TUIVelaCopyMentionsFreshnessGuard
 	// Scenario: Successful install cleans previous rotta settings before fresh install
@@ -309,6 +432,7 @@ fi
 	model.SelectedModes = [3]bool{true, false, false}
 	model.SetupAncora = true
 	model.SetupVela = false
+	model.SetupContext7 = false
 
 	msg := runInstall(model)()
 	done, ok := msg.(installDoneMsg)
@@ -343,6 +467,7 @@ printf 'brew %s\n' "$*" >> "$HOME/setup.log"
 	model.SelectedModes = [3]bool{true, false, false}
 	model.SetupAncora = false
 	model.SetupVela = true
+	model.SetupContext7 = false
 
 	msg := runInstall(model)()
 	done, ok := msg.(installDoneMsg)

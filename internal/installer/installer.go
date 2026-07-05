@@ -22,6 +22,7 @@ type Options struct {
 	UseDefaultGates bool
 	SetupAncora     bool // whether to install/configure Ancora memory
 	SetupVela       bool // whether to install/configure Vela graph intelligence
+	SetupContext7   bool // whether to configure Context7 documentation MCP
 	CommandStdin    io.Reader
 	CommandStdout   io.Writer
 	CommandStderr   io.Writer
@@ -36,6 +37,7 @@ type Result struct {
 	AncoraBin       string // resolved path to the ancora binary
 	VelaInstalled   bool   // true if Vela binary was installed during this run
 	VelaBin         string // resolved path to the vela binary
+	Context7        Context7Result
 }
 
 // Install runs the full installation and returns a summary.
@@ -105,6 +107,25 @@ func Install(opts Options) (*Result, error) {
 			return nil, fmt.Errorf("vela freshness guard setup: %w", err)
 		}
 		result.Files = append(result.Files, files...)
+	}
+
+	if opts.SetupContext7 {
+		context7Result, err := ConfigureContext7(opts, home)
+		if err != nil {
+			return nil, fmt.Errorf("context7 setup: %w", err)
+		}
+		result.Context7 = context7Result
+		result.Files = append(result.Files, context7Result.Files...)
+		if context7Result.OpenCode.OK || context7Result.ClaudeCode.OK {
+			health := CheckContext7Health(Context7ServerConfig())
+			result.Context7.Health = health
+			result.Context7.HealthRan = true
+			if health.OK && context7Result.FullyConfigured {
+				result.Context7.Status = Context7StatusConfigured
+			} else if !health.OK {
+				return result, fmt.Errorf("context7 health: %s", health.Category)
+			}
+		}
 	}
 
 	return result, nil

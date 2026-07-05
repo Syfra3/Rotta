@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-05T16:59:39.758081+00:00",
+  "tooling": {
+    "type": "manual_controlled_mutation",
+    "reason": "No project mutation runner/tooling was present; followed assets/skills/review-mode/SKILL.md controlled mutation convention for changed modules.",
+    "test_command": "go test ./internal/installer ./internal/tui"
+  },
+  "gate_source": ".rotta/quality-gates.yaml",
+  "scope": {
+    "mode": "changed_modules",
+    "modules": [
+      "internal/installer",
+      "internal/tui"
+    ],
+    "critical_modules": [
+      "internal/installer/context7.go",
+      "internal/installer/installer.go",
+      "internal/installer/backup.go",
+      "internal/tui/model.go",
+      "internal/tui/update.go",
+      "internal/tui/view.go"
+    ],
+    "scenarios": [
+      "SCN-101",
+      "SCN-102",
+      "SCN-103",
+      "SCN-104",
+      "SCN-105",
+      "SCN-106",
+      "SCN-107",
+      "SCN-108",
+      "SCN-109",
+      "SCN-110",
+      "SCN-111"
+    ]
+  },
+  "thresholds": {
+    "mutation_score": 0.8,
+    "surviving_critical_mutations": 0
+  },
+  "summary": {
+    "total_mutants": 30,
+    "killed_mutants": 30,
+    "surviving_mutants": 0,
+    "mutation_score": 1.0,
+    "score": 1.0,
+    "surviving_critical_mutations": 0,
+    "gate_result": "PASS"
+  },
+  "surviving": [],
+  "mutants": [
+    {
+      "id": "MUT-001",
+      "file": "internal/installer/context7.go",
+      "line": 79,
+      "mutation": "skip guard inverted",
+      "scenario": "SCN-108",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "\t/usr/lib/go/src/testing/testing.go:2036 +0xea | created by testing.(*T).Run in goroutine 1 | \t/usr/lib/go/src/testing/testing.go:2101 +0x4c5 | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t0.004s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-002",
+      "file": "internal/installer/context7.go",
+      "line": 75,
+      "mutation": "server command npx to npm",
+      "scenario": "SCN-103",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "    --- FAIL: TestSCN107_Context7HealthRejectsStartupAndProtocolFailures/tool_discovery_read_fails (0.00s) |         context7_test.go:370: expected failure category tool discovery, got installer.Context7HealthResult{OK:false, Category:\"command availability\", Message:\"exec: \\\"npm\\\": executable file not found in $PATH\", Command:\"npm\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t0.246s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-003",
+      "file": "internal/installer/context7.go",
+      "line": 75,
+      "mutation": "server package changed",
+      "scenario": "SCN-103",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN103_Context7OpenCodeCreatesMCPSectionWhenMissing (0.00s) |     context7_test.go:345: unexpected Context7 OpenCode args: []interface {}{\"-y\", \"@upstash/context7-mcp-mutant\"} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-004",
+      "file": "internal/installer/context7.go",
+      "line": 144,
+      "mutation": "legacy duplicate key not removed",
+      "scenario": "SCN-110",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN110_Context7RerunNormalizesDuplicateHostEntriesBeforeHealth (0.00s) |     context7_test.go:191: expected duplicate rotta-context7 entry removed, got map[string]interface {}{\"context7\":map[string]interface {}{\"args\":[]interface {}{\"-y\", \"@upstash/context7-mcp\"}, \"command\":\"npx\", \"type\":\"stdio\"}, \"rotta-context7\":map[string]interface {}{\"command\":\"old\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-005",
+      "file": "internal/installer/context7.go",
+      "line": 145,
+      "mutation": "wrong OpenCode server key",
+      "scenario": "SCN-103",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "\t/usr/lib/go/src/testing/testing.go:2036 +0xea | created by testing.(*T).Run in goroutine 1 | \t/usr/lib/go/src/testing/testing.go:2101 +0x4c5 | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t0.004s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-006",
+      "file": "internal/installer/context7.go",
+      "line": 90,
+      "mutation": "opencode error condition inverted",
+      "scenario": "SCN-104",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHosts (0.00s) |     context7_test.go:327: expected both host failures to be recorded, got installer.Context7Result{Status:\"partial\", OpenCode:installer.context7HostConfigResult{Host:\"opencode\", OK:true, Err:(*fmt.wrapError)(0x3a725372d680)}, ClaudeCode:installer.context7HostConfigResult{Host:\"claude-code\", OK:false, Err:(*fmt.wrapError)(0x3a725372d6a0)}, FullyConfigured:false, CommandChecked:false, HealthRan:false, Health:installer.Context7HealthResult{OK:false, Category:\"\", Message:\"\", Command:\"\", Args:[]string(nil), Transport:\"\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)}, Files:[]string{\"/tmp/TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHost284132870/001/.config/opencode/opencode.json\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-007",
+      "file": "internal/installer/context7.go",
+      "line": 98,
+      "mutation": "claude error condition inverted",
+      "scenario": "SCN-104",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHosts (0.00s) |     context7_test.go:327: expected both host failures to be recorded, got installer.Context7Result{Status:\"partial\", OpenCode:installer.context7HostConfigResult{Host:\"opencode\", OK:false, Err:(*fmt.wrapError)(0x2925656392c0)}, ClaudeCode:installer.context7HostConfigResult{Host:\"claude-code\", OK:true, Err:(*fmt.wrapError)(0x2925656392e0)}, FullyConfigured:false, CommandChecked:false, HealthRan:false, Health:installer.Context7HealthResult{OK:false, Category:\"\", Message:\"\", Command:\"\", Args:[]string(nil), Transport:\"\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)}, Files:[]string{\"/tmp/TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHost3478318753/001/.claude/mcp/context7.json\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.008s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-008",
+      "file": "internal/installer/context7.go",
+      "line": 123,
+      "mutation": "partial host failure ignored",
+      "scenario": "SCN-104",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHosts (0.00s) |     context7_test.go:324: expected partial status for host write failures, got installer.Context7Result{Status:\"configured-pending-health\", OpenCode:installer.context7HostConfigResult{Host:\"opencode\", OK:false, Err:(*fmt.wrapError)(0x1bd51f6fb460)}, ClaudeCode:installer.context7HostConfigResult{Host:\"claude-code\", OK:false, Err:(*fmt.wrapError)(0x1bd51f6fb480)}, FullyConfigured:true, CommandChecked:false, HealthRan:false, Health:installer.Context7HealthResult{OK:false, Category:\"\", Message:\"\", Command:\"\", Args:[]string(nil), Transport:\"\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)}, Files:[]string(nil)} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-009",
+      "file": "internal/installer/context7.go",
+      "line": 113,
+      "mutation": "empty host considered seen",
+      "scenario": "SCN-104",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN104_Context7ConfigSummarizesHostWriteFailuresAndEmptyHosts (0.00s) |     context7_test.go:324: expected partial status for host write failures, got installer.Context7Result{Status:\"skipped\", OpenCode:installer.context7HostConfigResult{Host:\"\", OK:false, Err:error(nil)}, ClaudeCode:installer.context7HostConfigResult{Host:\"\", OK:false, Err:error(nil)}, FullyConfigured:false, CommandChecked:false, HealthRan:false, Health:installer.Context7HealthResult{OK:false, Category:\"\", Message:\"\", Command:\"\", Args:[]string(nil), Transport:\"\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)}, Files:[]string(nil)} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.007s | FAIL"
+    },
+    {
+      "id": "MUT-010",
+      "file": "internal/installer/context7.go",
+      "line": 168,
+      "mutation": "missing command categorized as startup",
+      "scenario": "SCN-105",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN105_InstallReportsContext7HealthFailureWithPartialResult (0.00s) |     context7_test.go:253: expected partial install result with Context7 command failure, got result=&installer.Result{Target:\"\", Files:[]string{\"/tmp/TestSCN105_InstallReportsContext7HealthFailureWithPartialResult4214657546/001/project/.rotta/quality-gates.yaml\", \"/tmp/TestSCN105_InstallReportsContext7HealthFailureWithPartialResult4214657546/001/project/.rotta/state-machine.yaml\", \"/tmp/TestSCN105_InstallReportsContext7HealthFailureWithPartialResult4214657546/001/.config/opencode/opencode.json\", \"/tmp/TestSCN105_InstallReportsContext7HealthFailureWithPartialResult4214657546/001/.claude/mcp/context7.json\"}, BackupDir:\"/tmp/TestSCN105_InstallReportsContext7HealthFailureWithPartialResult4214657546/001/.rotta/backups/20260705T165801Z\", AncoraInstalled:false, AncoraBin:\"\", VelaInstalled:false, VelaBin:\"\", Context7:installer.Context7Result{Status:\"configured-pending-health\", OpenCode:installer.context7HostConfigResult{Host:\"opencode\", OK:true, Err:error(nil)}, ClaudeCode:installer.context7HostConfigResult{Host:\"claude-code\", OK:true, Err:error(nil)}, FullyConfigured:true, CommandChecked:false, HealthRan:t"
+    },
+    {
+      "id": "MUT-011",
+      "file": "internal/installer/context7.go",
+      "line": 197,
+      "mutation": "initialize method renamed",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured (0.00s) |     context7_test.go:231: context7 health: server startup | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-012",
+      "file": "internal/installer/context7.go",
+      "line": 208,
+      "mutation": "init error accepted",
+      "scenario": "SCN-107",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "    --- FAIL: TestSCN107_Context7HealthRejectsStartupAndProtocolFailures/tool_discovery_read_fails (0.00s) |         context7_test.go:370: expected failure category tool discovery, got installer.Context7HealthResult{OK:false, Category:\"MCP initialization\", Message:\"<nil>\", Command:\"npx\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.008s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-013",
+      "file": "internal/installer/context7.go",
+      "line": 213,
+      "mutation": "initialized proof not recorded",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_Context7HealthRequiresMCPInitializationAndToolDiscovery (0.00s) |     context7_test.go:73: expected init and tool discovery proof, got installer.Context7HealthResult{OK:true, Category:\"\", Message:\"\", Command:\"npx\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:false, ToolsDiscovered:true, Tools:[]string{\"resolve-library-id\", \"query-docs\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-014",
+      "file": "internal/installer/context7.go",
+      "line": 215,
+      "mutation": "tools/list method renamed",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured (5.01s) |     context7_test.go:231: context7 health: timeout | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t10.306s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-015",
+      "file": "internal/installer/context7.go",
+      "line": 228,
+      "mutation": "missing tools accepted",
+      "scenario": "SCN-107",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured (0.00s) |     context7_test.go:231: context7 health: tool discovery | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-016",
+      "file": "internal/installer/context7.go",
+      "line": 233,
+      "mutation": "tool discovery proof not recorded",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_Context7HealthRequiresMCPInitializationAndToolDiscovery (0.00s) |     context7_test.go:73: expected init and tool discovery proof, got installer.Context7HealthResult{OK:true, Category:\"\", Message:\"\", Command:\"npx\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:true, ToolsDiscovered:false, Tools:[]string{\"resolve-library-id\", \"query-docs\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.008s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-017",
+      "file": "internal/installer/context7.go",
+      "line": 234,
+      "mutation": "healthy result marked false",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured (0.00s) |     context7_test.go:231: context7 health:  | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-018",
+      "file": "internal/installer/context7.go",
+      "line": 276,
+      "mutation": "timeout read category inverted",
+      "scenario": "SCN-107",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "    --- FAIL: TestSCN107_Context7HealthRejectsStartupAndProtocolFailures/tool_discovery_read_fails (0.00s) |         context7_test.go:370: expected failure category tool discovery, got installer.Context7HealthResult{OK:false, Category:\"timeout\", Message:\"EOF\", Command:\"npx\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:true, ToolsDiscovered:false, Tools:[]string(nil)} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-019",
+      "file": "internal/installer/context7.go",
+      "line": 307,
+      "mutation": "tool match requires only one expected tool",
+      "scenario": "SCN-107",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "    --- FAIL: TestSCN107_Context7HealthRejectsFalsePositives/server_exposes_only_one_expected_tool (0.00s) |         context7_test.go:102: expected failure category tool discovery, got installer.Context7HealthResult{OK:true, Category:\"\", Message:\"\", Command:\"npx\", Args:[]string{\"-y\", \"@upstash/context7-mcp\"}, Transport:\"stdio\", Initialized:true, ToolsDiscovered:true, Tools:[]string{\"resolve-library-id\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-020",
+      "file": "internal/installer/installer.go",
+      "line": 112,
+      "mutation": "Context7 install gate inverted",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN105_InstallReportsContext7HealthFailureWithPartialResult (0.00s) |     context7_test.go:250: expected Context7 health failure | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-021",
+      "file": "internal/installer/installer.go",
+      "line": 119,
+      "mutation": "health not invoked when one host configured",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured (0.00s) |     context7_test.go:237: expected health to run after at least one host was configured, got installer.Context7Result{Status:\"partial\", OpenCode:installer.context7HostConfigResult{Host:\"opencode\", OK:false, Err:(*fmt.wrapError)(0x20aae407f240)}, ClaudeCode:installer.context7HostConfigResult{Host:\"claude-code\", OK:true, Err:error(nil)}, FullyConfigured:false, CommandChecked:false, HealthRan:false, Health:installer.Context7HealthResult{OK:false, Category:\"\", Message:\"\", Command:\"\", Args:[]string(nil), Transport:\"\", Initialized:false, ToolsDiscovered:false, Tools:[]string(nil)}, Files:[]string{\"/tmp/TestSCN106_InstallRunsContext7HealthWhenAnyHostConfigured1623138591/001/.claude/mcp/context7.json\"}} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-022",
+      "file": "internal/installer/installer.go",
+      "line": 123,
+      "mutation": "configured status ignores health",
+      "scenario": "SCN-106",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN105_InstallReportsContext7HealthFailureWithPartialResult (0.00s) |     context7_test.go:250: expected Context7 health failure | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-023",
+      "file": "internal/installer/backup.go",
+      "line": 140,
+      "mutation": "manifest does not restore Context7 choice",
+      "scenario": "SCN-108",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN108_Context7BackupManifestRestoresSkippedAndSelectedChoice (0.00s) |     context7_test.go:304: expected Context7 selection restored from manifest | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-024",
+      "file": "internal/installer/backup.go",
+      "line": 184,
+      "mutation": "backup manifest records Context7 false",
+      "scenario": "SCN-110",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "--- FAIL: TestSCN110_Context7BackupManifestRecordsSelectedChoice (0.00s) |     context7_test.go:295: expected backup manifest to record selected Context7, got installer.optionalIntegrations{Ancora:false, Vela:false, Context7:false} | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | ok  \tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-025",
+      "file": "internal/tui/model.go",
+      "line": 162,
+      "mutation": "Context7 not selected by default",
+      "scenario": "SCN-101",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "                                                                                        |           j/k to move \u00b7 Enter to select \u00b7 Esc to go back                                |                                                                                         | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-026",
+      "file": "internal/tui/update.go",
+      "line": 283,
+      "mutation": "Vela does not advance to Context7",
+      "scenario": "SCN-101",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "ok  \tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | --- FAIL: TestSCN101_Context7NavigationBackAndRecoveryFormatting (0.00s) |     view_test.go:196: expected Vela selection to advance to Context7, got 8 | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-027",
+      "file": "internal/tui/update.go",
+      "line": 301,
+      "mutation": "Context7 selection inverted",
+      "scenario": "SCN-111",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "    view_test.go:144: expected Context7 to be deselected | --- FAIL: TestSCN102_TUIContext7SelectionDoesNotChangeOtherTools (0.00s) |     view_test.go:177: expected Context7 selected | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.008s | FAIL"
+    },
+    {
+      "id": "MUT-028",
+      "file": "internal/tui/update.go",
+      "line": 305,
+      "mutation": "Context7 back goes to Ancora instead of Vela",
+      "scenario": "SCN-101",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "ok  \tgithub.com/Syfra3/Rotta/internal/installer\t2.009s | --- FAIL: TestSCN101_Context7NavigationBackAndRecoveryFormatting (0.00s) |     view_test.go:205: expected Context7 back navigation to return to Vela, got 5 | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.009s | FAIL"
+    },
+    {
+      "id": "MUT-029",
+      "file": "internal/tui/view.go",
+      "line": 327,
+      "mutation": "Context7 view omits Ancora adjacency",
+      "scenario": "SCN-101",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "                                                                                          |           j/k to move \u00b7 Enter to select \u00b7 Esc to go back                                  |                                                                                           | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    },
+    {
+      "id": "MUT-030",
+      "file": "internal/tui/view.go",
+      "line": 427,
+      "mutation": "skip confirmation text changed",
+      "scenario": "SCN-111",
+      "critical": true,
+      "status": "killed",
+      "test_command": "go test ./internal/installer ./internal/tui",
+      "evidence": "                                                                                        |           j/k to move \u00b7 Enter to select \u00b7 Esc to go back                                |                                                                                         | FAIL | FAIL\tgithub.com/Syfra3/Rotta/internal/tui\t0.010s | FAIL"
+    }
+  ]
+}

@@ -12,4 +12,15 @@ completed_scenarios:
   - SCN-021
   - SCN-022
   - SCN-024
-completed_at: "2026-06-30T13:35:06Z"
+  - SCN-101
+  - SCN-102
+  - SCN-103
+  - SCN-104
+  - SCN-105
+  - SCN-106
+  - SCN-107
+  - SCN-108
+  - SCN-109
+  - SCN-110
+  - SCN-111
+completed_at: "2026-07-05T16:35:13Z"

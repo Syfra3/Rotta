@@ -31,8 +31,9 @@ type selectedModes struct {
 }
 
 type optionalIntegrations struct {
-	Ancora bool `json:"ancora"`
-	Vela   bool `json:"vela"`
+	Ancora   bool `json:"ancora"`
+	Vela     bool `json:"vela"`
+	Context7 bool `json:"context7"`
 }
 
 type RestoreResult struct {
@@ -136,6 +137,7 @@ func optionsFromManifest(manifest backupManifest) Options {
 		InstallReview: manifest.SelectedModes.Review,
 		SetupAncora:   manifest.OptionalIntegrations.Ancora,
 		SetupVela:     manifest.OptionalIntegrations.Vela,
+		SetupContext7: manifest.OptionalIntegrations.Context7,
 	}
 }
 
@@ -177,8 +179,9 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 			Review:         opts.InstallReview,
 		},
 		OptionalIntegrations: optionalIntegrations{
-			Ancora: opts.SetupAncora,
-			Vela:   opts.SetupVela,
+			Ancora:   opts.SetupAncora,
+			Vela:     opts.SetupVela,
+			Context7: opts.SetupContext7,
 		},
 		Status: "complete",
 	}
@@ -281,6 +284,27 @@ func backupScope(opts Options, home, projectPath string) []string {
 		)
 	}
 
+	if opts.SetupContext7 {
+		paths = appendUniquePaths(paths,
+			filepath.Join(home, ".config", "opencode", "opencode.json"),
+			filepath.Join(home, ".claude", "mcp", "context7.json"),
+		)
+	}
+
+	return paths
+}
+
+func appendUniquePaths(paths []string, candidates ...string) []string {
+	existing := map[string]bool{}
+	for _, path := range paths {
+		existing[path] = true
+	}
+	for _, path := range candidates {
+		if !existing[path] {
+			paths = append(paths, path)
+			existing[path] = true
+		}
+	}
 	return paths
 }
 
