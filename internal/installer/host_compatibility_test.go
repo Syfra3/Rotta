@@ -319,3 +319,43 @@ func TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity(t *testing
 		t.Fatalf("expected unrelated supported Ancora MCP capability to continue as exact, got %#v", ancoraCapability)
 	}
 }
+
+func TestSCN208_MCPHealthCheckReportsObservableStartupFailure(t *testing.T) {
+	// REQ-004, REQ-009 → SCN-208 → TestSCN208_MCPHealthCheckReportsObservableStartupFailure
+	// Scenario: MCP health check reports observable startup failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeExecutable(t, filepath.Join(binDir, "npx"), `#!/bin/sh
+exit 2
+`)
+
+	result, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err == nil {
+		t.Fatal("expected observable MCP health failure to fail the host installation")
+	}
+	if result == nil {
+		t.Fatal("expected partial install result with MCP health failure details")
+	}
+
+	host := result.Hosts["opencode"]
+	if host.Status != HostInstallStatusFailed {
+		t.Fatalf("expected host installation not to be fully successful after MCP health failure, got %#v", host)
+	}
+	capability := host.Capabilities["mcp:context7"]
+	if string(capability.Status) != "failed" {
+		t.Fatalf("expected failed Context7 MCP capability, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, string(Context7FailureStartup)) {
+		t.Fatalf("expected capability reason to identify startup failure, got %#v", capability)
+	}
+}
