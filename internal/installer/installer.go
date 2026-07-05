@@ -54,6 +54,7 @@ type HostCapabilityStatus string
 const (
 	HostCapabilityStatusExact    HostCapabilityStatus = "exact"
 	HostCapabilityStatusDegraded HostCapabilityStatus = "degraded"
+	HostCapabilityStatusFailed   HostCapabilityStatus = "failed"
 )
 
 type HostCapability struct {
@@ -174,6 +175,7 @@ func Install(opts Options) (*Result, error) {
 			if health.OK && context7Result.FullyConfigured {
 				result.Context7.Status = Context7StatusConfigured
 			} else if !health.OK {
+				recordMCPHealthFailure(result, opts, "mcp:context7", health)
 				return result, fmt.Errorf("context7 health: %s", health.Category)
 			}
 		}
@@ -210,6 +212,30 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 			hostResult.Capabilities["mcp:context7"] = context7MCPCapability(host)
 		}
 		result.Hosts[host] = hostResult
+	}
+}
+
+func recordMCPHealthFailure(result *Result, opts Options, capabilityName string, health Context7HealthResult) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult, ok := result.Hosts[host]
+		if !ok || hostResult.Status != HostInstallStatusInstalled {
+			continue
+		}
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		hostResult.Status = HostInstallStatusFailed
+		hostResult.Capabilities[capabilityName] = failedMCPCapability(capabilityName, health)
+		result.Hosts[host] = hostResult
+	}
+}
+
+func failedMCPCapability(name string, health Context7HealthResult) HostCapability {
+	return HostCapability{
+		Name:        name,
+		Status:      HostCapabilityStatusFailed,
+		Reason:      fmt.Sprintf("MCP health check failed during %s: %s", health.Category, health.Message),
+		Remediation: "Ensure the MCP command is available, starts successfully, initializes, and exposes expected tools before rerunning Rotta.",
 	}
 }
 
