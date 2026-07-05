@@ -52,6 +52,8 @@ func canonicalWorkflowInstructions() string {
 - Claude Code: host instructions are adapted into Claude Code-consumable skills and settings.
 - OpenCode: host instructions are exact OpenCode agent and skill artifacts.
 - Codex: host instructions are adapted into a Codex-consumable ` + "`AGENTS.md`" + ` instruction file.
+  - Agent capability: adapted; Codex receives role instructions in ` + "`AGENTS.md`" + ` instead of OpenCode-style named sub-agents.
+  - Skill capability: adapted; Codex receives workflow sections in ` + "`AGENTS.md`" + ` instead of OpenCode-style skill directories.
 `
 }
 
