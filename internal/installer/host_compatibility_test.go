@@ -721,6 +721,52 @@ func TestSCN216_PresentPerHostCapabilityMatrix(t *testing.T) {
 	}
 }
 
+func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
+	// REQ-010 → SCN-217 → TestSCN217_PreserveExistingContext7WhenAddingCodex
+	// Scenario: Preserve existing OpenCode and Claude Code Context7 behavior when adding Codex
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	claudeContext7 := filepath.Join(home, ".claude", "mcp", "context7.json")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]},"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, claudeContext7, []byte(`{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]}`))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertContext7OpenCodeEntry(t, opencodeConfig)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContainsCount(t, opencodeConfig, `"context7"`, 1)
+	assertFileDoesNotContain(t, opencodeConfig, "rotta-context7")
+	assertContext7ClaudeEntry(t, claudeContext7)
+
+	if !result.Context7.OpenCode.OK || !result.Context7.ClaudeCode.OK {
+		t.Fatalf("expected existing OpenCode and Claude Code Context7 entries to remain successful, got %#v", result.Context7)
+	}
+	if !result.Context7.Codex.OK || result.Context7.Codex.Host != "codex" {
+		t.Fatalf("expected Codex Context7 result to be reported independently, got %#v", result.Context7)
+	}
+	capability := result.Hosts["codex"].Capabilities["mcp:context7"]
+	if capability.Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex Context7 capability to be reported independently, got %#v", capability)
+	}
+}
+
 func assertNoDuplicateStrings(t *testing.T, values []string) {
 	t.Helper()
 	seen := map[string]bool{}

@@ -46,6 +46,7 @@ type Context7Result struct {
 	Status          Context7Status
 	OpenCode        context7HostConfigResult
 	ClaudeCode      context7HostConfigResult
+	Codex           context7HostConfigResult
 	FullyConfigured bool
 	CommandChecked  bool
 	HealthRan       bool
