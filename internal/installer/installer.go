@@ -57,6 +57,10 @@ type HostInstallResult struct {
 
 // Install runs the full installation and returns a summary.
 func Install(opts Options) (*Result, error) {
+	if !isSupportedInstallTarget(opts.Target) {
+		return nil, fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
+	}
+
 	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
 
 	home, err := os.UserHomeDir()
@@ -159,6 +163,15 @@ func Install(opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func isSupportedInstallTarget(target string) bool {
+	switch target {
+	case "", "claude-code", "opencode", "codex", "both", "all":
+		return true
+	default:
+		return false
+	}
 }
 
 func installAllHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
