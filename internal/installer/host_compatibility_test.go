@@ -288,7 +288,10 @@ func TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity(t *testing
 	// Scenario: Report unsupported MCP capability without pretending parity
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
 
 	result, err := Install(Options{
 		Target:        "codex",
@@ -721,6 +724,39 @@ func TestSCN216_PresentPerHostCapabilityMatrix(t *testing.T) {
 	}
 }
 
+func TestSCN216_PresentDegradedCodexMCPMatrixWhenContext7Selected(t *testing.T) {
+	// REQ-008 → SCN-216 → TestSCN216_PresentDegradedCodexMCPMatrixWhenContext7Selected
+	// Scenario: Present a per-host capability matrix
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Hosts["codex"].Capabilities["mcp"].Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex aggregate MCP matrix entry to disclose degraded Context7 health parity, got %#v", result.Hosts["codex"].Capabilities["mcp"])
+	}
+	if result.Hosts["codex"].Capabilities["mcp"].Remediation == "" {
+		t.Fatalf("expected Codex aggregate MCP matrix entry to include verification remediation, got %#v", result.Hosts["codex"].Capabilities["mcp"])
+	}
+	if result.Hosts["opencode"].Capabilities["mcp"].Status != HostCapabilityStatusExact {
+		t.Fatalf("expected OpenCode aggregate MCP matrix entry to remain exact, got %#v", result.Hosts["opencode"].Capabilities["mcp"])
+	}
+}
+
 func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
 	// REQ-010 → SCN-217 → TestSCN217_PreserveExistingContext7WhenAddingCodex
 	// Scenario: Preserve existing OpenCode and Claude Code Context7 behavior when adding Codex
@@ -764,6 +800,98 @@ func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
 	capability := result.Hosts["codex"].Capabilities["mcp:context7"]
 	if capability.Status != HostCapabilityStatusDegraded {
 		t.Fatalf("expected Codex Context7 capability to be reported independently, got %#v", capability)
+	}
+}
+
+func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
+	// Scenario: Recover safely from a partial multi-host install failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+
+	if got := installTargetLabel(""); got != "selected" {
+		t.Fatalf("expected empty install target label to be selected, got %q", got)
+	}
+
+	result := &Result{Hosts: map[string]HostInstallResult{}}
+	recordHostArtifactFailure(result, "codex", "Codex MCP config", Options{SetupAncora: true, SetupVela: true, SetupContext7: true})
+	if result.Hosts["codex"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected missing host artifact failure to create failed host result, got %#v", result.Hosts["codex"])
+	}
+	for _, capabilityName := range []string{"mcp:ancora", "mcp:vela", "mcp:context7"} {
+		if result.Hosts["codex"].Capabilities[capabilityName].Status != HostCapabilityStatusFailed {
+			t.Fatalf("expected %s to be failed, got %#v", capabilityName, result.Hosts["codex"].Capabilities)
+		}
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{"codex": {Host: "codex", Status: HostInstallStatusInstalled}}}
+	recordMCPHostCapabilities(result, Options{Target: "codex", SetupAncora: true})
+	if result.Hosts["codex"].Capabilities["mcp:ancora"].Status != HostCapabilityStatusExact {
+		t.Fatalf("expected nil capability map to be initialized with exact Ancora MCP, got %#v", result.Hosts["codex"])
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{"codex": {Host: "codex", Status: HostInstallStatusInstalled}}}
+	recordHostCapabilityMatrix(result, Options{Target: "all"})
+	if result.Hosts["codex"].Capabilities["commands"].Status != HostCapabilityStatusAdapted {
+		t.Fatalf("expected matrix to fill missing command capability, got %#v", result.Hosts["codex"].Capabilities)
+	}
+	if installationCapability(HostInstallStatusFailed).Status != HostCapabilityStatusFailed {
+		t.Fatal("expected failed installation capability for failed host status")
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{
+		"opencode": {Host: "opencode", Status: HostInstallStatusFailed},
+		"codex":    {Host: "codex", Status: HostInstallStatusInstalled},
+	}}
+	recordMCPHealthFailure(result, Options{Target: "all"}, "mcp:context7", Context7HealthResult{Category: Context7FailureStartup, Message: "boom"})
+	if result.Hosts["codex"].Capabilities["mcp:context7"].Status != HostCapabilityStatusFailed {
+		t.Fatalf("expected installed selected host to record MCP health failure, got %#v", result.Hosts["codex"])
+	}
+	if _, ok := result.Hosts["opencode"].Capabilities["mcp:context7"]; ok {
+		t.Fatalf("expected already failed host to be skipped by MCP health failure, got %#v", result.Hosts["opencode"])
+	}
+
+	writeTestFile(t, filepath.Join(projectPath, ".rotta"), []byte("not a directory"))
+	if _, err := installAllHosts(Options{InstallSpec: true}, &Result{Hosts: map[string]HostInstallResult{}}, home, projectPath); err == nil {
+		t.Fatal("expected all-host install to report project config write failure")
+	}
+}
+
+func TestSCN215_HostCompatibilityWriteFailuresRemainCovered(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-215 → TestSCN215_HostCompatibilityWriteFailuresRemainCovered
+	// Scenario: Refuse to overwrite malformed host configuration silently
+	home := t.TempDir()
+
+	writeTestFile(t, filepath.Join(home, ".codex"), []byte("not a directory"))
+	if _, err := installCodex(Options{}, home); err == nil {
+		t.Fatal("expected Codex instruction directory creation failure")
+	}
+	if _, err := configureCodexMCPServers(Options{SetupContext7: true}, home); err == nil {
+		t.Fatal("expected Codex MCP directory creation failure")
+	}
+	if _, err := cleanAndInstallHost(Options{}, "codex", home); err == nil {
+		t.Fatal("expected Codex clean/install to surface stale artifact cleanup failure")
+	}
+	if _, err := cleanAndInstallHost(Options{}, "unsupported", home); err == nil {
+		t.Fatal("expected unsupported internal host dispatch to fail")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".codex", "AGENTS.md", "blocked"), []byte("not a file"))
+	if _, err := installCodex(Options{}, home); err == nil {
+		t.Fatal("expected Codex instruction file write failure")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml", "blocked"), []byte("not a file"))
+	if _, err := configureCodexMCPServers(Options{SetupContext7: true}, home); err == nil {
+		t.Fatal("expected Codex MCP config write failure")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte("not json"))
+	if _, err := cleanAndInstallHost(Options{}, "opencode", home); err == nil {
+		t.Fatal("expected OpenCode clean/install to surface malformed config")
 	}
 }
 
