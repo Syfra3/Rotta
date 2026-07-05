@@ -209,6 +209,7 @@ func Install(opts Options) (*Result, error) {
 }
 
 func recordChangedFiles(result *Result, projectPath string) {
+	result.Files = deduplicateStrings(result.Files)
 	changed := map[FileChangeCategory][]string{
 		FileChangeCategoryHostConfig:          {},
 		FileChangeCategoryWorkspaceHostConfig: {},
@@ -220,6 +221,19 @@ func recordChangedFiles(result *Result, projectPath string) {
 	}
 	result.ChangedFiles = changed
 	result.LifecycleArtifactsRequireCommit = false
+}
+
+func deduplicateStrings(values []string) []string {
+	seen := map[string]bool{}
+	var unique []string
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 func classifyChangedFile(path, projectPath string) FileChangeCategory {
