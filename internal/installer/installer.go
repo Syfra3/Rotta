@@ -30,17 +30,27 @@ type Options struct {
 
 // Result describes what was installed.
 type Result struct {
-	Target          string
-	Files           []string
-	Hosts           map[string]HostInstallResult
-	BackupDir       string
-	Error           string
-	AncoraInstalled bool   // true if Ancora binary was installed during this run
-	AncoraBin       string // resolved path to the ancora binary
-	VelaInstalled   bool   // true if Vela binary was installed during this run
-	VelaBin         string // resolved path to the vela binary
-	Context7        Context7Result
+	Target                          string
+	Files                           []string
+	ChangedFiles                    map[FileChangeCategory][]string
+	LifecycleArtifactsRequireCommit bool
+	Hosts                           map[string]HostInstallResult
+	BackupDir                       string
+	Error                           string
+	AncoraInstalled                 bool   // true if Ancora binary was installed during this run
+	AncoraBin                       string // resolved path to the ancora binary
+	VelaInstalled                   bool   // true if Vela binary was installed during this run
+	VelaBin                         string // resolved path to the vela binary
+	Context7                        Context7Result
 }
+
+type FileChangeCategory string
+
+const (
+	FileChangeCategoryHostConfig          FileChangeCategory = "host_config"
+	FileChangeCategoryWorkspaceHostConfig FileChangeCategory = "workspace_host_config"
+	FileChangeCategoryLifecycle           FileChangeCategory = "lifecycle"
+)
 
 type HostInstallStatus string
 
@@ -99,6 +109,7 @@ func Install(opts Options) (*Result, error) {
 
 	if opts.Target == "all" {
 		if _, err := installAllHosts(opts, result, home, projectPath); err != nil {
+			recordChangedFiles(result, projectPath)
 			return result, err
 		}
 	} else {
@@ -177,6 +188,7 @@ func Install(opts Options) (*Result, error) {
 				result.Context7.Status = Context7StatusConfigured
 			} else if !health.OK {
 				recordMCPHealthFailure(result, opts, "mcp:context7", health)
+				recordChangedFiles(result, projectPath)
 				return result, fmt.Errorf("context7 health: %s", health.Category)
 			}
 		}
@@ -191,8 +203,50 @@ func Install(opts Options) (*Result, error) {
 	}
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
+	recordChangedFiles(result, projectPath)
 
 	return result, nil
+}
+
+func recordChangedFiles(result *Result, projectPath string) {
+	changed := map[FileChangeCategory][]string{
+		FileChangeCategoryHostConfig:          {},
+		FileChangeCategoryWorkspaceHostConfig: {},
+		FileChangeCategoryLifecycle:           {},
+	}
+	for _, file := range result.Files {
+		category := classifyChangedFile(file, projectPath)
+		changed[category] = append(changed[category], file)
+	}
+	result.ChangedFiles = changed
+	result.LifecycleArtifactsRequireCommit = false
+}
+
+func classifyChangedFile(path, projectPath string) FileChangeCategory {
+	if isLifecycleArtifact(path, projectPath) {
+		return FileChangeCategoryLifecycle
+	}
+	if isWithin(path, projectPath) {
+		return FileChangeCategoryWorkspaceHostConfig
+	}
+	return FileChangeCategoryHostConfig
+}
+
+func isLifecycleArtifact(path, projectPath string) bool {
+	for _, dir := range []string{".rotta", "features", "reports", "specs"} {
+		if isWithin(path, filepath.Join(projectPath, dir)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isWithin(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != "" && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }
 
 func recordCommandHostCapabilities(result *Result, opts Options) {
