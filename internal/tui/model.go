@@ -29,6 +29,7 @@ const (
 	ScreenQualityGates
 	ScreenAncora
 	ScreenVela
+	ScreenContext7
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -71,8 +72,9 @@ type recoverySelectedModes struct {
 }
 
 type recoveryOptionalIntegrations struct {
-	Ancora bool
-	Vela   bool
+	Ancora   bool
+	Vela     bool
+	Context7 bool
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -106,6 +108,10 @@ type Model struct {
 	// Vela graph intelligence
 	VelaCursor int  // 0=Install+configure, 1=Skip
 	SetupVela  bool // resolved choice
+
+	// Context7 documentation MCP
+	Context7Cursor int  // 0=Install+configure, 1=Skip
+	SetupContext7  bool // resolved choice
 
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
@@ -152,6 +158,8 @@ func New() Model {
 		SetupAncora:    true,
 		VelaCursor:     0, // default to "Install + configure"
 		SetupVela:      true,
+		Context7Cursor: 0, // default to "Install + configure"
+		SetupContext7:  true,
 		ConfirmCursor:  1, // default to "Install", not "Cancel"
 		InstallSpinner: sp,
 	}

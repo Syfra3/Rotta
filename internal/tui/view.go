@@ -25,6 +25,8 @@ func (m Model) View() string {
 		return m.viewAncora()
 	case ScreenVela:
 		return m.viewVela()
+	case ScreenContext7:
+		return m.viewContext7()
 	case ScreenConfirm:
 		return m.viewConfirm()
 	case ScreenInstalling:
@@ -158,7 +160,11 @@ func formatRecoveryIntegrations(integrations recoveryOptionalIntegrations) strin
 	if integrations.Vela {
 		vela = "Vela: yes"
 	}
-	return ancora + ", " + vela
+	context7 := "Context7: no"
+	if integrations.Context7 {
+		context7 = "Context7: yes"
+	}
+	return ancora + ", " + vela + ", " + context7
 }
 
 func writeRecoveryPaths(b *strings.Builder, paths []string) {
@@ -313,6 +319,37 @@ func (m Model) viewVela() string {
 	return appStyle.Render(b.String())
 }
 
+func (m Model) viewContext7() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Context7 — Optional Library/API Documentation MCP") + "\n\n")
+
+	b.WriteString(sectionStyle.Render("Main optional MCP tools") + "\n")
+	b.WriteString(menuItemStyle.Render("  Ancora — persistent memory") + "\n")
+	b.WriteString(menuItemStyle.Render("  Vela — graph intelligence") + "\n")
+	b.WriteString(menuItemStyle.Render("  Context7 — up-to-date library/API documentation through MCP") + "\n\n")
+
+	b.WriteString(sectionStyle.Render("What gets configured") + "\n")
+	b.WriteString(menuItemStyle.Render("  OpenCode MCP server: context7 → npx -y @upstash/context7-mcp") + "\n")
+	b.WriteString(menuItemStyle.Render("  Claude Code MCP server: context7 → npx -y @upstash/context7-mcp") + "\n")
+	b.WriteString(menuItemStyle.Render("  Health check initializes the MCP server and discovers documentation tools") + "\n\n")
+
+	options := []struct{ label, desc string }{
+		{"Install + configure Context7", "Checked by default; configure docs MCP for OpenCode and Claude Code"},
+		{"Skip", "Do not configure Context7 or run Context7 checks"},
+	}
+	for i, opt := range options {
+		if m.Context7Cursor == i {
+			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
+			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
+		} else {
+			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
+		}
+	}
+
+	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
 func (m Model) viewQualityGates() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Quality Gates Configuration") + "\n\n")
@@ -387,6 +424,12 @@ func (m Model) viewConfirm() string {
 	}
 	b.WriteString(labelStyle.Render("Vela graph:") + " " + valueStyle.Render(vela) + "\n\n")
 
+	context7 := "yes (install + configure)"
+	if !m.SetupContext7 {
+		context7 = "skip"
+	}
+	b.WriteString(labelStyle.Render("Context7 docs:") + " " + valueStyle.Render(context7) + "\n\n")
+
 	b.WriteString(sectionStyle.Render("Files to create") + "\n")
 	if m.Target == "claude-code" || m.Target == "both" {
 		if m.SelectedModes[0] {
@@ -440,6 +483,10 @@ func (m Model) viewConfirm() string {
 		if m.Target == "opencode" || m.Target == "both" {
 			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (mcp.vela)") + "\n")
 		}
+	}
+	if m.SetupContext7 {
+		b.WriteString(menuItemStyle.Render("  ~/.claude/mcp/context7.json  (mcp.context7)") + "\n")
+		b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (mcp.context7)") + "\n")
 	}
 	b.WriteString("\n")
 
