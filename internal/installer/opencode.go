@@ -222,7 +222,7 @@ func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("cannot read opencode.json: %w", err)
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("cannot parse opencode.json: %w", err)
+		return nil, fmt.Errorf("cannot parse %s: %w", path, err)
 	}
 	return config, nil
 }

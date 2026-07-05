@@ -104,7 +104,10 @@ func Install(opts Options) (*Result, error) {
 	result.BackupDir = backupDir
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
-		return nil, err
+		installErr := fmt.Errorf("%s host configuration: %w", installTargetLabel(opts.Target), err)
+		recordSelectedHostFailure(result, opts, installErr)
+		recordChangedFiles(result, projectPath)
+		return result, installErr
 	}
 
 	if opts.Target == "all" {
@@ -212,6 +215,20 @@ func Install(opts Options) (*Result, error) {
 	recordChangedFiles(result, projectPath)
 
 	return result, nil
+}
+
+func recordSelectedHostFailure(result *Result, opts Options, err error) {
+	for _, host := range selectedHosts(opts.Target) {
+		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
+	}
+	result.Error = err.Error()
+}
+
+func installTargetLabel(target string) string {
+	if target == "" {
+		return "selected"
+	}
+	return target
 }
 
 func recordHostArtifactFailure(result *Result, host, artifactType string, opts Options) {
