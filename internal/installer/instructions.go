@@ -25,6 +25,8 @@ func readRenderedAsset(path string, opts Options) ([]byte, error) {
 func integrationInstructions(opts Options) string {
 	var b strings.Builder
 	b.WriteString("\n---\n\n")
+	b.WriteString(canonicalWorkflowInstructions())
+	b.WriteString("\n")
 	b.WriteString("## Installed Integration Choices (Authoritative)\n\n")
 	b.WriteString(memoryInstructions(opts.SetupAncora))
 	b.WriteString("\n")
@@ -32,6 +34,25 @@ func integrationInstructions(opts Options) string {
 	b.WriteString("\n")
 	b.WriteString(explorationEnrichmentInstructions(opts.SetupVela))
 	return b.String()
+}
+
+func canonicalWorkflowInstructions() string {
+	return `## Rotta Canonical Workflow Contract
+
+- Phase 1 — Draft: analyze the request, expose risks and missing information, and prepare only for spec work.
+- Phase 2 — Spec + Gherkin: write the hard spec and Gherkin scenarios, then stop at the approval gate. Do NOT advance without explicit human approval.
+- Phase 3 — TDD: implement one approved scenario at a time with strict Red/Green/Refactor TDD and traceable tests.
+- Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
+- Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
+- Preserve the no AI attribution rule: do not add AI-generated, generated-by, or co-author attribution to commits or generated project artifacts.
+- Workspace files are the source of truth. Ancora stores compact pointers/status only when enabled.
+
+## Capability Summary
+
+- Claude Code: host instructions are adapted into Claude Code-consumable skills and settings.
+- OpenCode: host instructions are exact OpenCode agent and skill artifacts.
+- Codex: host instructions are adapted into a Codex-consumable ` + "`AGENTS.md`" + ` instruction file.
+`
 }
 
 func memoryInstructions(enabled bool) string {

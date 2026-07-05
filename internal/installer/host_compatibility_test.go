@@ -114,3 +114,52 @@ func TestSCN203_RejectUnsupportedHostBeforeMutation(t *testing.T) {
 	assertPathMissing(t, filepath.Join(home, ".codex"))
 	assertPathMissing(t, filepath.Join(projectPath, ".rotta"))
 }
+
+func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing.T) {
+	// REQ-003, REQ-008 → SCN-204 → TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow
+	// Scenario: Generate host-specific instructions from the canonical Rotta workflow
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hostInstructionFiles := map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	}
+	for host, path := range hostInstructionFiles {
+		assertStringListContains(t, result.Hosts[host].Files, path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		got := string(data)
+		assertContainsAll(t, got, []string{
+			"Rotta Canonical Workflow Contract",
+			"Phase 1 — Draft",
+			"Phase 2 — Spec + Gherkin",
+			"Phase 3 — TDD",
+			"Phase 4 — Review",
+			"Do NOT advance without explicit human approval",
+			"strict Red/Green/Refactor TDD",
+			"The Judge reviews evidence, not code",
+			"no AI attribution",
+			"Workspace files are the source of truth",
+			"Ancora stores compact pointers/status only",
+			"Capability Summary",
+		})
+	}
+}
