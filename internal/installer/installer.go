@@ -197,7 +197,13 @@ func Install(opts Options) (*Result, error) {
 	if targetsCodex(opts.Target) && (opts.SetupAncora || opts.SetupVela || opts.SetupContext7) {
 		files, err := configureCodexMCPServers(opts, home)
 		if err != nil {
-			return nil, fmt.Errorf("codex mcp setup: %w", err)
+			recordHostArtifactFailure(result, "codex", "Codex MCP config", opts)
+			recordCommandHostCapabilities(result, opts)
+			recordMCPHostCapabilities(result, opts)
+			recordChangedFiles(result, projectPath)
+			installErr := fmt.Errorf("codex MCP config: %w", err)
+			result.Error = installErr.Error()
+			return result, installErr
 		}
 		result.Files = append(result.Files, files...)
 	}
@@ -206,6 +212,40 @@ func Install(opts Options) (*Result, error) {
 	recordChangedFiles(result, projectPath)
 
 	return result, nil
+}
+
+func recordHostArtifactFailure(result *Result, host, artifactType string, opts Options) {
+	hostResult, ok := result.Hosts[host]
+	if !ok {
+		hostResult = HostInstallResult{Host: host}
+	}
+	hostResult.Status = HostInstallStatusFailed
+	if hostResult.Capabilities == nil {
+		hostResult.Capabilities = map[string]HostCapability{}
+	}
+	for _, capabilityName := range selectedMCPCapabilities(opts) {
+		hostResult.Capabilities[capabilityName] = HostCapability{
+			Name:        capabilityName,
+			Status:      HostCapabilityStatusFailed,
+			Reason:      artifactType + " failed; completed host configuration remains valid and can be kept for retry.",
+			Remediation: "It is safe to rerun Rotta after repairing the failed artifact path, or manually restore from the backup directory before retrying.",
+		}
+	}
+	result.Hosts[host] = hostResult
+}
+
+func selectedMCPCapabilities(opts Options) []string {
+	var capabilities []string
+	if opts.SetupAncora {
+		capabilities = append(capabilities, "mcp:ancora")
+	}
+	if opts.SetupVela {
+		capabilities = append(capabilities, "mcp:vela")
+	}
+	if opts.SetupContext7 {
+		capabilities = append(capabilities, "mcp:context7")
+	}
+	return capabilities
 }
 
 func recordChangedFiles(result *Result, projectPath string) {
