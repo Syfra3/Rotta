@@ -468,3 +468,43 @@ func TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation(t *testi
 		t.Fatal("expected generated Rotta lifecycle artifacts not to require commits by default")
 	}
 }
+
+func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {
+	// REQ-006 → SCN-212 → TestSCN212_StoreMemoryStateAsCompactPointersOnly
+	// Scenario: Store memory state as compact pointers only
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"Workspace files remain the source of truth for specs, Gherkin features, TDD logs, reports, and workflow state.",
+		"State Index per Cycle (not the full log)",
+		"log_file: .rotta/tdd-log.md",
+		"completed_scenarios:",
+		"last_scenario:",
+		"last_test:",
+		"status: green",
+		"files_changed:",
+		"Do not store full hard specs, feature files, TDD logs, or review reports in Ancora",
+	})
+	assertNotContains(t, got, "paste the full hard spec")
+	assertNotContains(t, got, "copy the full feature file")
+}
