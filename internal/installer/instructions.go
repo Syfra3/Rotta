@@ -68,9 +68,11 @@ func memoryInstructions(enabled bool) string {
 		return `### Ancora Memory Enabled
 
 - Workspace files remain the source of truth; Ancora stores compact state indexes, decisions, and recovery pointers only.
+- Workspace files remain the source of truth for specs, Gherkin features, TDD logs, reports, and workflow state.
 - At session start, recover recent state with ` + "`ancora_context`" + ` and targeted ` + "`ancora_search`" + ` before advancing phases.
 - After phase transitions, bug fixes, decisions, or non-obvious discoveries, save a compact pointer/status record with ` + "`ancora_save`" + `.
-- Do not store full specs, feature files, TDD logs, or judge reports in Ancora; store paths and concise status only.
+- State Index per Cycle (not the full log): save only fields such as ` + "`log_file: .rotta/tdd-log.md`" + `, ` + "`completed_scenarios:`" + `, ` + "`last_scenario:`" + `, ` + "`last_test:`" + `, ` + "`status: green`" + `, and ` + "`files_changed:`" + `.
+- Do not store full hard specs, feature files, TDD logs, or review reports in Ancora; store paths and concise status only.
 `
 	}
 	return `### Ancora Memory Disabled
