@@ -196,3 +196,89 @@ func TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex(t *testing.T) {
 	assertNotContains(t, got, "Codex: host instructions are exact OpenCode agent and skill artifacts")
 	assertNotContains(t, got, "Codex: exact agent and skill support")
 }
+
+func TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts(t *testing.T) {
+	// REQ-004, REQ-010 → SCN-206 → TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts
+	// Scenario: Configure selected MCP servers across selected hosts
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".claude", "mcp", "user.json"), []byte(`{"command":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml"), []byte("model = \"gpt-5\"\n"))
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+printf 'ancora %s\n' "$*" >> "$HOME/setup.log"
+if [ "$1" = setup ] && [ "$2" = claude-code ]; then
+  mkdir -p "$HOME/.claude/mcp"
+  printf '{"type":"stdio","command":"ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json"
+fi
+if [ "$1" = setup ] && [ "$2" = opencode ]; then
+  mkdir -p "$HOME/.config/opencode"
+  printf '{"mcp":{"ancora":{"type":"stdio","command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
+fi
+`)
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+project=""
+agent=""
+claude_dir=""
+opencode_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+    --agent) shift; agent="$1" ;;
+    --claude-dir) shift; claude_dir="$1" ;;
+    --opencode-dir) shift; opencode_dir="$1" ;;
+  esac
+  shift
+done
+mkdir -p "$project/.vela"
+printf 'fresh graph' > "$project/.vela/graph.db"
+if [ "$agent" = claude ]; then
+  mkdir -p "$claude_dir"
+  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
+fi
+if [ "$agent" = opencode ]; then
+  mkdir -p "$opencode_dir"
+  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
+fi
+`)
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "ancora.json"), "ancora")
+	assertFileContains(t, filepath.Join(home, ".claude", "vela-mcp.json"), "vela")
+	assertContext7ClaudeEntry(t, filepath.Join(home, ".claude", "mcp", "context7.json"))
+	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "user.json"), "keep")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode-vela.json"), "vela")
+	assertContext7OpenCodeEntry(t, opencodeConfig)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "model = \"gpt-5\"")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.ancora]")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.vela]")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.context7]")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "ancora setup claude-code")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "ancora setup opencode")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent claude")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent opencode")
+	assertStringListContains(t, result.Files, filepath.Join(home, ".codex", "config.toml"))
+}

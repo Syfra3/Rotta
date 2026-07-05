@@ -81,41 +81,43 @@ func Install(opts Options) (*Result, error) {
 	}
 
 	if opts.Target == "all" {
-		return installAllHosts(opts, result, home, projectPath)
-	}
+		if _, err := installAllHosts(opts, result, home, projectPath); err != nil {
+			return result, err
+		}
+	} else {
+		if opts.Target == "claude-code" || opts.Target == "both" {
+			files, err := installClaudeCode(opts, home)
+			if err != nil {
+				return nil, err
+			}
+			result.Files = append(result.Files, files...)
+			result.Hosts["claude-code"] = HostInstallResult{Host: "claude-code", Status: HostInstallStatusInstalled, Files: files}
+		}
 
-	if opts.Target == "claude-code" || opts.Target == "both" {
-		files, err := installClaudeCode(opts, home)
+		if opts.Target == "opencode" || opts.Target == "both" {
+			files, err := installOpenCode(opts, home)
+			if err != nil {
+				return nil, err
+			}
+			result.Files = append(result.Files, files...)
+			result.Hosts["opencode"] = HostInstallResult{Host: "opencode", Status: HostInstallStatusInstalled, Files: files}
+		}
+
+		if opts.Target == "codex" {
+			files, err := installCodex(opts, home)
+			if err != nil {
+				return nil, err
+			}
+			result.Files = append(result.Files, files...)
+			result.Hosts["codex"] = HostInstallResult{Host: "codex", Status: HostInstallStatusInstalled, Files: files}
+		}
+
+		files, err := installConfig(projectPath)
 		if err != nil {
 			return nil, err
 		}
 		result.Files = append(result.Files, files...)
-		result.Hosts["claude-code"] = HostInstallResult{Host: "claude-code", Status: HostInstallStatusInstalled, Files: files}
 	}
-
-	if opts.Target == "opencode" || opts.Target == "both" {
-		files, err := installOpenCode(opts, home)
-		if err != nil {
-			return nil, err
-		}
-		result.Files = append(result.Files, files...)
-		result.Hosts["opencode"] = HostInstallResult{Host: "opencode", Status: HostInstallStatusInstalled, Files: files}
-	}
-
-	if opts.Target == "codex" {
-		files, err := installCodex(opts, home)
-		if err != nil {
-			return nil, err
-		}
-		result.Files = append(result.Files, files...)
-		result.Hosts["codex"] = HostInstallResult{Host: "codex", Status: HostInstallStatusInstalled, Files: files}
-	}
-
-	files, err := installConfig(projectPath)
-	if err != nil {
-		return nil, err
-	}
-	result.Files = append(result.Files, files...)
 
 	if opts.SetupAncora {
 		ar, err := SetupAncora(opts, home)
@@ -162,7 +164,19 @@ func Install(opts Options) (*Result, error) {
 		}
 	}
 
+	if targetsCodex(opts.Target) && (opts.SetupAncora || opts.SetupVela || opts.SetupContext7) {
+		files, err := configureCodexMCPServers(opts, home)
+		if err != nil {
+			return nil, fmt.Errorf("codex mcp setup: %w", err)
+		}
+		result.Files = append(result.Files, files...)
+	}
+
 	return result, nil
+}
+
+func targetsCodex(target string) bool {
+	return target == "codex" || target == "all"
 }
 
 func isSupportedInstallTarget(target string) bool {
