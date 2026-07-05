@@ -638,6 +638,47 @@ fi
 	}
 }
 
+func TestSCN215_RefuseToOverwriteMalformedHostConfigurationSilently(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-215 → TestSCN215_RefuseToOverwriteMalformedHostConfigurationSilently
+	// Scenario: Refuse to overwrite malformed host configuration silently
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	malformedConfig := []byte("not json")
+	writeTestFile(t, opencodeConfig, malformedConfig)
+
+	result, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err == nil {
+		t.Fatal("expected malformed host configuration to fail before mutation")
+	}
+	if result == nil {
+		t.Fatal("expected failed host result with backup and recovery details")
+	}
+	if !strings.Contains(err.Error(), "opencode") || !strings.Contains(err.Error(), opencodeConfig) {
+		t.Fatalf("expected error to report host and malformed file path, got %v", err)
+	}
+	if result.Hosts["opencode"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected OpenCode host not to claim successful installation, got %#v", result.Hosts["opencode"])
+	}
+	data, readErr := os.ReadFile(opencodeConfig)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(malformedConfig) {
+		t.Fatalf("expected malformed configuration to remain untouched, got %q", string(data))
+	}
+	backupCopy := backupDestination(result.BackupDir, home, opencodeConfig)
+	assertFileContains(t, backupCopy, string(malformedConfig))
+}
+
 func assertNoDuplicateStrings(t *testing.T, values []string) {
 	t.Helper()
 	seen := map[string]bool{}
