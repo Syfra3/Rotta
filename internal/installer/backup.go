@@ -284,6 +284,10 @@ func backupScope(opts Options, home, projectPath string) []string {
 		)
 	}
 
+	if opts.Target == "codex" {
+		paths = append(paths, filepath.Join(home, ".codex", "AGENTS.md"))
+	}
+
 	if opts.SetupContext7 {
 		paths = appendUniquePaths(paths,
 			filepath.Join(home, ".config", "opencode", "opencode.json"),

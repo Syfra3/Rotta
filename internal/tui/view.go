@@ -48,7 +48,7 @@ func (m Model) View() string {
 func (m Model) viewWelcome() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Rotta Installer") + "\n")
-	b.WriteString(subtitleStyle.Render("Contract-driven AI coding for Claude Code and OpenCode") + "\n\n")
+	b.WriteString(subtitleStyle.Render("Contract-driven AI coding for Claude Code, OpenCode, and Codex") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("What this installs") + "\n")
 	b.WriteString(menuItemStyle.Render("  Spec Mode        — Hard spec + Gherkin authoring with human approval gate") + "\n")
@@ -187,6 +187,7 @@ func (m Model) viewTargetSelect() string {
 	}{
 		{"Claude Code", "SKILL.md files → ~/.claude/skills/rotta/"},
 		{"OpenCode", "Agent entries + skill files for rotta-orchestrator, rotta-spec, rotta-impl, rotta-review"},
+		{"Codex", "Codex instructions → ~/.codex/AGENTS.md"},
 		{"Both", "Install for both tools"},
 	}
 
@@ -454,6 +455,9 @@ func (m Model) viewConfirm() string {
 		if m.SelectedModes[2] {
 			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/skills/rotta-review/SKILL.md") + "\n")
 		}
+	}
+	if m.Target == "codex" {
+		b.WriteString(menuItemStyle.Render("  ~/.codex/AGENTS.md  (Codex instructions)") + "\n")
 	}
 	b.WriteString(menuItemStyle.Render("  .rotta/state-machine.yaml") + "\n")
 	b.WriteString(menuItemStyle.Render("  .rotta/quality-gates.yaml") + "\n")

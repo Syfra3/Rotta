@@ -32,6 +32,7 @@ type Options struct {
 type Result struct {
 	Target          string
 	Files           []string
+	Hosts           map[string]HostInstallResult
 	BackupDir       string
 	AncoraInstalled bool   // true if Ancora binary was installed during this run
 	AncoraBin       string // resolved path to the ancora binary
@@ -40,9 +41,21 @@ type Result struct {
 	Context7        Context7Result
 }
 
+type HostInstallStatus string
+
+const (
+	HostInstallStatusInstalled HostInstallStatus = "installed"
+)
+
+type HostInstallResult struct {
+	Host   string
+	Status HostInstallStatus
+	Files  []string
+}
+
 // Install runs the full installation and returns a summary.
 func Install(opts Options) (*Result, error) {
-	result := &Result{Target: opts.Target}
+	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -67,6 +80,7 @@ func Install(opts Options) (*Result, error) {
 			return nil, err
 		}
 		result.Files = append(result.Files, files...)
+		result.Hosts["claude-code"] = HostInstallResult{Host: "claude-code", Status: HostInstallStatusInstalled, Files: files}
 	}
 
 	if opts.Target == "opencode" || opts.Target == "both" {
@@ -75,6 +89,16 @@ func Install(opts Options) (*Result, error) {
 			return nil, err
 		}
 		result.Files = append(result.Files, files...)
+		result.Hosts["opencode"] = HostInstallResult{Host: "opencode", Status: HostInstallStatusInstalled, Files: files}
+	}
+
+	if opts.Target == "codex" {
+		files, err := installCodex(opts, home)
+		if err != nil {
+			return nil, err
+		}
+		result.Files = append(result.Files, files...)
+		result.Hosts["codex"] = HostInstallResult{Host: "codex", Status: HostInstallStatusInstalled, Files: files}
 	}
 
 	files, err := installConfig(projectPath)
@@ -175,6 +199,11 @@ func cleanPreviousInstallation(opts Options, home, projectPath string) error {
 	}
 	if opts.Target == "claude-code" || opts.Target == "both" {
 		if err := cleanPreviousClaudeCodeInstallation(home); err != nil {
+			return err
+		}
+	}
+	if opts.Target == "codex" {
+		if err := cleanPreviousCodexInstallation(home); err != nil {
 			return err
 		}
 	}

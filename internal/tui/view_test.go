@@ -118,6 +118,25 @@ func TestSCN101_TUIContext7VisibleSelectedByDefault(t *testing.T) {
 	}
 }
 
+func TestSCN201_TUITargetSelectionIncludesCodexAsSingleHost(t *testing.T) {
+	// REQ-001, REQ-002 → SCN-201 → TestSCN201_TUITargetSelectionIncludesCodexAsSingleHost
+	// Scenario: Install Rotta into a single supported host
+	model := New()
+	model.Screen = ScreenTargetSelect
+	model.TargetCursor = 2
+
+	view := model.View()
+	if !strings.Contains(view, "Codex") || !strings.Contains(view, "~/.codex/AGENTS.md") {
+		t.Fatalf("expected target selection to expose Codex as a single host:\n%s", view)
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	if got.Target != TargetCodex {
+		t.Fatalf("expected selecting Codex to set target %q, got %q", TargetCodex, got.Target)
+	}
+}
+
 func TestSCN101_TUIConfirmShowsSelectedContext7ByDefault(t *testing.T) {
 	// REQ-001, REQ-005 → SCN-101 → TestSCN101_TUIConfirmShowsSelectedContext7ByDefault
 	// Scenario: Context7 is visible and selected by default.
