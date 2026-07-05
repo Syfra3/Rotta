@@ -285,7 +285,10 @@ func backupScope(opts Options, home, projectPath string) []string {
 	}
 
 	if opts.Target == "codex" || opts.Target == "all" {
-		paths = append(paths, filepath.Join(home, ".codex", "AGENTS.md"))
+		paths = append(paths,
+			filepath.Join(home, ".codex", "AGENTS.md"),
+			filepath.Join(home, ".codex", "config.toml"),
+		)
 	}
 
 	if opts.SetupContext7 {

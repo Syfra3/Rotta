@@ -584,6 +584,60 @@ fi
 	assertFileContainsCount(t, codexConfig, "[mcp_servers.context7]", 1)
 }
 
+func TestSCN214_RecoverSafelyFromPartialMultiHostInstallFailure(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-214 → TestSCN214_RecoverSafelyFromPartialMultiHostInstallFailure
+	// Scenario: Recover safely from a partial multi-host install failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+if [ "$1" = setup ] && [ "$2" = opencode ]; then
+  mkdir -p "$HOME/.config/opencode"
+  printf '{"mcp":{"ancora":{"type":"stdio","command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
+fi
+`)
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml", "blocked"), []byte("not a file\n"))
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err == nil {
+		t.Fatal("expected Codex configuration failure to report partial install failure")
+	}
+	if result == nil {
+		t.Fatal("expected partial result with completed host configuration and recovery guidance")
+	}
+
+	if result.Hosts["opencode"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected completed OpenCode host configuration to remain installed, got %#v", result.Hosts["opencode"])
+	}
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.json"), "rotta-orchestrator")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora")
+
+	codex := result.Hosts["codex"]
+	if codex.Status != HostInstallStatusFailed {
+		t.Fatalf("expected Codex host to be marked failed, got %#v", codex)
+	}
+	capability := codex.Capabilities["mcp:ancora"]
+	if capability.Status != HostCapabilityStatusFailed {
+		t.Fatalf("expected failed Codex MCP artifact capability, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, "Codex MCP config") || !strings.Contains(capability.Remediation, "safe to rerun") {
+		t.Fatalf("expected failed artifact type and safe recovery guidance, got %#v", capability)
+	}
+	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "MCP config") {
+		t.Fatalf("expected error to identify Codex and failed artifact type, got %v", err)
+	}
+}
+
 func assertNoDuplicateStrings(t *testing.T, values []string) {
 	t.Helper()
 	seen := map[string]bool{}
