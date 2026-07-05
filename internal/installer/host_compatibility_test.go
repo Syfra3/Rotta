@@ -3,6 +3,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,4 +83,34 @@ func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testi
 
 	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta"))
 	assertPathExists(t, filepath.Join(home, ".codex", "AGENTS.md"))
+}
+
+func TestSCN203_RejectUnsupportedHostBeforeMutation(t *testing.T) {
+	// REQ-001, REQ-009 → SCN-203 → TestSCN203_RejectUnsupportedHostBeforeMutation
+	// Scenario: Reject an unsupported host before mutation
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "cursor",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err == nil {
+		t.Fatal("expected unsupported host to be rejected")
+	}
+	if result != nil {
+		t.Fatalf("expected no install result after unsupported host rejection, got %#v", result)
+	}
+	if !strings.Contains(err.Error(), "supported hosts are exactly Claude Code, OpenCode, and Codex") {
+		t.Fatalf("expected supported host explanation, got %q", err.Error())
+	}
+
+	assertPathMissing(t, filepath.Join(home, ".claude"))
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode"))
+	assertPathMissing(t, filepath.Join(home, ".codex"))
+	assertPathMissing(t, filepath.Join(projectPath, ".rotta"))
 }
