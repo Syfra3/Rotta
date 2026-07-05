@@ -400,3 +400,42 @@ func TestSCN209_ContinueRottaWorkflowFromDifferentSupportedHost(t *testing.T) {
 		})
 	}
 }
+
+func TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation(t *testing.T) {
+	// REQ-005, REQ-008 → SCN-210 → TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation
+	// Scenario: Preserve command behavior when a host requires aliases or adapted command exposure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	assertContainsAll(t, string(data), []string{
+		"Command invocation for hosts without slash commands",
+		"Use natural-language invocations such as `Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`",
+		"These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.",
+		"Command capability: adapted",
+	})
+
+	capability := result.Hosts["codex"].Capabilities["commands"]
+	if capability.Status != HostCapabilityStatusAdapted {
+		t.Fatalf("expected Codex command capability to be adapted, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, "natural-language") || !strings.Contains(capability.Remediation, "same canonical Rotta commands") {
+		t.Fatalf("expected adapted command capability to document invocation path and mapping, got %#v", capability)
+	}
+}
