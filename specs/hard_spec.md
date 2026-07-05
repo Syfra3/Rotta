@@ -1,134 +1,201 @@
-# Hard Spec: Context7 MCP Integration in TUI Installation Flow
+# Hard Spec: Host-Agnostic Rotta Compatibility for Claude Code, OpenCode, and Codex
 
 ## Adversarial Pre-Mortem
-- Failure mode 1: Context7 is checked by default but the installer does not make deselection clear or ignores explicit deselection, causing unwanted host configuration mutations.
-- Failure mode 2: The installer writes Context7 MCP configuration for one host but reports success for both OpenCode and Claude Code, leaving a silent partial installation.
-- Failure mode 3: The health check only verifies that configuration text exists or that `npx` can start, producing false positives when the MCP server cannot initialize or expose Context7 tools.
+- Failure mode 1: Rotta claims host parity but writes OpenCode-shaped files or MCP settings into Claude Code or Codex locations, leaving users with generated artifacts that are syntactically valid files but ignored by the target host.
+- Failure mode 2: Compatibility work fragments Rotta's workflow into host-specific behavior, causing commands, lifecycle artifacts, MCP availability, or phase gates to diverge silently between Claude Code, OpenCode, and Codex.
+- Failure mode 3: Installers mutate user-level host configuration without backups, ownership markers, or idempotency, producing duplicate MCP entries, broken personal settings, dirty project worktrees, or unrecoverable partial installs.
 
 ## Hidden Assumptions
-- OpenCode and Claude Code both support a stdio MCP server entry with command, args, and optional environment values.
-- The most compatible cross-host Context7 MCP setup is the npm MCP server package launched through `npx -y @upstash/context7-mcp` over stdio, rather than a host-specific setup command or generated skill/rule.
-- Node.js and `npx` availability can be checked before or during the Context7 health check and reported distinctly from host configuration failures.
-- Context7 can operate without Rotta generating workflow instructions that tell agents when to use it.
+- Claude Code, OpenCode, and Codex each provide a supported way to consume generated instructions and at least some combination of agent, skill, command, or MCP configuration files; where a host lacks an exact primitive, Rotta can generate the closest supported equivalent and disclose the limitation.
+- Rotta's canonical behavior is host-independent: phase order, command names, approval gates, lifecycle artifact semantics, memory policy, MCP semantics, and review/TDD expectations are defined once and adapted to host surfaces.
+- Workspace files remain the source of truth for hard specs, features, reports, and lifecycle artifacts; Ancora or any other memory MCP stores compact pointers/status only.
+- Generated Rotta lifecycle artifacts such as `.rotta/`, `features/`, `reports/`, and `specs/` are not committed by default unless the user explicitly chooses to do so.
+- Existing OpenCode and Claude Code support from recent Context7 installer work is expected behavior and must not regress while adding Codex and formal host abstraction.
 
 ## Alternatives Considered
 | Approach | Reason Rejected |
 |----------|----------------|
-| Install Context7 as mandatory with no deselection path | Violates the optional opt-in requirement and risks unexpected host config changes. |
-| Use `npx ctx7 setup` | It is an interactive/agent-specific setup flow and may install skills or rules outside Rotta's controlled host config contract. |
-| Configure only the remote Context7 HTTP endpoint | Host support for remote MCP transports is less uniformly compatible than command/args stdio entries across OpenCode and Claude Code. |
-| Configure Context7 only for whichever host is currently selected first | The requirement explicitly targets both OpenCode and Claude Code host configs. |
-| Add generated instructions requiring Context7 use for library docs | Explicitly out of scope; host MCP availability is enough. |
+| Keep OpenCode as the only first-class host and document manual setup for Claude Code and Codex | Violates the requirement that Rotta be agnostic to the agentic coding agent and work across all three supported hosts. |
+| Implement three independent workflows, one per host | Maximizes short-term host fit but creates divergent commands, MCP behavior, approvals, and lifecycle semantics that users cannot rely on. |
+| Generate only generic markdown instructions and require users to configure agents/MCPs manually | Avoids host mutation risk but fails the explicit scope covering installation, generated host files, MCP configuration, and command/workflow preservation. |
+| Normalize all hosts to OpenCode's file layout | Simple internally, but unsafe because Claude Code and Codex may ignore or misinterpret OpenCode-specific locations and schema. |
+| Add Claude Code and Codex but postpone host-specific limitations | Hides real parity gaps and prevents users from knowing which Rotta capabilities are exact, adapted, degraded, or unsupported per host. |
 
 ## Summary
-Add Context7 as a main optional MCP tool in Rotta's TUI installation flow, presented alongside Ancora and Vela with a clear description and checked by default. Context7 remains optional: the user can deselect it before installation or configuration begins. When Context7 remains selected, Rotta must configure Context7 for both OpenCode and Claude Code using the most compatible stdio MCP package command and must run a real MCP health check that proves the configured server initializes and exposes Context7 tools. Skipping Context7 by deselecting it must leave host configs and generated workflow instructions free of Context7 changes.
+Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Code, OpenCode, and Codex while preserving the same Rotta workflow, commands, MCPs, generated instructions, approval gates, lifecycle artifacts, and user-facing behavior as much as each host permits. Rotta must generate host-appropriate agent, skill, instruction, command, and MCP configuration artifacts from one canonical Rotta contract, report exact/adapted/unsupported capabilities per host, remain idempotent and recovery-safe, preserve clean worktree expectations for generated lifecycle artifacts, and fail clearly without silently degrading workflow guarantees.
 
 ## Requirements
 
-### REQ-001: Present Context7 as an Opt-In Main Optional MCP Tool
-**Description:** The TUI installer must present Context7 alongside Ancora and Vela as a main optional MCP tool, with Context7 selected by default and described in user-facing language while preserving the user's ability to deselect it before installation or configuration.
+### REQ-001: Support Exactly Three Compatibility Hosts
+**Description:** Rotta must treat Claude Code, OpenCode, and Codex as the complete supported compatibility target set for this feature, with a canonical host abstraction that avoids hard-coding OpenCode behavior as the implicit default for all hosts.
 **Acceptance Criteria:**
-- Context7 appears in the same optional MCP tool selection area or decision level as Ancora and Vela.
-- Context7 is preselected when the installer starts a new installation or returns to the MCP tool selection step before the user changes it.
-- The user can deselect Context7 before installation or configuration begins.
-- The Context7 option includes a concise description stating that it provides up-to-date library/API documentation through MCP.
-- Selecting or deselecting Context7 must not change the selected state of Ancora, Vela, or any other main optional MCP tool.
-- The final install summary distinguishes Context7 selected, Context7 skipped, and Context7 failed states.
+- The installer exposes Claude Code, OpenCode, and Codex as selectable Rotta host targets.
+- The supported host set for this feature is exactly Claude Code, OpenCode, and Codex.
+- Selecting any supported host routes installation, generated files, MCP configuration, and command surfaces through that host's adapter or equivalent compatibility contract.
+- Unsupported hosts are not presented as supported and are rejected with a clear message if requested by config or CLI input.
+- Existing OpenCode behavior remains supported after adding Claude Code and Codex.
+- Existing Claude Code behavior from recent MCP installer work, including Context7 support, remains supported after adding Codex and host abstraction.
 **Edge Cases:**
-- User deselects all optional MCP tools, including default-checked Context7.
-- User selects Context7 but skips Ancora and Vela.
-- User navigates backward after selecting Context7 and then deselects it before confirmation.
+- User selects multiple supported hosts in one run.
+- User requests an unsupported host by typo, stale config, or manual invocation.
+- User reruns installation after the default host detection changes.
 **Out of Scope:**
-- Automatically recommending Context7 based on project dependencies.
+- Supporting Cursor, Windsurf, Zed, VS Code extensions, Gemini CLI, custom in-house agents, or other hosts.
 
-### REQ-002: Configure Context7 for Both Target Hosts When Selected
-**Description:** When Context7 is selected, Rotta must configure a Context7 MCP server entry for both OpenCode and Claude Code host configurations without claiming success for a host that was not updated.
+### REQ-002: Install Rotta into Each Selected Host Using Host-Appropriate Locations
+**Description:** Rotta must install its host integration artifacts into the correct user-level or workspace-level locations for each selected host without writing files where that host cannot consume them.
 **Acceptance Criteria:**
-- OpenCode host configuration receives a Context7 MCP server entry only when Context7 is selected.
-- Claude Code host configuration receives a Context7 MCP server entry only when Context7 is selected.
-- The configured server name is stable and unambiguous, using `context7` unless an existing host convention requires a deterministic equivalent.
-- Existing unrelated host MCP servers and user settings are preserved.
-- If OpenCode configuration succeeds and Claude Code configuration fails, the install result reports partial Context7 failure and identifies the failed host.
-- If Claude Code configuration succeeds and OpenCode configuration fails, the install result reports partial Context7 failure and identifies the failed host.
-- Re-running installation with Context7 selected updates or normalizes the existing Rotta-managed Context7 entry instead of creating duplicates.
+- For each selected host, Rotta writes only to locations documented or configured for that host unless the user explicitly overrides the target path.
+- Installation creates missing Rotta-managed host directories when safe and reports permission/path failures before claiming success.
+- Installation preserves unrelated user files and settings in host configuration directories.
+- Installation records enough per-host result detail for the user to distinguish installed, skipped, failed, partially installed, and unsupported capabilities.
+- Installation can target one host without mutating the other supported hosts.
+- Installing to multiple hosts in one run reports each host independently; success for one host must not hide failure for another.
 **Edge Cases:**
-- One host configuration file is missing and must be created while the other already exists.
-- One host configuration file exists but contains unrelated user MCP entries.
-- One host configuration file is malformed or not writable.
+- A host is installed but not currently available on PATH.
+- A host config directory exists but is not writable.
+- A host has no existing config and requires first-time Rotta-managed setup.
+- User supplies a custom host config path.
 **Out of Scope:**
-- Configuring Context7 for hosts other than OpenCode and Claude Code.
+- Installing the host applications themselves.
 
-### REQ-003: Use the Compatible Context7 Stdio MCP Command
-**Description:** Rotta must configure Context7 through the cross-host stdio MCP command that is most compatible with OpenCode and Claude Code command/args host config.
+### REQ-003: Generate Canonical Rotta Instructions as Host-Specific Agent, Skill, and Instruction Artifacts
+**Description:** Rotta must generate equivalent workflow instructions for Claude Code, OpenCode, and Codex from one canonical Rotta instruction contract, adapting output shape to each host's supported agent, skill, command, rule, or instruction mechanism.
 **Acceptance Criteria:**
-- The configured command is `npx`.
-- The configured args are exactly `-y` and `@upstash/context7-mcp` in that order, unless a future Context7 upstream compatibility change is explicitly reflected in this hard spec.
-- The configured transport is stdio/command-based MCP, not a generated skill, prompt rule, or host-specific interactive setup.
-- Rotta does not require an API key to configure Context7, but may preserve or pass a user-provided `CONTEXT7_API_KEY` if such input already exists in the install flow.
-- The installer reports a command availability problem separately from a host config write problem when `npx` or a compatible Node.js runtime is unavailable.
+- Generated host artifacts preserve Rotta's phase model, delegation expectations, strict TDD/review expectations, no-AI-attribution rule, memory policy, Vela advisory policy, lifecycle artifact policy, and command semantics.
+- OpenCode receives artifacts in OpenCode-consumable forms, including agents/skills/instructions where supported by Rotta's current OpenCode integration.
+- Claude Code receives artifacts in Claude Code-consumable forms, using the closest supported equivalent when Claude Code does not share OpenCode's exact agent/skill model.
+- Codex receives artifacts in Codex-consumable forms, using the closest supported equivalent when Codex does not share OpenCode's exact agent/skill model.
+- Generated files include host metadata or deterministic Rotta ownership markers sufficient for safe updates without duplicating stale versions.
+- If a host cannot represent a Rotta concept exactly, the generated artifact must state the limitation and the installer must include it in the capability summary.
 **Edge Cases:**
-- `npx` is missing from PATH.
-- Node.js exists but is too old for Context7's current MCP package requirements.
-- The package download or startup fails because the network or npm registry is unavailable.
+- Host supports global instructions but not named sub-agents.
+- Host supports MCP but not custom slash commands.
+- Host supports one instruction file and requires all Rotta roles to be composed into that file.
+- A previous Rotta-generated artifact exists from an older template version.
 **Out of Scope:**
-- Installing Node.js, npm, or a global Context7 package.
+- Changing Rotta's canonical workflow to match one host's limitations.
 
-### REQ-004: Health Check Must Prove Context7 MCP Is Working
-**Description:** After configuring Context7, the TUI must check that Context7 works with behavior comparable to Ancora and Vela MCP checks, using observable MCP server capability rather than config-file presence alone.
+### REQ-004: Configure Ancora, Vela, Context7, and Future Rotta MCP Servers Per Host
+**Description:** Rotta must configure MCP servers such as Ancora, Vela, and Context7 for each selected host using that host's supported MCP configuration shape, while preserving current OpenCode and Claude Code expectations and adding Codex where supported.
 **Acceptance Criteria:**
-- The health check runs only when Context7 is selected.
-- The health check starts or connects to the configured Context7 MCP server using the same command/args/transport written to host config.
-- A passing health check requires successful MCP initialization and discovery of Context7 documentation tools, including `resolve-library-id` and `query-docs` or their documented upstream equivalents.
-- A config file write without successful MCP initialization is reported as failed health, not success.
-- A process that starts and exits before tool discovery is reported as failed health, not success.
-- Health check output shown in the TUI identifies whether failure came from command availability, server startup, MCP initialization, tool discovery, or timeout.
-- Health check timeout must produce a failure or retryable warning state; it must not be reported as success.
+- Ancora MCP configuration is generated or updated for each selected host when Ancora is selected.
+- Vela MCP configuration is generated or updated for each selected host when Vela is selected.
+- Context7 MCP configuration is generated or updated for each selected host when Context7 is selected.
+- OpenCode and Claude Code Context7 behavior remains compatible with the recent installer contract and continues to configure Context7 for both hosts when selected.
+- MCP entries use stable server names, deterministic command/args/env fields, and host-correct transport/config schema.
+- Existing unrelated MCP servers and user settings are preserved.
+- If a host lacks supported MCP configuration for a selected MCP server, Rotta reports the capability as unsupported or degraded for that host instead of pretending parity.
+- MCP health checks, when available, verify observable MCP initialization/tool discovery rather than config-file presence alone.
 **Edge Cases:**
-- The package starts but exposes no tools.
-- The package exposes only one expected tool.
-- The MCP server prints warnings to stderr but initializes and exposes expected tools.
-- Network is unavailable during startup or tool discovery.
+- One host supports stdio MCP while another requires a different config shape.
+- One selected MCP succeeds on OpenCode and fails on Codex.
+- Existing manual MCP entries conflict with Rotta-managed server names.
+- Required command/runtime for an MCP server is unavailable.
 **Out of Scope:**
-- Verifying the accuracy or completeness of third-party library documentation returned by Context7.
+- Implementing new MCP server functionality inside Ancora, Vela, or Context7.
 
-### REQ-005: Skipping Context7 Must Leave No Context7 Configuration or Instruction Changes
-**Description:** When the user deselects or otherwise leaves Context7 unchecked before installation/configuration, Rotta must skip Context7 setup and health checks without adding Context7 host entries or generated workflow-instruction text.
+### REQ-005: Preserve Rotta Commands and Workflow Parity Across Hosts
+**Description:** Users must be able to run the same Rotta workflow and command set across Claude Code, OpenCode, and Codex, with host-specific command exposure adapted only where the host lacks an exact command primitive.
 **Acceptance Criteria:**
-- An install where the user explicitly deselects Context7 does not add a Context7 MCP server entry to OpenCode config.
-- An install where the user explicitly deselects Context7 does not add a Context7 MCP server entry to Claude Code config.
-- The installer does not run Context7 command availability checks or MCP health checks when Context7 is skipped.
-- The install summary shows Context7 as skipped or not selected, not failed.
-- Rotta-generated workflow instructions do not mention using Context7 for library docs, API references, code examples, setup help, or similar prompts.
-- Skipping Context7 does not remove unrelated user-managed Context7 configuration unless that cleanup is separately covered by an approved backup/cleanup spec.
+- The supported Rotta command set remains consistent across hosts, including init/new/continue/status/skip/back and the full spec → Gherkin → TDD → review lifecycle where currently supported by Rotta.
+- Command names, phase order, approval gates, and required human approval points are preserved across hosts unless a host limitation is explicitly disclosed.
+- Host-specific wrappers or aliases map back to the same canonical Rotta behavior and state transitions.
+- A workflow started in one supported host can be continued in another supported host through the shared workspace state and source-of-truth artifacts.
+- Host adapters must not bypass spec, Gherkin, TDD, review, quality gate, memory pointer, or clean-worktree rules.
 **Edge Cases:**
-- User previously installed Context7 manually outside Rotta.
-- User selects Context7, then deselects it before installation.
-- Ancora and Vela are selected while Context7 is skipped.
+- User starts a workflow in OpenCode and continues in Claude Code.
+- User invokes a command alias that exists in one host but not another.
+- Host session lacks a previously generated command surface but workspace state exists.
 **Out of Scope:**
-- Removing existing manual Context7 installations.
+- Guaranteeing identical keyboard shortcuts, UI rendering, or autocomplete behavior across hosts.
 
-### REQ-006: Preserve Optional Tool Independence and Recovery-Safe Reporting
-**Description:** Context7 integration must not alter the optionality, installation result, or health-check semantics of Ancora and Vela.
+### REQ-006: Preserve Workspace Source-of-Truth and Clean Worktree Expectations
+**Description:** Host compatibility must preserve Rotta's lifecycle artifact model: workspace files are source of truth, memory stores compact pointers/status only, and generated lifecycle artifacts are not committed by default.
 **Acceptance Criteria:**
-- Ancora, Vela, and Context7 can each be selected independently.
-- Failure to configure or check Context7 does not mask Ancora or Vela results.
-- Failure to configure or check Ancora or Vela does not mask Context7 results.
-- The final result includes enough per-tool and per-host detail for the user to know what was configured, skipped, or failed.
-- If the installer has backup/restore safety behavior, Context7 host-config paths are included in the same mutation-safety model as other MCP host config changes.
+- Specs, Gherkin features, TDD logs, reports, and `.rotta/` lifecycle state remain workspace artifacts and are not replaced by host-local config as the source of truth.
+- Ancora or other memory-backed integrations store compact pointers/status, not full hard specs, feature files, TDD logs, or review reports.
+- Installation does not require committing generated lifecycle artifacts such as `.rotta/`, `features/`, `reports/`, or `specs/` by default.
+- Rotta preserves clean worktree expectations by distinguishing user-requested source changes from generated lifecycle/config artifacts.
+- Host installation reports which files it changed and whether those files are user-level host config, workspace host config, or Rotta lifecycle artifacts.
 **Edge Cases:**
-- All three optional MCP tools are selected and one fails health check.
-- Context7 is the only selected optional MCP tool and its health check fails.
-- Host config succeeds but the user cancels before health checks complete.
+- User runs install from a dirty worktree.
+- User asks to make generated specs/features committable for team sharing.
+- Host config lives inside the workspace instead of the user's home directory.
 **Out of Scope:**
-- Changing Ancora or Vela command semantics except where necessary to present them as peer optional tools.
+- Forcing a universal `.gitignore` policy across projects without user approval.
+
+### REQ-007: Provide Idempotent, Versioned, and Recoverable Host Configuration Updates
+**Description:** Re-running Rotta installation or generation must update Rotta-managed host artifacts deterministically without duplicating entries, corrupting user config, or losing the ability to recover from partial failures.
+**Acceptance Criteria:**
+- Rotta-managed generated files and config blocks include deterministic ownership markers or metadata.
+- Re-running install with the same selections produces no duplicate agents, skills, instructions, commands, or MCP entries.
+- Re-running install after template changes updates Rotta-managed content to the current template version while preserving unrelated user content.
+- Before mutating existing host config files, Rotta creates backups or uses an equivalent safe write strategy consistent with existing installer recovery behavior.
+- Partial failures report which host, artifact type, and MCP/server failed and leave enough state for retry or manual recovery.
+- A failed update must not leave a host config syntactically invalid if Rotta can detect the write or parse failure.
+**Edge Cases:**
+- Existing Rotta-managed artifacts were manually edited.
+- Existing host config is malformed before Rotta starts.
+- Install is interrupted after one host succeeds and before another host starts.
+- Filesystem write succeeds but validation fails afterward.
+**Out of Scope:**
+- Merging arbitrary user edits inside Rotta-owned generated blocks beyond preserving or backing up the original file.
+
+### REQ-008: Surface Host-Specific Limitations Explicitly
+**Description:** Rotta must treat host gaps as first-class compatibility data, not hidden behavior, so users know whether a capability is exact, adapted, degraded, unsupported, or failed for each selected host.
+**Acceptance Criteria:**
+- The installer or generation summary includes a capability matrix for selected hosts covering installation, instructions/agents/skills, commands/workflow, MCP configuration, health checks, and lifecycle behavior.
+- Each capability is classified as exact, adapted, degraded, unsupported, skipped, failed, or not applicable.
+- Adapted/degraded/unsupported capabilities include a concise reason and user-facing remediation where available.
+- Unsupported host capabilities do not block unrelated supported capabilities unless they are required for a selected workflow guarantee.
+- The generated instructions for a host include only claims that are true for that host.
+**Edge Cases:**
+- Codex supports instructions but not an MCP server shape required by one selected MCP.
+- Claude Code supports MCP and instructions but not OpenCode-style sub-agent files.
+- Host documentation changes after Rotta templates were written.
+**Out of Scope:**
+- Promising perfect feature parity where the host lacks a corresponding primitive.
+
+### REQ-009: Fail Fast and Clearly on Unsafe or Invalid Host Operations
+**Description:** Rotta must detect unsupported hosts, invalid config, permission issues, schema mismatches, runtime/MCP failures, and unsafe writes early enough to avoid false success and guide recovery.
+**Acceptance Criteria:**
+- Unsupported host selection fails before file mutation.
+- Invalid or malformed existing host config is reported with the host name and file path before Rotta overwrites it.
+- Permission failures identify the host, artifact type, path, and operation attempted.
+- MCP health-check failures identify whether the failure came from command availability, startup, initialization, tool discovery, timeout, or unsupported host capability.
+- Installer summaries never report full success when any selected host or required selected capability failed.
+- Retry guidance distinguishes safe rerun, manual config repair, missing dependency installation, and unsupported host capability.
+**Edge Cases:**
+- Multiple hosts fail for different reasons in one run.
+- The host config file changes concurrently during install.
+- Health checks are unavailable in a non-interactive or sandboxed environment.
+**Out of Scope:**
+- Automatically repairing arbitrary corrupted third-party host configuration files.
+
+### REQ-010: Maintain Backward Compatibility for Existing Rotta Installations
+**Description:** Adding host-agnostic compatibility must not break existing OpenCode users, existing Claude Code MCP setup, existing Context7 behavior, or existing Rotta workflow state.
+**Acceptance Criteria:**
+- Existing OpenCode Rotta installations continue to load generated instructions, commands, agents/skills, MCP servers, and workflow state after upgrade.
+- Existing Claude Code MCP entries produced by recent Rotta installer work continue to be recognized and updated safely.
+- Existing Context7 configuration for OpenCode and Claude Code is not removed, renamed, duplicated, or silently degraded by adding Codex support.
+- Existing `.rotta/` workflow state and workspace source-of-truth artifacts remain readable by all supported hosts after upgrade.
+- Migration or regeneration steps are explicit, idempotent, and reversible through backups where host config is mutated.
+**Edge Cases:**
+- User installed Rotta before host metadata/version markers existed.
+- User has only OpenCode configured and later adds Codex.
+- User has manually edited generated OpenCode instructions.
+**Out of Scope:**
+- Supporting pre-Rotta or manually invented configuration formats that Rotta never generated and cannot detect safely.
 
 ## Open Questions
 - None.
 
 ## Trade-offs
-- Using `npx -y @upstash/context7-mcp` over stdio prioritizes broad host compatibility and controlled config generation, but depends on Node.js, `npx`, npm registry access, and package startup at health-check time.
-- Requiring MCP tool discovery reduces false positives, but can make installation slower and sensitive to transient network/package failures.
-- Not generating workflow instructions avoids unsolicited agent behavior changes, but users may need to invoke Context7 according to their host's normal MCP usage patterns.
+- A canonical Rotta contract plus host adapters reduces behavioral drift but requires careful capability mapping and explicit limitation reporting for hosts that lack OpenCode-equivalent primitives.
+- Idempotent safe writes, backups, and health checks increase installer complexity and runtime, but prevent false success and protect user-level AI host configuration.
+- Preserving exact workflow semantics across hosts may require adapted command surfaces or composed instruction files where a host does not support named agents, skills, or slash commands.
+- Keeping lifecycle artifacts out of commits by default protects clean worktree expectations, but teams that want committable specs/features will need an explicit opt-in path.
 
 ## Risk Level
-medium — Justification: The feature mutates user-level AI host configuration for two hosts and executes an external MCP package during health checks, but it remains optional with explicit deselection before configuration and does not change production project code.
+high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, and clean worktree expectations.
