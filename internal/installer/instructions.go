@@ -44,6 +44,9 @@ func canonicalWorkflowInstructions() string {
 - Phase 3 — TDD: implement one approved scenario at a time with strict Red/Green/Refactor TDD and traceable tests.
 - Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
 - Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
+- When continuing a workflow started from another supported host, read shared workspace state before acting: ` + "`specs/`" + `, ` + "`features/`" + `, and ` + "`.rotta/`" + ` artifacts.
+- Always preserve the same phase order, command semantics, and approval gates across hosts.
+- Do not treat host-local config as the workflow source of truth.
 - Preserve the no AI attribution rule: do not add AI-generated, generated-by, or co-author attribution to commits or generated project artifacts.
 - Workspace files are the source of truth. Ancora stores compact pointers/status only when enabled.
 

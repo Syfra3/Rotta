@@ -359,3 +359,44 @@ exit 2
 		t.Fatalf("expected capability reason to identify startup failure, got %#v", capability)
 	}
 }
+
+func TestSCN209_ContinueRottaWorkflowFromDifferentSupportedHost(t *testing.T) {
+	// REQ-005, REQ-006 → SCN-209 → TestSCN209_ContinueRottaWorkflowFromDifferentSupportedHost
+	// Scenario: Continue a Rotta workflow from a different supported host
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, filepath.Join(projectPath, "specs", "hard_spec.md"), []byte("# shared spec\n"))
+	writeTestFile(t, filepath.Join(projectPath, "features", "workflow.feature"), []byte("@SCN-209\nScenario: shared workflow\n"))
+	writeTestFile(t, filepath.Join(projectPath, ".rotta", "tdd-log.md"), []byte("# shared TDD log\n"))
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"When continuing a workflow started from another supported host, read shared workspace state before acting",
+			"specs/",
+			"features/",
+			".rotta/",
+			"preserve the same phase order, command semantics, and approval gates",
+			"Do not treat host-local config as the workflow source of truth",
+		})
+	}
+}
