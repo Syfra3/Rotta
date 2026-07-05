@@ -439,3 +439,32 @@ func TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation(t *testing.T) {
 		t.Fatalf("expected adapted command capability to document invocation path and mapping, got %#v", capability)
 	}
 }
+
+func TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation(t *testing.T) {
+	// REQ-006 → SCN-211 → TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation
+	// Scenario: Preserve clean worktree expectations during host installation
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryHostConfig], filepath.Join(home, ".codex", "AGENTS.md"))
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "state-machine.yaml"))
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "quality-gates.yaml"))
+	if len(result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig]) != 0 {
+		t.Fatalf("expected no workspace host config changes for Codex-only install, got %#v", result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig])
+	}
+	if result.LifecycleArtifactsRequireCommit {
+		t.Fatal("expected generated Rotta lifecycle artifacts not to require commits by default")
+	}
+}
