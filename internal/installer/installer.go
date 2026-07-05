@@ -203,6 +203,9 @@ func Install(opts Options) (*Result, error) {
 	if targetsCodex(opts.Target) && (opts.SetupAncora || opts.SetupVela || opts.SetupContext7) {
 		files, err := configureCodexMCPServers(opts, home)
 		if err != nil {
+			if opts.SetupContext7 {
+				result.Context7.Codex = context7HostConfigResult{Host: "codex", OK: false, Err: err}
+			}
 			recordHostArtifactFailure(result, "codex", "Codex MCP config", opts)
 			recordCommandHostCapabilities(result, opts)
 			recordMCPHostCapabilities(result, opts)
@@ -212,6 +215,9 @@ func Install(opts Options) (*Result, error) {
 			return result, installErr
 		}
 		result.Files = append(result.Files, files...)
+		if opts.SetupContext7 {
+			result.Context7.Codex = context7HostConfigResult{Host: "codex", OK: true}
+		}
 	}
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
