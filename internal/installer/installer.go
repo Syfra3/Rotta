@@ -34,6 +34,7 @@ type Result struct {
 	Files           []string
 	Hosts           map[string]HostInstallResult
 	BackupDir       string
+	Error           string
 	AncoraInstalled bool   // true if Ancora binary was installed during this run
 	AncoraBin       string // resolved path to the ancora binary
 	VelaInstalled   bool   // true if Vela binary was installed during this run
@@ -45,6 +46,7 @@ type HostInstallStatus string
 
 const (
 	HostInstallStatusInstalled HostInstallStatus = "installed"
+	HostInstallStatusFailed    HostInstallStatus = "failed"
 )
 
 type HostInstallResult struct {
@@ -72,6 +74,10 @@ func Install(opts Options) (*Result, error) {
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
 		return nil, err
+	}
+
+	if opts.Target == "all" {
+		return installAllHosts(opts, result, home, projectPath)
 	}
 
 	if opts.Target == "claude-code" || opts.Target == "both" {
@@ -155,6 +161,56 @@ func Install(opts Options) (*Result, error) {
 	return result, nil
 }
 
+func installAllHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
+	var installErr error
+	for _, host := range []string{"claude-code", "opencode", "codex"} {
+		files, err := cleanAndInstallHost(opts, host, home)
+		if err != nil {
+			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
+			installErr = fmt.Errorf("%s host installation: %w", host, err)
+			continue
+		}
+		result.Files = append(result.Files, files...)
+		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+	}
+
+	files, err := installConfig(projectPath)
+	if err != nil {
+		return result, err
+	}
+	result.Files = append(result.Files, files...)
+
+	if installErr != nil {
+		result.Error = installErr.Error()
+		return result, installErr
+	}
+	return result, nil
+}
+
+func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
+	hostOpts := opts
+	hostOpts.Target = host
+	switch host {
+	case "claude-code":
+		if err := cleanPreviousClaudeCodeInstallation(home); err != nil {
+			return nil, err
+		}
+		return installClaudeCode(hostOpts, home)
+	case "opencode":
+		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
+			return nil, err
+		}
+		return installOpenCode(hostOpts, home)
+	case "codex":
+		if err := cleanPreviousCodexInstallation(home); err != nil {
+			return nil, err
+		}
+		return installCodex(hostOpts, home)
+	default:
+		return nil, fmt.Errorf("unsupported host target %q", host)
+	}
+}
+
 func resolveProjectPath(path, home string) string {
 	if path == "" || path == "~" {
 		return home
@@ -192,6 +248,9 @@ func installConfig(projectPath string) ([]string, error) {
 }
 
 func cleanPreviousInstallation(opts Options, home, projectPath string) error {
+	if opts.Target == "all" {
+		return cleanSelectedIntegrationArtifacts(opts, home, projectPath)
+	}
 	if opts.Target == "opencode" || opts.Target == "both" {
 		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
 			return err
