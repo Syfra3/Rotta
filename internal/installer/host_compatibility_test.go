@@ -282,3 +282,40 @@ fi
 	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent opencode")
 	assertStringListContains(t, result.Files, filepath.Join(home, ".codex", "config.toml"))
 }
+
+func TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity(t *testing.T) {
+	// REQ-004, REQ-008, REQ-009 → SCN-207 → TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity
+	// Scenario: Report unsupported MCP capability without pretending parity
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexConfig := filepath.Join(home, ".codex", "config.toml")
+	assertFileContains(t, codexConfig, "[mcp_servers.ancora]")
+	assertFileContains(t, codexConfig, "[mcp_servers.context7]")
+
+	context7Capability := result.Hosts["codex"].Capabilities["mcp:context7"]
+	if context7Capability.Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex Context7 MCP to be reported as degraded rather than full parity, got %#v", context7Capability)
+	}
+	if context7Capability.Reason == "" || context7Capability.Remediation == "" {
+		t.Fatalf("expected degraded capability to include reason and remediation, got %#v", context7Capability)
+	}
+	ancoraCapability := result.Hosts["codex"].Capabilities["mcp:ancora"]
+	if ancoraCapability.Status != HostCapabilityStatusExact {
+		t.Fatalf("expected unrelated supported Ancora MCP capability to continue as exact, got %#v", ancoraCapability)
+	}
+}

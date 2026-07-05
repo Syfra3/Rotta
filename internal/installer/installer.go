@@ -49,10 +49,25 @@ const (
 	HostInstallStatusFailed    HostInstallStatus = "failed"
 )
 
+type HostCapabilityStatus string
+
+const (
+	HostCapabilityStatusExact    HostCapabilityStatus = "exact"
+	HostCapabilityStatusDegraded HostCapabilityStatus = "degraded"
+)
+
+type HostCapability struct {
+	Name        string
+	Status      HostCapabilityStatus
+	Reason      string
+	Remediation string
+}
+
 type HostInstallResult struct {
-	Host   string
-	Status HostInstallStatus
-	Files  []string
+	Host         string
+	Status       HostInstallStatus
+	Files        []string
+	Capabilities map[string]HostCapability
 }
 
 // Install runs the full installation and returns a summary.
@@ -171,8 +186,60 @@ func Install(opts Options) (*Result, error) {
 		}
 		result.Files = append(result.Files, files...)
 	}
+	recordMCPHostCapabilities(result, opts)
 
 	return result, nil
+}
+
+func recordMCPHostCapabilities(result *Result, opts Options) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult, ok := result.Hosts[host]
+		if !ok || hostResult.Status != HostInstallStatusInstalled {
+			continue
+		}
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		if opts.SetupAncora {
+			hostResult.Capabilities["mcp:ancora"] = exactMCPCapability("mcp:ancora")
+		}
+		if opts.SetupVela {
+			hostResult.Capabilities["mcp:vela"] = exactMCPCapability("mcp:vela")
+		}
+		if opts.SetupContext7 {
+			hostResult.Capabilities["mcp:context7"] = context7MCPCapability(host)
+		}
+		result.Hosts[host] = hostResult
+	}
+}
+
+func exactMCPCapability(name string) HostCapability {
+	return HostCapability{Name: name, Status: HostCapabilityStatusExact}
+}
+
+func context7MCPCapability(host string) HostCapability {
+	if host == "codex" {
+		return HostCapability{
+			Name:        "mcp:context7",
+			Status:      HostCapabilityStatusDegraded,
+			Reason:      "Rotta can write Codex MCP TOML for Context7, but does not have a Codex-specific observable MCP health check.",
+			Remediation: "Verify Context7 from Codex after install; rerun Rotta after Codex MCP health support is available.",
+		}
+	}
+	return exactMCPCapability("mcp:context7")
+}
+
+func selectedHosts(target string) []string {
+	switch target {
+	case "all":
+		return []string{"claude-code", "opencode", "codex"}
+	case "both":
+		return []string{"claude-code", "opencode"}
+	case "claude-code", "opencode", "codex":
+		return []string{target}
+	default:
+		return nil
+	}
 }
 
 func targetsCodex(target string) bool {
