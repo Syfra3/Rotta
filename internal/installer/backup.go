@@ -251,7 +251,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 
 	paths = append(paths, filepath.Join(projectPath, ".vela", "graph.db"))
 
-	if opts.Target == "opencode" || opts.Target == "both" {
+	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
 		paths = append(paths,
 			filepath.Join(home, ".config", "opencode", "opencode.json"),
 			filepath.Join(home, ".config", "opencode", "opencode.jsonc"),
@@ -272,7 +272,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 		)
 	}
 
-	if opts.Target == "claude-code" || opts.Target == "both" {
+	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
 		paths = append(paths,
 			filepath.Join(home, ".claude", "settings.json"),
 			filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh"),
@@ -284,7 +284,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 		)
 	}
 
-	if opts.Target == "codex" {
+	if opts.Target == "codex" || opts.Target == "all" {
 		paths = append(paths, filepath.Join(home, ".codex", "AGENTS.md"))
 	}
 
