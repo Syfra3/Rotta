@@ -44,6 +44,8 @@ func canonicalWorkflowInstructions() string {
 - Phase 3 — TDD: implement one approved scenario at a time with strict Red/Green/Refactor TDD and traceable tests.
 - Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
 - Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
+- Command invocation for hosts without slash commands: Use natural-language invocations such as ` + "`Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`" + `.
+- These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.
 - When continuing a workflow started from another supported host, read shared workspace state before acting: ` + "`specs/`" + `, ` + "`features/`" + `, and ` + "`.rotta/`" + ` artifacts.
 - Always preserve the same phase order, command semantics, and approval gates across hosts.
 - Do not treat host-local config as the workflow source of truth.
@@ -57,6 +59,7 @@ func canonicalWorkflowInstructions() string {
 - Codex: host instructions are adapted into a Codex-consumable ` + "`AGENTS.md`" + ` instruction file.
   - Agent capability: adapted; Codex receives role instructions in ` + "`AGENTS.md`" + ` instead of OpenCode-style named sub-agents.
   - Skill capability: adapted; Codex receives workflow sections in ` + "`AGENTS.md`" + ` instead of OpenCode-style skill directories.
+  - Command capability: adapted; Codex uses documented natural-language Rotta command invocations instead of OpenCode-style slash commands.
 `
 }
 

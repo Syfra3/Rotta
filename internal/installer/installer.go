@@ -53,6 +53,7 @@ type HostCapabilityStatus string
 
 const (
 	HostCapabilityStatusExact    HostCapabilityStatus = "exact"
+	HostCapabilityStatusAdapted  HostCapabilityStatus = "adapted"
 	HostCapabilityStatusDegraded HostCapabilityStatus = "degraded"
 	HostCapabilityStatusFailed   HostCapabilityStatus = "failed"
 )
@@ -188,9 +189,36 @@ func Install(opts Options) (*Result, error) {
 		}
 		result.Files = append(result.Files, files...)
 	}
+	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 
 	return result, nil
+}
+
+func recordCommandHostCapabilities(result *Result, opts Options) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult, ok := result.Hosts[host]
+		if !ok || hostResult.Status != HostInstallStatusInstalled {
+			continue
+		}
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		hostResult.Capabilities["commands"] = commandCapability(host)
+		result.Hosts[host] = hostResult
+	}
+}
+
+func commandCapability(host string) HostCapability {
+	if host == "opencode" {
+		return HostCapability{Name: "commands", Status: HostCapabilityStatusExact}
+	}
+	return HostCapability{
+		Name:        "commands",
+		Status:      HostCapabilityStatusAdapted,
+		Reason:      "Host exposes Rotta command behavior through documented natural-language invocation instead of OpenCode-style slash commands.",
+		Remediation: "Invoke the same canonical Rotta commands by name, such as Rotta init, Rotta new, Rotta continue, Rotta status, Rotta skip, and Rotta back; Rotta maps them to the same canonical Rotta commands and state transitions.",
+	}
 }
 
 func recordMCPHostCapabilities(result *Result, opts Options) {
