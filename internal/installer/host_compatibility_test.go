@@ -679,6 +679,48 @@ func TestSCN215_RefuseToOverwriteMalformedHostConfigurationSilently(t *testing.T
 	assertFileContains(t, backupCopy, string(malformedConfig))
 }
 
+func TestSCN216_PresentPerHostCapabilityMatrix(t *testing.T) {
+	// REQ-008 → SCN-216 → TestSCN216_PresentPerHostCapabilityMatrix
+	// Scenario: Present a per-host capability matrix
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requiredCapabilities := []string{"installation", "instructions", "commands", "mcp", "health_checks", "lifecycle"}
+	allowedStatuses := map[HostCapabilityStatus]bool{
+		HostCapabilityStatusExact:         true,
+		HostCapabilityStatusAdapted:       true,
+		HostCapabilityStatusDegraded:      true,
+		HostCapabilityStatusUnsupported:   true,
+		HostCapabilityStatusSkipped:       true,
+		HostCapabilityStatusFailed:        true,
+		HostCapabilityStatusNotApplicable: true,
+	}
+	for _, host := range []string{"claude-code", "opencode", "codex"} {
+		hostResult := result.Hosts[host]
+		for _, capabilityName := range requiredCapabilities {
+			capability, ok := hostResult.Capabilities[capabilityName]
+			if !ok {
+				t.Fatalf("expected %s capability matrix to include %q, got %#v", host, capabilityName, hostResult.Capabilities)
+			}
+			if !allowedStatuses[capability.Status] {
+				t.Fatalf("expected %s capability %q to use an allowed matrix status, got %#v", host, capabilityName, capability)
+			}
+		}
+	}
+}
+
 func assertNoDuplicateStrings(t *testing.T, values []string) {
 	t.Helper()
 	seen := map[string]bool{}

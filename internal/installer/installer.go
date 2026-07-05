@@ -62,10 +62,13 @@ const (
 type HostCapabilityStatus string
 
 const (
-	HostCapabilityStatusExact    HostCapabilityStatus = "exact"
-	HostCapabilityStatusAdapted  HostCapabilityStatus = "adapted"
-	HostCapabilityStatusDegraded HostCapabilityStatus = "degraded"
-	HostCapabilityStatusFailed   HostCapabilityStatus = "failed"
+	HostCapabilityStatusExact         HostCapabilityStatus = "exact"
+	HostCapabilityStatusAdapted       HostCapabilityStatus = "adapted"
+	HostCapabilityStatusDegraded      HostCapabilityStatus = "degraded"
+	HostCapabilityStatusUnsupported   HostCapabilityStatus = "unsupported"
+	HostCapabilityStatusSkipped       HostCapabilityStatus = "skipped"
+	HostCapabilityStatusFailed        HostCapabilityStatus = "failed"
+	HostCapabilityStatusNotApplicable HostCapabilityStatus = "not applicable"
 )
 
 type HostCapability struct {
@@ -212,6 +215,7 @@ func Install(opts Options) (*Result, error) {
 	}
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
+	recordHostCapabilityMatrix(result, opts)
 	recordChangedFiles(result, projectPath)
 
 	return result, nil
@@ -366,6 +370,80 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 		}
 		result.Hosts[host] = hostResult
 	}
+}
+
+func recordHostCapabilityMatrix(result *Result, opts Options) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult, ok := result.Hosts[host]
+		if !ok {
+			continue
+		}
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		hostResult.Capabilities["installation"] = installationCapability(hostResult.Status)
+		hostResult.Capabilities["instructions"] = instructionsCapability(host)
+		if _, ok := hostResult.Capabilities["commands"]; !ok {
+			hostResult.Capabilities["commands"] = commandCapability(host)
+		}
+		hostResult.Capabilities["mcp"] = mcpCapability(opts, host)
+		hostResult.Capabilities["health_checks"] = healthCheckCapability(opts, host)
+		hostResult.Capabilities["lifecycle"] = exactCapability("lifecycle")
+		result.Hosts[host] = hostResult
+	}
+}
+
+func installationCapability(status HostInstallStatus) HostCapability {
+	if status == HostInstallStatusFailed {
+		return HostCapability{Name: "installation", Status: HostCapabilityStatusFailed}
+	}
+	return exactCapability("installation")
+}
+
+func instructionsCapability(host string) HostCapability {
+	if host == "codex" {
+		return HostCapability{
+			Name:        "instructions",
+			Status:      HostCapabilityStatusAdapted,
+			Reason:      "Codex consumes Rotta workflow instructions through AGENTS.md rather than exact agent and skill artifacts.",
+			Remediation: "Use the generated AGENTS.md instructions as the Codex entry point for the same canonical Rotta workflow.",
+		}
+	}
+	return exactCapability("instructions")
+}
+
+func mcpCapability(opts Options, host string) HostCapability {
+	if !opts.SetupAncora && !opts.SetupVela && !opts.SetupContext7 {
+		return HostCapability{Name: "mcp", Status: HostCapabilityStatusSkipped, Reason: "No MCP integrations were selected for this installation."}
+	}
+	if host == "codex" && opts.SetupContext7 {
+		return HostCapability{
+			Name:        "mcp",
+			Status:      HostCapabilityStatusDegraded,
+			Reason:      "At least one selected Codex MCP integration lacks Codex-specific observable health validation.",
+			Remediation: "Verify selected MCP servers from Codex after install.",
+		}
+	}
+	return exactCapability("mcp")
+}
+
+func healthCheckCapability(opts Options, host string) HostCapability {
+	if !opts.SetupContext7 {
+		return HostCapability{Name: "health_checks", Status: HostCapabilityStatusSkipped, Reason: "No health-checked MCP integration was selected for this installation."}
+	}
+	if host == "codex" {
+		return HostCapability{
+			Name:        "health_checks",
+			Status:      HostCapabilityStatusDegraded,
+			Reason:      "Rotta does not have a Codex-specific observable MCP health check.",
+			Remediation: "Verify MCP startup from Codex manually after install.",
+		}
+	}
+	return exactCapability("health_checks")
+}
+
+func exactCapability(name string) HostCapability {
+	return HostCapability{Name: name, Status: HostCapabilityStatusExact}
 }
 
 func recordMCPHealthFailure(result *Result, opts Options, capabilityName string, health Context7HealthResult) {
