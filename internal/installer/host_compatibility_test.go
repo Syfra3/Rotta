@@ -508,3 +508,100 @@ func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {
 	assertNotContains(t, got, "paste the full hard spec")
 	assertNotContains(t, got, "copy the full feature file")
 }
+
+func TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts(t *testing.T) {
+	// REQ-007, REQ-010 → SCN-213 → TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts
+	// Scenario: Re-run installation without duplicating Rotta-managed artifacts
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	codexConfig := filepath.Join(home, ".codex", "config.toml")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, codexConfig, []byte("model = \"gpt-5\"\n"))
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+exit 0
+`)
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+project=""
+agent=""
+claude_dir=""
+opencode_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+    --agent) shift; agent="$1" ;;
+    --claude-dir) shift; claude_dir="$1" ;;
+    --opencode-dir) shift; opencode_dir="$1" ;;
+  esac
+  shift
+done
+mkdir -p "$project/.vela"
+printf 'fresh graph' > "$project/.vela/graph.db"
+if [ "$agent" = claude ]; then
+  mkdir -p "$claude_dir"
+  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
+fi
+if [ "$agent" = opencode ]; then
+  mkdir -p "$opencode_dir"
+  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
+fi
+`)
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	options := Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	}
+	if _, err := Install(options); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNoDuplicateStrings(t, result.Files)
+	assertNoDuplicateStrings(t, result.Hosts["claude-code"].Files)
+	assertNoDuplicateStrings(t, result.Hosts["opencode"].Files)
+	assertNoDuplicateStrings(t, result.Hosts["codex"].Files)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContains(t, codexConfig, "model = \"gpt-5\"")
+	assertFileContainsCount(t, opencodeConfig, `"context7"`, 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.ancora]", 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.vela]", 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.context7]", 1)
+}
+
+func assertNoDuplicateStrings(t *testing.T, values []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, value := range values {
+		if seen[value] {
+			t.Fatalf("expected no duplicate entries, found duplicate %q in %#v", value, values)
+		}
+		seen[value] = true
+	}
+}
+
+func assertFileContainsCount(t *testing.T, path, want string, count int) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if got := strings.Count(string(data), want); got != count {
+		t.Fatalf("expected %s to contain %q %d time(s), got %d: %s", path, want, count, got, string(data))
+	}
+}
