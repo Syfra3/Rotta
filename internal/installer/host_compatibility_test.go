@@ -163,3 +163,36 @@ func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing
 		})
 	}
 }
+
+func TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex(t *testing.T) {
+	// REQ-003, REQ-008 → SCN-205 → TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex
+	// Scenario: Disclose when a host lacks an exact agent or skill primitive
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"Codex: host instructions are adapted into a Codex-consumable `AGENTS.md` instruction file",
+		"Agent capability: adapted",
+		"Skill capability: adapted",
+	})
+	assertNotContains(t, got, "Codex: host instructions are exact OpenCode agent and skill artifacts")
+	assertNotContains(t, got, "Codex: exact agent and skill support")
+}
