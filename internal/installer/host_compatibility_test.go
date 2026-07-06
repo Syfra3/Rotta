@@ -156,6 +156,8 @@ func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing
 			"Phase 1 — Draft",
 			"Phase 2 — Spec + Gherkin",
 			"Phase 3 — TDD",
+			"Every TDD scenario task starts clean",
+			"checkpoint or clean the task diff before starting another scenario",
 			"Phase 4 — Review",
 			"Do NOT advance without explicit human approval",
 			"strict Red/Green/Refactor TDD",
