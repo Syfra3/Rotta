@@ -42,6 +42,9 @@ func canonicalWorkflowInstructions() string {
 - Phase 1 — Draft: analyze the request, expose risks and missing information, and prepare only for spec work.
 - Phase 2 — Spec + Gherkin: write the hard spec and Gherkin scenarios, then stop at the approval gate. Do NOT advance without explicit human approval.
 - Phase 3 — TDD: implement one approved scenario at a time with strict Red/Green/Refactor TDD and traceable tests.
+- Every TDD scenario task starts clean: before launching implementation, ` + "`git status --short`" + ` must be empty except for explicitly ignored local artifacts.
+- After each TDD scenario task, update the task checklist with completed, remaining, and next work; then checkpoint or clean the task diff before starting another scenario.
+- Do not let dirty worktree prompts become the scenario loop. Approved spec/feature contracts are tracked durable artifacts; generated/local artifacts are ignored or removed only when safe; ambiguous changes are escalated.
 - Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
 - Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
 - Command invocation for hosts without slash commands: Use natural-language invocations such as ` + "`Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`" + `.

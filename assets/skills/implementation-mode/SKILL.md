@@ -126,6 +126,16 @@ Append every cycle log to `.rotta/tdd-log.md`:
 
 ## Completion Signal
 
+When the assigned SCN-NNN scenario has passed the full Red/Green/Refactor cycle:
+
+1. Run the full test suite one final time. Confirm 100% pass.
+2. Re-check the task diff with `git status --short` and report every changed
+   path.
+3. Stop after this scenario. Do NOT start the next scenario and do NOT decide
+   whether to commit, stash, revert, delete, or keep the diff; the orchestrator
+   owns cleanup/checkpointing so the next TDD task can start from a clean
+   worktree.
+
 When ALL approved SCN-NNN scenarios have passed the full Red/Green/Refactor cycle:
 
 1. Run the full test suite one final time.

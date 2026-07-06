@@ -92,6 +92,7 @@ func codexInstructions(opts Options) string {
 	}
 	if opts.InstallImpl {
 		b.WriteString("- Implementation mode: use strict Red/Green/Refactor TDD for one approved scenario at a time.\n")
+		b.WriteString("- Each TDD scenario task must start from a clean worktree; after the scenario passes, update the task checklist and checkpoint or clean the diff before starting the next scenario.\n")
 	}
 	if opts.InstallReview {
 		b.WriteString("- Review mode: judge evidence against traceability, tests, coverage, mutation, and quality gates.\n")

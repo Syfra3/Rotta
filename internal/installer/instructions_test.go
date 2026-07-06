@@ -109,6 +109,18 @@ func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
 	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
 }
 
+func TestCanonicalWorkflowInstructionsEnforceCleanTDDTaskBoundaries(t *testing.T) {
+	got := canonicalWorkflowInstructions()
+
+	assertContainsAll(t, got, []string{
+		"Every TDD scenario task starts clean",
+		"git status --short",
+		"update the task checklist with completed, remaining, and next work",
+		"checkpoint or clean the task diff before starting another scenario",
+		"Approved spec/feature contracts are tracked durable artifacts",
+	})
+}
+
 func TestVelaInstructionsEnforceExactSubjectStructuralQueryWorkflow(t *testing.T) {
 	got := integrationInstructions(Options{SetupVela: true})
 
@@ -198,6 +210,24 @@ func TestRottaOrchestratorAssetEnforcesCompactRankingWorkflow(t *testing.T) {
 		"at most 5 graph calls total",
 		"Do not manually rank candidates by repeatedly dumping full edges",
 		"Vela is advisory graph intelligence only",
+	})
+}
+
+func TestRottaOrchestratorAssetEnforcesCleanTDDTaskBoundaries(t *testing.T) {
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+	got := string(data)
+
+	assertContainsAll(t, got, []string{
+		"TDD task boundary rule",
+		"every scenario task MUST start from a clean",
+		"update the task checklist with",
+		"Do not launch the next `rotta-impl` call",
+		"until the worktree is clean again",
+		"`rotta-impl` reports changed files; it does",
+		"not decide how to persist or discard them",
 	})
 }
 

@@ -102,14 +102,19 @@ The Judge reads `.rotta/tdd-log.md` directly for traceability. If Ancora is disa
 When the assigned scenario completes all three phases:
 
 1. Run the full test suite one final time. Confirm 100% pass.
-2. Report back to the orchestrator:
-   ```
-   SCN-NNN COMPLETE
-   Test: TestSCN<NNN>_<name> — PASS
-   Files changed: <list>
-   TDD log updated: .rotta/tdd-log.md
-   Ready for next scenario or Review Mode.
-   ```
+2. Re-check the task diff with `git status --short` and include every changed
+   path in the report. Do NOT start another scenario and do NOT decide whether
+   to commit, stash, revert, delete, or keep the diff; that cleanup/checkpoint
+   decision belongs to the orchestrator at the task boundary.
+3. Report back to the orchestrator:
+    ```
+    SCN-NNN COMPLETE
+    Test: TestSCN<NNN>_<name> — PASS
+    Files changed: <list>
+    TDD log updated: .rotta/tdd-log.md
+    Worktree status: <git status --short output>
+    Awaiting orchestrator cleanup/checkpoint before the next scenario.
+    ```
 
 ---
 
