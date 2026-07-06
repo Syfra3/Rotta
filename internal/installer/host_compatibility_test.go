@@ -120,7 +120,11 @@ func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing
 	// Scenario: Generate host-specific instructions from the canonical Rotta workflow
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
 
 	result, err := Install(Options{
 		Target:        "all",
@@ -291,6 +295,7 @@ func TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity(t *testing
 	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
 	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
 
 	result, err := Install(Options{
@@ -477,7 +482,10 @@ func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {
 	// Scenario: Store memory state as compact pointers only
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
 
 	_, err := Install(Options{
 		Target:        "codex",
@@ -915,4 +923,29 @@ func assertFileContainsCount(t *testing.T, path, want string, count int) {
 	if got := strings.Count(string(data), want); got != count {
 		t.Fatalf("expected %s to contain %q %d time(s), got %d: %s", path, want, count, got, string(data))
 	}
+}
+
+func writeHostCompatibilityFakeAncora(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, `#!/bin/sh
+exit 0
+`)
+}
+
+func writeHostCompatibilityFakeVela(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, `#!/bin/sh
+project=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+  esac
+  shift
+done
+if [ -n "$project" ]; then
+  mkdir -p "$project/.vela"
+  printf 'fresh graph' > "$project/.vela/graph.db"
+fi
+exit 0
+`)
 }
