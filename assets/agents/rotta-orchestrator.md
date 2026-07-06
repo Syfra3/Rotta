@@ -74,6 +74,20 @@ Task("rotta-spec", { draft, clarifications, project, state_ref: "specs/hard_spec
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
 
+**TDD task boundary rule**: every scenario task MUST start from a clean
+worktree. Before launching `rotta-impl`, verify `git status --short` is empty
+except for explicitly ignored local artifacts. If the tree is dirty, classify
+the changes first: approved contract artifacts are tracked/committed as durable
+source-of-truth files, generated/local artifacts are ignored or removed when
+safe, and ambiguous changes are escalated instead of silently deleted.
+
+**After each `rotta-impl` completion**: the orchestrator owns cleanup before the
+next scenario. Verify the scenario is GREEN, update the task checklist with
+completed/remaining/next, then checkpoint or clean the scenario diff according
+to the current human-approved policy. Do not launch the next `rotta-impl` call
+until the worktree is clean again. `rotta-impl` reports changed files; it does
+not decide how to persist or discard them.
+
 ### Phase 4 — Review → `rotta-review`
 ```
 Task("rotta-review", { approved_scn_ids, project, state_ref: "reports/judge_report.md" })
