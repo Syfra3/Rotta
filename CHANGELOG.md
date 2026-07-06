@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.6.0](https://github.com/Syfra3/Rotta/compare/v1.5.0...v1.6.0) (2026-07-06)
+
+
+### Features
+
+* **installer:** adapt command capability reporting ([b1518a0](https://github.com/Syfra3/Rotta/commit/b1518a0f549e5fdbe04e139d052b88119aab4e76))
+* **installer:** add all-host install results ([04568f6](https://github.com/Syfra3/Rotta/commit/04568f679e9caefff8fddad92125bf02ba7a4a67))
+* **installer:** add codex host target ([089ed5e](https://github.com/Syfra3/Rotta/commit/089ed5ea3f2cc2637a87f6f1096fad8fe5d87f2c))
+* **installer:** add Context7 and host compatibility ([bf80f1f](https://github.com/Syfra3/Rotta/commit/bf80f1f1bb37a835c66871d3b0de776f5de035f0))
+* **installer:** add context7 mcp integration ([135233b](https://github.com/Syfra3/Rotta/commit/135233b7c17e25f0054e56075c81a91a2a10de73))
+* **installer:** add host capability matrix ([dd3e706](https://github.com/Syfra3/Rotta/commit/dd3e706ca22e027baefcd93cdaa1fcdeb2b54cf3))
+* **installer:** classify install changed files ([07763fb](https://github.com/Syfra3/Rotta/commit/07763fb44946749ab23a0aa6e4bcaf52658abd63))
+* **installer:** configure selected host mcps ([d82c172](https://github.com/Syfra3/Rotta/commit/d82c172f4247cd22972f413b37e24469eeac290f))
+* **installer:** disclose adapted host primitives ([73df4e8](https://github.com/Syfra3/Rotta/commit/73df4e8d767fd5cf5383b6dcd2858ebd99e28d3b))
+* **installer:** document compact memory pointers ([7de5cc1](https://github.com/Syfra3/Rotta/commit/7de5cc1835ba36101f0e87f7a7441ddee2455da5))
+* **installer:** make rerun summaries idempotent ([60585c9](https://github.com/Syfra3/Rotta/commit/60585c9add3171ccc36a914c962611c4213083ce))
+* **installer:** preserve context7 when adding codex ([d84f9d0](https://github.com/Syfra3/Rotta/commit/d84f9d07a07d4a2c4c10c9c1f281ef7f52270804))
+* **installer:** refuse malformed host config ([74973a3](https://github.com/Syfra3/Rotta/commit/74973a331438cf439af9729e3e8f8740f981d6dd))
+* **installer:** report mcp capability degradation ([a746c7f](https://github.com/Syfra3/Rotta/commit/a746c7f9a6b8f83667b208fc9a97a62d1717c2bd))
+* **installer:** report mcp health failures ([fae5e78](https://github.com/Syfra3/Rotta/commit/fae5e78858bac6f67a7ba6bc1ffdae4d344d1651))
+* **installer:** report partial host recovery ([69514aa](https://github.com/Syfra3/Rotta/commit/69514aa662a2e019be31755c504e967cab297d34))
+* **installer:** share canonical host instructions ([773a5be](https://github.com/Syfra3/Rotta/commit/773a5beed24b481fd9f78399958c2fe5144ce45c))
+* **installer:** support cross-host workflow continuation ([6d74ad0](https://github.com/Syfra3/Rotta/commit/6d74ad04b8f4abee279e0f8079f24e0faf40b075))
+
+
+### Bug Fixes
+
+* **installer:** reject unsupported host targets ([c68ad55](https://github.com/Syfra3/Rotta/commit/c68ad556e7f9b16086d9e7a8119d7575fff698b9))
+
 ## [1.5.0](https://github.com/Syfra3/Rotta/compare/v1.4.0...v1.5.0) (2026-07-02)
 
 
