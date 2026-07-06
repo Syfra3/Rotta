@@ -29,6 +29,7 @@ const (
 	ScreenQualityGates
 	ScreenAncora
 	ScreenVela
+	ScreenContext7
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -43,6 +44,7 @@ const (
 const (
 	TargetClaudeCode = "claude-code"
 	TargetOpenCode   = "opencode"
+	TargetCodex      = "codex"
 	TargetBoth       = "both"
 )
 
@@ -71,8 +73,9 @@ type recoverySelectedModes struct {
 }
 
 type recoveryOptionalIntegrations struct {
-	Ancora bool
-	Vela   bool
+	Ancora   bool
+	Vela     bool
+	Context7 bool
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -84,7 +87,7 @@ type Model struct {
 	Height     int
 
 	// Target selection
-	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Both
+	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Both
 	Target       string
 
 	// Project path
@@ -107,6 +110,10 @@ type Model struct {
 	VelaCursor int  // 0=Install+configure, 1=Skip
 	SetupVela  bool // resolved choice
 
+	// Context7 documentation MCP
+	Context7Cursor int  // 0=Install+configure, 1=Skip
+	SetupContext7  bool // resolved choice
+
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
 
@@ -122,8 +129,8 @@ type Model struct {
 	RecoveryError   string
 }
 
-var targets = []string{"Claude Code", "OpenCode", "Both"}
-var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetBoth}
+var targets = []string{"Claude Code", "OpenCode", "Codex", "Both"}
+var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetBoth}
 var modeNames = []string{"Spec Mode (Spec Partner + Gherkin Author)", "Implementation Mode (TDD Craftsman)", "Review Mode (Judge + Mutation Tester)"}
 var modeDescriptions = []string{
 	"Draft → Hard Spec → Gherkin → Human approval",
@@ -152,6 +159,8 @@ func New() Model {
 		SetupAncora:    true,
 		VelaCursor:     0, // default to "Install + configure"
 		SetupVela:      true,
+		Context7Cursor: 0, // default to "Install + configure"
+		SetupContext7:  true,
 		ConfirmCursor:  1, // default to "Install", not "Cancel"
 		InstallSpinner: sp,
 	}

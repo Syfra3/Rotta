@@ -25,6 +25,8 @@ func readRenderedAsset(path string, opts Options) ([]byte, error) {
 func integrationInstructions(opts Options) string {
 	var b strings.Builder
 	b.WriteString("\n---\n\n")
+	b.WriteString(canonicalWorkflowInstructions())
+	b.WriteString("\n")
 	b.WriteString("## Installed Integration Choices (Authoritative)\n\n")
 	b.WriteString(memoryInstructions(opts.SetupAncora))
 	b.WriteString("\n")
@@ -34,14 +36,43 @@ func integrationInstructions(opts Options) string {
 	return b.String()
 }
 
+func canonicalWorkflowInstructions() string {
+	return `## Rotta Canonical Workflow Contract
+
+- Phase 1 — Draft: analyze the request, expose risks and missing information, and prepare only for spec work.
+- Phase 2 — Spec + Gherkin: write the hard spec and Gherkin scenarios, then stop at the approval gate. Do NOT advance without explicit human approval.
+- Phase 3 — TDD: implement one approved scenario at a time with strict Red/Green/Refactor TDD and traceable tests.
+- Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
+- Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
+- Command invocation for hosts without slash commands: Use natural-language invocations such as ` + "`Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`" + `.
+- These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.
+- When continuing a workflow started from another supported host, read shared workspace state before acting: ` + "`specs/`" + `, ` + "`features/`" + `, and ` + "`.rotta/`" + ` artifacts.
+- Always preserve the same phase order, command semantics, and approval gates across hosts.
+- Do not treat host-local config as the workflow source of truth.
+- Preserve the no AI attribution rule: do not add AI-generated, generated-by, or co-author attribution to commits or generated project artifacts.
+- Workspace files are the source of truth. Ancora stores compact pointers/status only when enabled.
+
+## Capability Summary
+
+- Claude Code: host instructions are adapted into Claude Code-consumable skills and settings.
+- OpenCode: host instructions are exact OpenCode agent and skill artifacts.
+- Codex: host instructions are adapted into a Codex-consumable ` + "`AGENTS.md`" + ` instruction file.
+  - Agent capability: adapted; Codex receives role instructions in ` + "`AGENTS.md`" + ` instead of OpenCode-style named sub-agents.
+  - Skill capability: adapted; Codex receives workflow sections in ` + "`AGENTS.md`" + ` instead of OpenCode-style skill directories.
+  - Command capability: adapted; Codex uses documented natural-language Rotta command invocations instead of OpenCode-style slash commands.
+`
+}
+
 func memoryInstructions(enabled bool) string {
 	if enabled {
 		return `### Ancora Memory Enabled
 
 - Workspace files remain the source of truth; Ancora stores compact state indexes, decisions, and recovery pointers only.
+- Workspace files remain the source of truth for specs, Gherkin features, TDD logs, reports, and workflow state.
 - At session start, recover recent state with ` + "`ancora_context`" + ` and targeted ` + "`ancora_search`" + ` before advancing phases.
 - After phase transitions, bug fixes, decisions, or non-obvious discoveries, save a compact pointer/status record with ` + "`ancora_save`" + `.
-- Do not store full specs, feature files, TDD logs, or judge reports in Ancora; store paths and concise status only.
+- State Index per Cycle (not the full log): save only fields such as ` + "`log_file: .rotta/tdd-log.md`" + `, ` + "`completed_scenarios:`" + `, ` + "`last_scenario:`" + `, ` + "`last_test:`" + `, ` + "`status: green`" + `, and ` + "`files_changed:`" + `.
+- Do not store full hard specs, feature files, TDD logs, or review reports in Ancora; store paths and concise status only.
 `
 	}
 	return `### Ancora Memory Disabled

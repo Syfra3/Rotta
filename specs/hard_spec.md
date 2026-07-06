@@ -1,197 +1,201 @@
-# Hard Spec: Safe Installer Backup, Clean Install, and Full Restore
+# Hard Spec: Host-Agnostic Rotta Compatibility for Claude Code, OpenCode, and Codex
 
 ## Adversarial Pre-Mortem
-- Failure mode 1: The installer deletes or overwrites existing AI-agent configuration before a complete backup exists, leaving users unable to recover their prior setup.
-- Failure mode 2: Restore overwrites the current configuration and then fails midway, replacing a known-bad installation with an even more inconsistent state.
-- Failure mode 3: The backup scope misses indirect files written by optional integrations, so a user-visible rollback appears successful while opencode, Claude Code, or project settings remain polluted.
+- Failure mode 1: Rotta claims host parity but writes OpenCode-shaped files or MCP settings into Claude Code or Codex locations, leaving users with generated artifacts that are syntactically valid files but ignored by the target host.
+- Failure mode 2: Compatibility work fragments Rotta's workflow into host-specific behavior, causing commands, lifecycle artifacts, MCP availability, or phase gates to diverge silently between Claude Code, OpenCode, and Codex.
+- Failure mode 3: Installers mutate user-level host configuration without backups, ownership markers, or idempotency, producing duplicate MCP entries, broken personal settings, dirty project worktrees, or unrecoverable partial installs.
 
 ## Hidden Assumptions
-- The installer can enumerate every path it may touch before mutating any path.
-- The current install flow is allowed to change from additive/idempotent behavior to backup-first cleanup-and-reinstall behavior for normal installs.
-- A full-backup restore is acceptable even when a user only wants one file recovered.
-- Timestamped local backups under the user's home directory are acceptable as the default recovery location.
-- Optional integrations may mutate files not directly written by rotta code; safe rollback therefore requires backing up broader config roots, not only the exact destination files.
+- Claude Code, OpenCode, and Codex each provide a supported way to consume generated instructions and at least some combination of agent, skill, command, or MCP configuration files; where a host lacks an exact primitive, Rotta can generate the closest supported equivalent and disclose the limitation.
+- Rotta's canonical behavior is host-independent: phase order, command names, approval gates, lifecycle artifact semantics, memory policy, MCP semantics, and review/TDD expectations are defined once and adapted to host surfaces.
+- Workspace files remain the source of truth for hard specs, features, reports, and lifecycle artifacts; Ancora or any other memory MCP stores compact pointers/status only.
+- Generated Rotta lifecycle artifacts such as `.rotta/`, `features/`, `reports/`, and `specs/` are not committed by default unless the user explicitly chooses to do so.
+- Existing OpenCode and Claude Code support from recent Context7 installer work is expected behavior and must not regress while adding Codex and formal host abstraction.
 
 ## Alternatives Considered
 | Approach | Reason Rejected |
 |----------|----------------|
-| Continue additive install without cleanup | Leaves stale agents, permissions, and instructions in place and does not satisfy the requested clean reinstall guarantee. |
-| Back up only files that exist in the install result | The install result is produced after mutation and may miss files modified by optional setup tools or cleanup. |
-| Selective per-file restore | Increases UI and safety complexity; the requested recovery behavior is full backup restore only. |
-| Store backups inside the target project | Project deletion, git cleanup, or project moves could remove recovery data needed for global agent settings. |
+| Keep OpenCode as the only first-class host and document manual setup for Claude Code and Codex | Violates the requirement that Rotta be agnostic to the agentic coding agent and work across all three supported hosts. |
+| Implement three independent workflows, one per host | Maximizes short-term host fit but creates divergent commands, MCP behavior, approvals, and lifecycle semantics that users cannot rely on. |
+| Generate only generic markdown instructions and require users to configure agents/MCPs manually | Avoids host mutation risk but fails the explicit scope covering installation, generated host files, MCP configuration, and command/workflow preservation. |
+| Normalize all hosts to OpenCode's file layout | Simple internally, but unsafe because Claude Code and Codex may ignore or misinterpret OpenCode-specific locations and schema. |
+| Add Claude Code and Codex but postpone host-specific limitations | Hides real parity gaps and prevents users from knowing which Rotta capabilities are exact, adapted, degraded, or unsupported per host. |
 
 ## Summary
-Add installer recovery tooling so every normal install first creates a timestamped backup of the user's affected AI-agent and project configuration, then removes previous rotta installation artifacts/settings, then installs rotta fresh. Users must be able to list backups, preview backup metadata and contents, and confirm a full restore from the terminal UI. Backup failure must abort installation before mutation. Restore failure must roll back to the state that existed immediately before the restore attempt.
-
-## Invariants
-- No normal install path may mutate opencode, Claude Code, project `.rotta`, project `.vela`, Ancora, or Vela-related configuration before a successful backup is recorded.
-- Restore is all-or-nothing at the backup-set level; there is no selective restore workflow.
-- Restore must create a pre-restore safety backup of the current configuration before overwriting anything.
-- Cleanup must remove only rotta-owned entries/files/directories or integration files in the explicitly defined restore/install scope; unrelated user configuration must be preserved.
-- Generated artifacts, code comments, UI copy, docs, commit text, and summaries must use neutral wording and must not mention or identify the external behavioral precedent supplied to the workflow.
+Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Code, OpenCode, and Codex while preserving the same Rotta workflow, commands, MCPs, generated instructions, approval gates, lifecycle artifacts, and user-facing behavior as much as each host permits. Rotta must generate host-appropriate agent, skill, instruction, command, and MCP configuration artifacts from one canonical Rotta contract, report exact/adapted/unsupported capabilities per host, remain idempotent and recovery-safe, preserve clean worktree expectations for generated lifecycle artifacts, and fail clearly without silently degrading workflow guarantees.
 
 ## Requirements
 
-### REQ-001: Enumerate Backup Scope Before Mutation
-**Description:** The installer must compute a backup scope before any install, cleanup, or restore mutation. The scope must cover all files/directories rotta currently writes or patches, plus broader agent configuration roots where required for safe rollback.
+### REQ-001: Support Exactly Three Compatibility Hosts
+**Description:** Rotta must treat Claude Code, OpenCode, and Codex as the complete supported compatibility target set for this feature, with a canonical host abstraction that avoids hard-coding OpenCode behavior as the implicit default for all hosts.
 **Acceptance Criteria:**
-- The backup scope includes `<project>/.rotta/state-machine.yaml` and `<project>/.rotta/quality-gates.yaml`.
-- The backup scope includes `<project>/.vela/graph.db` when Vela setup is enabled or a previous Vela graph may be cleaned/restored.
-- The backup scope includes `~/.config/opencode/opencode.json`, `~/.config/opencode/opencode.jsonc` if present, `~/.config/opencode/instructions.md` if present, and `~/.config/opencode/skills/rotta-orchestrator`, `rotta-spec`, `rotta-impl`, and `rotta-review` when opencode is targeted or existing opencode cleanup is relevant.
-- The backup scope includes `~/.claude/settings.json`, `~/.claude/skills/rotta`, `~/.claude/mcp/ancora.json` if present, `~/.claude/vela-mcp.json` if present, and `~/.claude/vela-instructions.md` if present when Claude Code is targeted or existing Claude Code cleanup is relevant.
-- The backup scope may include the whole `~/.config/opencode` and `~/.claude` configuration roots when needed to preserve safe rollback of project/tool settings touched by external setup commands.
-- The scope records missing paths as metadata rather than treating absence as an error.
+- The installer exposes Claude Code, OpenCode, and Codex as selectable Rotta host targets.
+- The supported host set for this feature is exactly Claude Code, OpenCode, and Codex.
+- Selecting any supported host routes installation, generated files, MCP configuration, and command surfaces through that host's adapter or equivalent compatibility contract.
+- Unsupported hosts are not presented as supported and are rejected with a clear message if requested by config or CLI input.
+- Existing OpenCode behavior remains supported after adding Claude Code and Codex.
+- Existing Claude Code behavior from recent MCP installer work, including Context7 support, remains supported after adding Codex and host abstraction.
 **Edge Cases:**
-- The project path is empty or `~` and resolves to the user's home directory.
-- Both opencode and Claude Code are targeted and share optional integrations.
-- Optional setup is skipped during the new install but stale optional integration files from a prior install exist and must still be backed up before cleanup.
+- User selects multiple supported hosts in one run.
+- User requests an unsupported host by typo, stale config, or manual invocation.
+- User reruns installation after the default host detection changes.
 **Out of Scope:**
-- Backing up unrelated system packages or binaries installed by package managers.
+- Supporting Cursor, Windsurf, Zed, VS Code extensions, Gemini CLI, custom in-house agents, or other hosts.
 
-### REQ-002: Create Timestamped Backups for Every Normal Install
-**Description:** Every normal install must create a backup under `~/.rotta/backups/{timestamp}/` before cleanup or installation begins.
+### REQ-002: Install Rotta into Each Selected Host Using Host-Appropriate Locations
+**Description:** Rotta must install its host integration artifacts into the correct user-level or workspace-level locations for each selected host without writing files where that host cannot consume them.
 **Acceptance Criteria:**
-- Starting an install through the TUI creates a backup first.
-- Starting an install through a non-interactive install command creates a backup first.
-- The backup directory contains a manifest with timestamp, project path, target, selected modes, optional integration choices, backed-up paths, missing paths, backup status, and rotta version when available.
-- Backup paths preserve enough relative structure to restore files to their original absolute destinations.
-- Backups are never overwritten by a later install; timestamp collisions are resolved deterministically by adding a stable suffix or rejecting before mutation.
+- For each selected host, Rotta writes only to locations documented or configured for that host unless the user explicitly overrides the target path.
+- Installation creates missing Rotta-managed host directories when safe and reports permission/path failures before claiming success.
+- Installation preserves unrelated user files and settings in host configuration directories.
+- Installation records enough per-host result detail for the user to distinguish installed, skipped, failed, partially installed, and unsupported capabilities.
+- Installation can target one host without mutating the other supported hosts.
+- Installing to multiple hosts in one run reports each host independently; success for one host must not hide failure for another.
 **Edge Cases:**
-- Some scoped files do not exist yet.
-- Backup directory creation succeeds but a file copy fails.
-- The user's home directory cannot be resolved.
+- A host is installed but not currently available on PATH.
+- A host config directory exists but is not writable.
+- A host has no existing config and requires first-time Rotta-managed setup.
+- User supplies a custom host config path.
 **Out of Scope:**
-- Remote backup synchronization.
+- Installing the host applications themselves.
 
-### REQ-003: Abort Install Completely on Backup Failure
-**Description:** If backup creation fails, installation must stop before cleanup or install mutations occur.
+### REQ-003: Generate Canonical Rotta Instructions as Host-Specific Agent, Skill, and Instruction Artifacts
+**Description:** Rotta must generate equivalent workflow instructions for Claude Code, OpenCode, and Codex from one canonical Rotta instruction contract, adapting output shape to each host's supported agent, skill, command, rule, or instruction mechanism.
 **Acceptance Criteria:**
-- A failed backup returns an install failure result and displays a recovery-safe error to the user.
-- No cleanup runs after a failed backup.
-- No rotta files, agent entries, permissions, instructions, or integration configuration are written after a failed backup.
-- Partial backup artifacts are either removed or marked unusable in the manifest so they are not offered as restore candidates.
+- Generated host artifacts preserve Rotta's phase model, delegation expectations, strict TDD/review expectations, no-AI-attribution rule, memory policy, Vela advisory policy, lifecycle artifact policy, and command semantics.
+- OpenCode receives artifacts in OpenCode-consumable forms, including agents/skills/instructions where supported by Rotta's current OpenCode integration.
+- Claude Code receives artifacts in Claude Code-consumable forms, using the closest supported equivalent when Claude Code does not share OpenCode's exact agent/skill model.
+- Codex receives artifacts in Codex-consumable forms, using the closest supported equivalent when Codex does not share OpenCode's exact agent/skill model.
+- Generated files include host metadata or deterministic Rotta ownership markers sufficient for safe updates without duplicating stale versions.
+- If a host cannot represent a Rotta concept exactly, the generated artifact must state the limitation and the installer must include it in the capability summary.
 **Edge Cases:**
-- Permission denied while reading a scoped file.
-- Disk full while writing the backup.
-- Manifest write fails after file copies succeed.
+- Host supports global instructions but not named sub-agents.
+- Host supports MCP but not custom slash commands.
+- Host supports one instruction file and requires all Rotta roles to be composed into that file.
+- A previous Rotta-generated artifact exists from an older template version.
 **Out of Scope:**
-- Continuing install with a warning after backup failure.
+- Changing Rotta's canonical workflow to match one host's limitations.
 
-### REQ-004: Clean Previous Installation Before Fresh Install
-**Description:** After a successful backup and before writing the fresh installation, the installer must remove previous rotta-owned installation artifacts and settings for the selected scope.
+### REQ-004: Configure Ancora, Vela, Context7, and Future Rotta MCP Servers Per Host
+**Description:** Rotta must configure MCP servers such as Ancora, Vela, and Context7 for each selected host using that host's supported MCP configuration shape, while preserving current OpenCode and Claude Code expectations and adding Codex where supported.
 **Acceptance Criteria:**
-- Previous rotta skill directories are removed before fresh skill files are written.
-- Previous opencode rotta agent entries are removed before fresh agent entries are added.
-- Previous Claude Code rotta permission entries are removed or normalized before current permissions are applied.
-- Previous project `.rotta` generated config files are replaced with the current embedded defaults.
-- Stale rotta-managed Vela/Ancora integration files or entries in the selected scope are removed or normalized before current optional setup runs.
-- Cleanup preserves unrelated user settings and unrelated agent entries.
+- Ancora MCP configuration is generated or updated for each selected host when Ancora is selected.
+- Vela MCP configuration is generated or updated for each selected host when Vela is selected.
+- Context7 MCP configuration is generated or updated for each selected host when Context7 is selected.
+- OpenCode and Claude Code Context7 behavior remains compatible with the recent installer contract and continues to configure Context7 for both hosts when selected.
+- MCP entries use stable server names, deterministic command/args/env fields, and host-correct transport/config schema.
+- Existing unrelated MCP servers and user settings are preserved.
+- If a host lacks supported MCP configuration for a selected MCP server, Rotta reports the capability as unsupported or degraded for that host instead of pretending parity.
+- MCP health checks, when available, verify observable MCP initialization/tool discovery rather than config-file presence alone.
 **Edge Cases:**
-- Prior install contains only a subset of modes.
-- Prior install was partially completed or manually edited.
-- User has unrelated opencode agents or Claude Code permissions adjacent to rotta entries.
+- One host supports stdio MCP while another requires a different config shape.
+- One selected MCP succeeds on OpenCode and fails on Codex.
+- Existing manual MCP entries conflict with Rotta-managed server names.
+- Required command/runtime for an MCP server is unavailable.
 **Out of Scope:**
-- Removing user-created files that merely mention rotta but are not installer-owned.
+- Implementing new MCP server functionality inside Ancora, Vela, or Context7.
 
-### REQ-005: Provide CLI Recovery Commands Consistent With Existing CLI Style
-**Description:** The command-line interface must expose backup, install, and restore operations using names consistent with the existing minimal CLI.
+### REQ-005: Preserve Rotta Commands and Workflow Parity Across Hosts
+**Description:** Users must be able to run the same Rotta workflow and command set across Claude Code, OpenCode, and Codex, with host-specific command exposure adapted only where the host lacks an exact command primitive.
 **Acceptance Criteria:**
-- The CLI supports a direct install path equivalent to a clean install, such as `rotta install --clean`, while preserving existing `version`/`--version` behavior.
-- The CLI supports listing or creating backups through a backup command such as `rotta backup`.
-- The CLI supports restoring a full backup through a restore command such as `rotta restore`.
-- If the final command names differ, they must remain discoverable from CLI help and must not allow a normal install to skip backup.
+- The supported Rotta command set remains consistent across hosts, including init/new/continue/status/skip/back and the full spec → Gherkin → TDD → review lifecycle where currently supported by Rotta.
+- Command names, phase order, approval gates, and required human approval points are preserved across hosts unless a host limitation is explicitly disclosed.
+- Host-specific wrappers or aliases map back to the same canonical Rotta behavior and state transitions.
+- A workflow started in one supported host can be continued in another supported host through the shared workspace state and source-of-truth artifacts.
+- Host adapters must not bypass spec, Gherkin, TDD, review, quality gate, memory pointer, or clean-worktree rules.
 **Edge Cases:**
-- Unknown commands should fail without launching an install.
-- Existing TUI launch behavior with no command must remain available.
+- User starts a workflow in OpenCode and continues in Claude Code.
+- User invokes a command alias that exists in one host but not another.
+- Host session lacks a previously generated command surface but workspace state exists.
 **Out of Scope:**
-- Designing a full shell completion system.
+- Guaranteeing identical keyboard shortcuts, UI rendering, or autocomplete behavior across hosts.
 
-### REQ-006: Expose Recovery in the TUI
-**Description:** The terminal UI must expose a recovery option that lets users list backups, preview details, and confirm full restore.
+### REQ-006: Preserve Workspace Source-of-Truth and Clean Worktree Expectations
+**Description:** Host compatibility must preserve Rotta's lifecycle artifact model: workspace files are source of truth, memory stores compact pointers/status only, and generated lifecycle artifacts are not committed by default.
 **Acceptance Criteria:**
-- The TUI provides a user-visible path to recovery before starting a new install.
-- Users can list available backups from `~/.rotta/backups/`.
-- Users can preview a backup's metadata, including timestamp, project path, target, selected modes, optional integrations, backed-up paths, and missing paths.
-- Users must explicitly confirm before restore begins.
-- The UI communicates that restore is full-backup restore, not selective restore.
+- Specs, Gherkin features, TDD logs, reports, and `.rotta/` lifecycle state remain workspace artifacts and are not replaced by host-local config as the source of truth.
+- Ancora or other memory-backed integrations store compact pointers/status, not full hard specs, feature files, TDD logs, or review reports.
+- Installation does not require committing generated lifecycle artifacts such as `.rotta/`, `features/`, `reports/`, or `specs/` by default.
+- Rotta preserves clean worktree expectations by distinguishing user-requested source changes from generated lifecycle/config artifacts.
+- Host installation reports which files it changed and whether those files are user-level host config, workspace host config, or Rotta lifecycle artifacts.
 **Edge Cases:**
-- No backups exist.
-- A backup directory exists but has no valid manifest.
-- Terminal is too small to show all paths at once.
+- User runs install from a dirty worktree.
+- User asks to make generated specs/features committable for team sharing.
+- Host config lives inside the workspace instead of the user's home directory.
 **Out of Scope:**
-- File-by-file selection in the TUI.
+- Forcing a universal `.gitignore` policy across projects without user approval.
 
-### REQ-007: Restore Full Backup Atomically From User Perspective
-**Description:** Restoring a backup must restore all backed-up files and remove paths recorded as absent at backup time, after first protecting the current configuration.
+### REQ-007: Provide Idempotent, Versioned, and Recoverable Host Configuration Updates
+**Description:** Re-running Rotta installation or generation must update Rotta-managed host artifacts deterministically without duplicating entries, corrupting user config, or losing the ability to recover from partial failures.
 **Acceptance Criteria:**
-- Restore creates a pre-restore safety backup of the current in-scope configuration before overwriting or deleting anything.
-- Restore copies every backed-up file/directory to its original destination.
-- Restore removes rotta-scoped destination paths that were recorded as missing in the selected backup, when those paths exist at restore time.
-- Restore reports success only after all destination changes complete.
-- Restore does not offer selective path restore.
+- Rotta-managed generated files and config blocks include deterministic ownership markers or metadata.
+- Re-running install with the same selections produces no duplicate agents, skills, instructions, commands, or MCP entries.
+- Re-running install after template changes updates Rotta-managed content to the current template version while preserving unrelated user content.
+- Before mutating existing host config files, Rotta creates backups or uses an equivalent safe write strategy consistent with existing installer recovery behavior.
+- Partial failures report which host, artifact type, and MCP/server failed and leave enough state for retry or manual recovery.
+- A failed update must not leave a host config syntactically invalid if Rotta can detect the write or parse failure.
 **Edge Cases:**
-- Destination parent directories no longer exist.
-- Current files are read-only.
-- The selected backup was made for a different project path.
+- Existing Rotta-managed artifacts were manually edited.
+- Existing host config is malformed before Rotta starts.
+- Install is interrupted after one host succeeds and before another host starts.
+- Filesystem write succeeds but validation fails afterward.
 **Out of Scope:**
-- Merging restored JSON with current JSON.
+- Merging arbitrary user edits inside Rotta-owned generated blocks beyond preserving or backing up the original file.
 
-### REQ-008: Roll Back Failed Restore to Pre-Restore State
-**Description:** If restore fails after mutation begins, the system must roll back to the pre-restore state captured immediately before the restore attempt.
+### REQ-008: Surface Host-Specific Limitations Explicitly
+**Description:** Rotta must treat host gaps as first-class compatibility data, not hidden behavior, so users know whether a capability is exact, adapted, degraded, unsupported, or failed for each selected host.
 **Acceptance Criteria:**
-- A failed restore attempts to restore the pre-restore safety backup automatically.
-- The user receives a failure message that identifies the selected backup and whether rollback to pre-restore state succeeded.
-- A restore is not reported successful if rollback was required.
-- If rollback also fails, the error identifies the location of both the selected backup and the pre-restore safety backup for manual recovery.
+- The installer or generation summary includes a capability matrix for selected hosts covering installation, instructions/agents/skills, commands/workflow, MCP configuration, health checks, and lifecycle behavior.
+- Each capability is classified as exact, adapted, degraded, unsupported, skipped, failed, or not applicable.
+- Adapted/degraded/unsupported capabilities include a concise reason and user-facing remediation where available.
+- Unsupported host capabilities do not block unrelated supported capabilities unless they are required for a selected workflow guarantee.
+- The generated instructions for a host include only claims that are true for that host.
 **Edge Cases:**
-- Failure occurs during deletion of a path that should be absent.
-- Failure occurs during copy of a nested directory.
-- Rollback cannot recreate a directory due to permissions.
+- Codex supports instructions but not an MCP server shape required by one selected MCP.
+- Claude Code supports MCP and instructions but not OpenCode-style sub-agent files.
+- Host documentation changes after Rotta templates were written.
 **Out of Scope:**
-- Guaranteeing rollback after external processes mutate files concurrently during restore.
+- Promising perfect feature parity where the host lacks a corresponding primitive.
 
-### REQ-009: Manifest and Preview Must Be Stable and Neutral
-**Description:** Backup metadata and generated user-facing text must be stable enough for tests and must avoid external-reference wording.
+### REQ-009: Fail Fast and Clearly on Unsafe or Invalid Host Operations
+**Description:** Rotta must detect unsupported hosts, invalid config, permission issues, schema mismatches, runtime/MCP failures, and unsafe writes early enough to avoid false success and guide recovery.
 **Acceptance Criteria:**
-- The manifest schema includes a version field so future backup formats can be handled explicitly.
-- Backup previews are derived from manifest data, not by scanning arbitrary directories at display time.
-- Generated artifacts, UI strings, docs, comments, and summaries do not mention or identify the external behavioral precedent supplied to the workflow.
-- Acceptance criteria and scenario titles use neutral recovery terminology only.
+- Unsupported host selection fails before file mutation.
+- Invalid or malformed existing host config is reported with the host name and file path before Rotta overwrites it.
+- Permission failures identify the host, artifact type, path, and operation attempted.
+- MCP health-check failures identify whether the failure came from command availability, startup, initialization, tool discovery, timeout, or unsupported host capability.
+- Installer summaries never report full success when any selected host or required selected capability failed.
+- Retry guidance distinguishes safe rerun, manual config repair, missing dependency installation, and unsupported host capability.
 **Edge Cases:**
-- Manifest version is unknown.
-- Manifest has extra fields from a newer version.
-- Backup path contains spaces or non-ASCII characters.
+- Multiple hosts fail for different reasons in one run.
+- The host config file changes concurrently during install.
+- Health checks are unavailable in a non-interactive or sandboxed environment.
 **Out of Scope:**
-- Encrypting backup metadata.
+- Automatically repairing arbitrary corrupted third-party host configuration files.
 
-### REQ-010: Preserve Existing Installer Behavior Except Where Safety Requires Change
-**Description:** Existing target selection, project path selection, mode selection, Ancora setup, Vela setup, and success/error reporting must continue to work after backup-first installation is introduced.
+### REQ-010: Maintain Backward Compatibility for Existing Rotta Installations
+**Description:** Adding host-agnostic compatibility must not break existing OpenCode users, existing Claude Code MCP setup, existing Context7 behavior, or existing Rotta workflow state.
 **Acceptance Criteria:**
-- Existing TUI screens remain reachable unless intentionally superseded by the recovery entry point.
-- Existing install options still determine which current rotta files are installed after cleanup.
-- The install success summary includes the backup location or a clear way to find it.
-- The install error path distinguishes backup failure, cleanup failure, install failure, and restore failure.
+- Existing OpenCode Rotta installations continue to load generated instructions, commands, agents/skills, MCP servers, and workflow state after upgrade.
+- Existing Claude Code MCP entries produced by recent Rotta installer work continue to be recognized and updated safely.
+- Existing Context7 configuration for OpenCode and Claude Code is not removed, renamed, duplicated, or silently degraded by adding Codex support.
+- Existing `.rotta/` workflow state and workspace source-of-truth artifacts remain readable by all supported hosts after upgrade.
+- Migration or regeneration steps are explicit, idempotent, and reversible through backups where host config is mutated.
 **Edge Cases:**
-- User cancels from the recovery option back to install.
-- User cancels from install confirmation.
-- Install succeeds after cleaning a partial previous installation.
+- User installed Rotta before host metadata/version markers existed.
+- User has only OpenCode configured and later adds Codex.
+- User has manually edited generated OpenCode instructions.
 **Out of Scope:**
-- Changing rotta's core spec/implementation/review workflow semantics.
-
-## Non-Goals
-- Do not implement selective restore.
-- Do not back up package-manager installed binaries or attempt to uninstall package-manager dependencies.
-- Do not migrate unrelated opencode or Claude Code settings.
-- Do not introduce cloud synchronization, encryption, or compression unless existing project conventions already require it.
-- Do not implement production code as part of this spec artifact.
+- Supporting pre-Rotta or manually invented configuration formats that Rotta never generated and cannot detect safely.
 
 ## Open Questions
 - None.
 
 ## Trade-offs
-- Backing up broader config roots increases disk usage but reduces rollback risk for files modified by optional setup tools outside direct rotta writes.
-- Full restore is safer and easier to reason about than selective restore, but users cannot recover one file through the supported UI.
-- Cleanup before fresh install removes stale rotta-owned configuration, but implementation must carefully preserve unrelated user customization.
+- A canonical Rotta contract plus host adapters reduces behavioral drift but requires careful capability mapping and explicit limitation reporting for hosts that lack OpenCode-equivalent primitives.
+- Idempotent safe writes, backups, and health checks increase installer complexity and runtime, but prevent false success and protect user-level AI host configuration.
+- Preserving exact workflow semantics across hosts may require adapted command surfaces or composed instruction files where a host does not support named agents, skills, or slash commands.
+- Keeping lifecycle artifacts out of commits by default protects clean worktree expectations, but teams that want committable specs/features will need an explicit opt-in path.
 
 ## Risk Level
-high — Justification: The feature intentionally mutates user-level AI-agent configuration and project settings; incorrect ordering or incomplete backup scope can cause data loss or broken agent installations.
+high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, and clean worktree expectations.

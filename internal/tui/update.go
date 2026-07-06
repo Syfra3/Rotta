@@ -71,6 +71,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateAncora(msg)
 	case ScreenVela:
 		return m.updateVela(msg)
+	case ScreenContext7:
+		return m.updateContext7(msg)
 	case ScreenConfirm:
 		return m.updateConfirm(msg)
 	case ScreenSuccess, ScreenError:
@@ -278,9 +280,29 @@ func (m Model) updateVela(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.SetupVela = m.VelaCursor == 0
 		m.PrevScreen = ScreenVela
-		m.Screen = ScreenConfirm
+		m.Screen = ScreenContext7
 	case "esc", "b":
 		m.Screen = ScreenAncora
+	}
+	return m, nil
+}
+
+func (m Model) updateContext7(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.Context7Cursor < 1 {
+			m.Context7Cursor++
+		}
+	case "k", "up":
+		if m.Context7Cursor > 0 {
+			m.Context7Cursor--
+		}
+	case "enter", " ":
+		m.SetupContext7 = m.Context7Cursor == 0
+		m.PrevScreen = ScreenContext7
+		m.Screen = ScreenConfirm
+	case "esc", "b":
+		m.Screen = ScreenVela
 	}
 	return m, nil
 }
@@ -303,7 +325,7 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenInstalling
 		return m, tea.Batch(m.InstallSpinner.Tick, runInstall(m))
 	case "esc", "b":
-		m.Screen = ScreenVela
+		m.Screen = ScreenContext7
 	}
 	return m, nil
 }
@@ -328,6 +350,7 @@ func runInstall(m Model) tea.Cmd {
 			UseDefaultGates: m.UseDefaults,
 			SetupAncora:     m.SetupAncora,
 			SetupVela:       m.SetupVela,
+			SetupContext7:   m.SetupContext7,
 			CommandStdin:    bytes.NewReader(nil),
 			CommandStdout:   io.Discard,
 			CommandStderr:   io.Discard,

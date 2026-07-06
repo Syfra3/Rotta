@@ -46,13 +46,13 @@ func SetupAncora(opts Options, home string) (*AncoraResult, error) {
 
 	// Delegate all configuration to `ancora setup` — it handles MCP config,
 	// plugin files, permissions, and hooks for each target.
-	if opts.Target == "claude-code" || opts.Target == "both" {
+	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
 		if err := runAncoraSetup(opts, binPath, "claude-code"); err != nil {
 			return nil, fmt.Errorf("ancora setup claude-code: %w", err)
 		}
 	}
 
-	if opts.Target == "opencode" || opts.Target == "both" {
+	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
 		if err := runAncoraSetup(opts, binPath, "opencode"); err != nil {
 			return nil, fmt.Errorf("ancora setup opencode: %w", err)
 		}
