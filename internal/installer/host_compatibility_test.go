@@ -1,0 +1,951 @@
+package installer
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestSCN201_InstallRottaIntoSingleSupportedCodexHost(t *testing.T) {
+	// REQ-001, REQ-002 → SCN-201 → TestSCN201_InstallRottaIntoSingleSupportedCodexHost
+	// Scenario: Install Rotta into a single supported host
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	assertPathExists(t, codexInstructions)
+	assertFileContains(t, codexInstructions, "Rotta")
+	assertStringListContains(t, result.Files, codexInstructions)
+	if result.Hosts["codex"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Codex host summary to report installed, got %#v", result.Hosts)
+	}
+
+	assertPathMissing(t, filepath.Join(home, ".claude", "settings.json"))
+	assertPathMissing(t, filepath.Join(home, ".claude", "skills", "rotta"))
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator"))
+}
+
+func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
+	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
+	// Scenario: Install Rotta into all supported hosts with independent results
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	openCodeDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(openCodeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(openCodeDir, "opencode.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err == nil {
+		t.Fatal("expected an install error for the blocked OpenCode host")
+	}
+	if result == nil {
+		t.Fatal("expected partial result when one selected host fails")
+	}
+
+	if len(result.Hosts) != 3 {
+		t.Fatalf("expected exactly three host results, got %#v", result.Hosts)
+	}
+	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Claude Code installed independently, got %#v", result.Hosts["claude-code"])
+	}
+	if result.Hosts["opencode"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected OpenCode failed independently, got %#v", result.Hosts["opencode"])
+	}
+	if result.Hosts["codex"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Codex installed independently, got %#v", result.Hosts["codex"])
+	}
+
+	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta"))
+	assertPathExists(t, filepath.Join(home, ".codex", "AGENTS.md"))
+}
+
+func TestSCN203_RejectUnsupportedHostBeforeMutation(t *testing.T) {
+	// REQ-001, REQ-009 → SCN-203 → TestSCN203_RejectUnsupportedHostBeforeMutation
+	// Scenario: Reject an unsupported host before mutation
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "cursor",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err == nil {
+		t.Fatal("expected unsupported host to be rejected")
+	}
+	if result != nil {
+		t.Fatalf("expected no install result after unsupported host rejection, got %#v", result)
+	}
+	if !strings.Contains(err.Error(), "supported hosts are exactly Claude Code, OpenCode, and Codex") {
+		t.Fatalf("expected supported host explanation, got %q", err.Error())
+	}
+
+	assertPathMissing(t, filepath.Join(home, ".claude"))
+	assertPathMissing(t, filepath.Join(home, ".config", "opencode"))
+	assertPathMissing(t, filepath.Join(home, ".codex"))
+	assertPathMissing(t, filepath.Join(projectPath, ".rotta"))
+}
+
+func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing.T) {
+	// REQ-003, REQ-008 → SCN-204 → TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow
+	// Scenario: Generate host-specific instructions from the canonical Rotta workflow
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hostInstructionFiles := map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	}
+	for host, path := range hostInstructionFiles {
+		assertStringListContains(t, result.Hosts[host].Files, path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		got := string(data)
+		assertContainsAll(t, got, []string{
+			"Rotta Canonical Workflow Contract",
+			"Phase 1 — Draft",
+			"Phase 2 — Spec + Gherkin",
+			"Phase 3 — TDD",
+			"Phase 4 — Review",
+			"Do NOT advance without explicit human approval",
+			"strict Red/Green/Refactor TDD",
+			"The Judge reviews evidence, not code",
+			"no AI attribution",
+			"Workspace files are the source of truth",
+			"Ancora stores compact pointers/status only",
+			"Capability Summary",
+		})
+	}
+}
+
+func TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex(t *testing.T) {
+	// REQ-003, REQ-008 → SCN-205 → TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex
+	// Scenario: Disclose when a host lacks an exact agent or skill primitive
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"Codex: host instructions are adapted into a Codex-consumable `AGENTS.md` instruction file",
+		"Agent capability: adapted",
+		"Skill capability: adapted",
+	})
+	assertNotContains(t, got, "Codex: host instructions are exact OpenCode agent and skill artifacts")
+	assertNotContains(t, got, "Codex: exact agent and skill support")
+}
+
+func TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts(t *testing.T) {
+	// REQ-004, REQ-010 → SCN-206 → TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts
+	// Scenario: Configure selected MCP servers across selected hosts
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".claude", "mcp", "user.json"), []byte(`{"command":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml"), []byte("model = \"gpt-5\"\n"))
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+printf 'ancora %s\n' "$*" >> "$HOME/setup.log"
+if [ "$1" = setup ] && [ "$2" = claude-code ]; then
+  mkdir -p "$HOME/.claude/mcp"
+  printf '{"type":"stdio","command":"ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json"
+fi
+if [ "$1" = setup ] && [ "$2" = opencode ]; then
+  mkdir -p "$HOME/.config/opencode"
+  printf '{"mcp":{"ancora":{"type":"stdio","command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
+fi
+`)
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+printf 'vela %s\n' "$*" >> "$HOME/setup.log"
+project=""
+agent=""
+claude_dir=""
+opencode_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+    --agent) shift; agent="$1" ;;
+    --claude-dir) shift; claude_dir="$1" ;;
+    --opencode-dir) shift; opencode_dir="$1" ;;
+  esac
+  shift
+done
+mkdir -p "$project/.vela"
+printf 'fresh graph' > "$project/.vela/graph.db"
+if [ "$agent" = claude ]; then
+  mkdir -p "$claude_dir"
+  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
+fi
+if [ "$agent" = opencode ]; then
+  mkdir -p "$opencode_dir"
+  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
+fi
+`)
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "ancora.json"), "ancora")
+	assertFileContains(t, filepath.Join(home, ".claude", "vela-mcp.json"), "vela")
+	assertContext7ClaudeEntry(t, filepath.Join(home, ".claude", "mcp", "context7.json"))
+	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "user.json"), "keep")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode-vela.json"), "vela")
+	assertContext7OpenCodeEntry(t, opencodeConfig)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "model = \"gpt-5\"")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.ancora]")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.vela]")
+	assertFileContains(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.context7]")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "ancora setup claude-code")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "ancora setup opencode")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent claude")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent opencode")
+	assertStringListContains(t, result.Files, filepath.Join(home, ".codex", "config.toml"))
+}
+
+func TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity(t *testing.T) {
+	// REQ-004, REQ-008, REQ-009 → SCN-207 → TestSCN207_ReportUnsupportedMCPCapabilityWithoutPretendingParity
+	// Scenario: Report unsupported MCP capability without pretending parity
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexConfig := filepath.Join(home, ".codex", "config.toml")
+	assertFileContains(t, codexConfig, "[mcp_servers.ancora]")
+	assertFileContains(t, codexConfig, "[mcp_servers.context7]")
+
+	context7Capability := result.Hosts["codex"].Capabilities["mcp:context7"]
+	if context7Capability.Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex Context7 MCP to be reported as degraded rather than full parity, got %#v", context7Capability)
+	}
+	if context7Capability.Reason == "" || context7Capability.Remediation == "" {
+		t.Fatalf("expected degraded capability to include reason and remediation, got %#v", context7Capability)
+	}
+	ancoraCapability := result.Hosts["codex"].Capabilities["mcp:ancora"]
+	if ancoraCapability.Status != HostCapabilityStatusExact {
+		t.Fatalf("expected unrelated supported Ancora MCP capability to continue as exact, got %#v", ancoraCapability)
+	}
+}
+
+func TestSCN208_MCPHealthCheckReportsObservableStartupFailure(t *testing.T) {
+	// REQ-004, REQ-009 → SCN-208 → TestSCN208_MCPHealthCheckReportsObservableStartupFailure
+	// Scenario: MCP health check reports observable startup failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeExecutable(t, filepath.Join(binDir, "npx"), `#!/bin/sh
+exit 2
+`)
+
+	result, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err == nil {
+		t.Fatal("expected observable MCP health failure to fail the host installation")
+	}
+	if result == nil {
+		t.Fatal("expected partial install result with MCP health failure details")
+	}
+
+	host := result.Hosts["opencode"]
+	if host.Status != HostInstallStatusFailed {
+		t.Fatalf("expected host installation not to be fully successful after MCP health failure, got %#v", host)
+	}
+	capability := host.Capabilities["mcp:context7"]
+	if string(capability.Status) != "failed" {
+		t.Fatalf("expected failed Context7 MCP capability, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, string(Context7FailureStartup)) {
+		t.Fatalf("expected capability reason to identify startup failure, got %#v", capability)
+	}
+}
+
+func TestSCN209_ContinueRottaWorkflowFromDifferentSupportedHost(t *testing.T) {
+	// REQ-005, REQ-006 → SCN-209 → TestSCN209_ContinueRottaWorkflowFromDifferentSupportedHost
+	// Scenario: Continue a Rotta workflow from a different supported host
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, filepath.Join(projectPath, "specs", "hard_spec.md"), []byte("# shared spec\n"))
+	writeTestFile(t, filepath.Join(projectPath, "features", "workflow.feature"), []byte("@SCN-209\nScenario: shared workflow\n"))
+	writeTestFile(t, filepath.Join(projectPath, ".rotta", "tdd-log.md"), []byte("# shared TDD log\n"))
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"When continuing a workflow started from another supported host, read shared workspace state before acting",
+			"specs/",
+			"features/",
+			".rotta/",
+			"preserve the same phase order, command semantics, and approval gates",
+			"Do not treat host-local config as the workflow source of truth",
+		})
+	}
+}
+
+func TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation(t *testing.T) {
+	// REQ-005, REQ-008 → SCN-210 → TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation
+	// Scenario: Preserve command behavior when a host requires aliases or adapted command exposure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	assertContainsAll(t, string(data), []string{
+		"Command invocation for hosts without slash commands",
+		"Use natural-language invocations such as `Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`",
+		"These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.",
+		"Command capability: adapted",
+	})
+
+	capability := result.Hosts["codex"].Capabilities["commands"]
+	if capability.Status != HostCapabilityStatusAdapted {
+		t.Fatalf("expected Codex command capability to be adapted, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, "natural-language") || !strings.Contains(capability.Remediation, "same canonical Rotta commands") {
+		t.Fatalf("expected adapted command capability to document invocation path and mapping, got %#v", capability)
+	}
+}
+
+func TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation(t *testing.T) {
+	// REQ-006 → SCN-211 → TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation
+	// Scenario: Preserve clean worktree expectations during host installation
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryHostConfig], filepath.Join(home, ".codex", "AGENTS.md"))
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "state-machine.yaml"))
+	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "quality-gates.yaml"))
+	if len(result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig]) != 0 {
+		t.Fatalf("expected no workspace host config changes for Codex-only install, got %#v", result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig])
+	}
+	if result.LifecycleArtifactsRequireCommit {
+		t.Fatal("expected generated Rotta lifecycle artifacts not to require commits by default")
+	}
+}
+
+func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {
+	// REQ-006 → SCN-212 → TestSCN212_StoreMemoryStateAsCompactPointersOnly
+	// Scenario: Store memory state as compact pointers only
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codexInstructions := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(codexInstructions)
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"Workspace files remain the source of truth for specs, Gherkin features, TDD logs, reports, and workflow state.",
+		"State Index per Cycle (not the full log)",
+		"log_file: .rotta/tdd-log.md",
+		"completed_scenarios:",
+		"last_scenario:",
+		"last_test:",
+		"status: green",
+		"files_changed:",
+		"Do not store full hard specs, feature files, TDD logs, or review reports in Ancora",
+	})
+	assertNotContains(t, got, "paste the full hard spec")
+	assertNotContains(t, got, "copy the full feature file")
+}
+
+func TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts(t *testing.T) {
+	// REQ-007, REQ-010 → SCN-213 → TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts
+	// Scenario: Re-run installation without duplicating Rotta-managed artifacts
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	codexConfig := filepath.Join(home, ".codex", "config.toml")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, codexConfig, []byte("model = \"gpt-5\"\n"))
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+exit 0
+`)
+	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
+project=""
+agent=""
+claude_dir=""
+opencode_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+    --agent) shift; agent="$1" ;;
+    --claude-dir) shift; claude_dir="$1" ;;
+    --opencode-dir) shift; opencode_dir="$1" ;;
+  esac
+  shift
+done
+mkdir -p "$project/.vela"
+printf 'fresh graph' > "$project/.vela/graph.db"
+if [ "$agent" = claude ]; then
+  mkdir -p "$claude_dir"
+  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
+fi
+if [ "$agent" = opencode ]; then
+  mkdir -p "$opencode_dir"
+  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
+fi
+`)
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	options := Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	}
+	if _, err := Install(options); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNoDuplicateStrings(t, result.Files)
+	assertNoDuplicateStrings(t, result.Hosts["claude-code"].Files)
+	assertNoDuplicateStrings(t, result.Hosts["opencode"].Files)
+	assertNoDuplicateStrings(t, result.Hosts["codex"].Files)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContains(t, codexConfig, "model = \"gpt-5\"")
+	assertFileContainsCount(t, opencodeConfig, `"context7"`, 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.ancora]", 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.vela]", 1)
+	assertFileContainsCount(t, codexConfig, "[mcp_servers.context7]", 1)
+}
+
+func TestSCN214_RecoverSafelyFromPartialMultiHostInstallFailure(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-214 → TestSCN214_RecoverSafelyFromPartialMultiHostInstallFailure
+	// Scenario: Recover safely from a partial multi-host install failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
+if [ "$1" = setup ] && [ "$2" = opencode ]; then
+  mkdir -p "$HOME/.config/opencode"
+  printf '{"mcp":{"ancora":{"type":"stdio","command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
+fi
+`)
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml", "blocked"), []byte("not a file\n"))
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err == nil {
+		t.Fatal("expected Codex configuration failure to report partial install failure")
+	}
+	if result == nil {
+		t.Fatal("expected partial result with completed host configuration and recovery guidance")
+	}
+
+	if result.Hosts["opencode"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected completed OpenCode host configuration to remain installed, got %#v", result.Hosts["opencode"])
+	}
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.json"), "rotta-orchestrator")
+	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora")
+
+	codex := result.Hosts["codex"]
+	if codex.Status != HostInstallStatusFailed {
+		t.Fatalf("expected Codex host to be marked failed, got %#v", codex)
+	}
+	capability := codex.Capabilities["mcp:ancora"]
+	if capability.Status != HostCapabilityStatusFailed {
+		t.Fatalf("expected failed Codex MCP artifact capability, got %#v", capability)
+	}
+	if !strings.Contains(capability.Reason, "Codex MCP config") || !strings.Contains(capability.Remediation, "safe to rerun") {
+		t.Fatalf("expected failed artifact type and safe recovery guidance, got %#v", capability)
+	}
+	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "MCP config") {
+		t.Fatalf("expected error to identify Codex and failed artifact type, got %v", err)
+	}
+}
+
+func TestSCN215_RefuseToOverwriteMalformedHostConfigurationSilently(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-215 → TestSCN215_RefuseToOverwriteMalformedHostConfigurationSilently
+	// Scenario: Refuse to overwrite malformed host configuration silently
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	malformedConfig := []byte("not json")
+	writeTestFile(t, opencodeConfig, malformedConfig)
+
+	result, err := Install(Options{
+		Target:        "opencode",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err == nil {
+		t.Fatal("expected malformed host configuration to fail before mutation")
+	}
+	if result == nil {
+		t.Fatal("expected failed host result with backup and recovery details")
+	}
+	if !strings.Contains(err.Error(), "opencode") || !strings.Contains(err.Error(), opencodeConfig) {
+		t.Fatalf("expected error to report host and malformed file path, got %v", err)
+	}
+	if result.Hosts["opencode"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected OpenCode host not to claim successful installation, got %#v", result.Hosts["opencode"])
+	}
+	data, readErr := os.ReadFile(opencodeConfig)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != string(malformedConfig) {
+		t.Fatalf("expected malformed configuration to remain untouched, got %q", string(data))
+	}
+	backupCopy := backupDestination(result.BackupDir, home, opencodeConfig)
+	assertFileContains(t, backupCopy, string(malformedConfig))
+}
+
+func TestSCN216_PresentPerHostCapabilityMatrix(t *testing.T) {
+	// REQ-008 → SCN-216 → TestSCN216_PresentPerHostCapabilityMatrix
+	// Scenario: Present a per-host capability matrix
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requiredCapabilities := []string{"installation", "instructions", "commands", "mcp", "health_checks", "lifecycle"}
+	allowedStatuses := map[HostCapabilityStatus]bool{
+		HostCapabilityStatusExact:         true,
+		HostCapabilityStatusAdapted:       true,
+		HostCapabilityStatusDegraded:      true,
+		HostCapabilityStatusUnsupported:   true,
+		HostCapabilityStatusSkipped:       true,
+		HostCapabilityStatusFailed:        true,
+		HostCapabilityStatusNotApplicable: true,
+	}
+	for _, host := range []string{"claude-code", "opencode", "codex"} {
+		hostResult := result.Hosts[host]
+		for _, capabilityName := range requiredCapabilities {
+			capability, ok := hostResult.Capabilities[capabilityName]
+			if !ok {
+				t.Fatalf("expected %s capability matrix to include %q, got %#v", host, capabilityName, hostResult.Capabilities)
+			}
+			if !allowedStatuses[capability.Status] {
+				t.Fatalf("expected %s capability %q to use an allowed matrix status, got %#v", host, capabilityName, capability)
+			}
+		}
+	}
+}
+
+func TestSCN216_PresentDegradedCodexMCPMatrixWhenContext7Selected(t *testing.T) {
+	// REQ-008 → SCN-216 → TestSCN216_PresentDegradedCodexMCPMatrixWhenContext7Selected
+	// Scenario: Present a per-host capability matrix
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Hosts["codex"].Capabilities["mcp"].Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex aggregate MCP matrix entry to disclose degraded Context7 health parity, got %#v", result.Hosts["codex"].Capabilities["mcp"])
+	}
+	if result.Hosts["codex"].Capabilities["mcp"].Remediation == "" {
+		t.Fatalf("expected Codex aggregate MCP matrix entry to include verification remediation, got %#v", result.Hosts["codex"].Capabilities["mcp"])
+	}
+	if result.Hosts["opencode"].Capabilities["mcp"].Status != HostCapabilityStatusExact {
+		t.Fatalf("expected OpenCode aggregate MCP matrix entry to remain exact, got %#v", result.Hosts["opencode"].Capabilities["mcp"])
+	}
+}
+
+func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
+	// REQ-010 → SCN-217 → TestSCN217_PreserveExistingContext7WhenAddingCodex
+	// Scenario: Preserve existing OpenCode and Claude Code Context7 behavior when adding Codex
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	claudeContext7 := filepath.Join(home, ".claude", "mcp", "context7.json")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"context7":{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]},"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, claudeContext7, []byte(`{"type":"stdio","command":"npx","args":["-y","@upstash/context7-mcp"]}`))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertContext7OpenCodeEntry(t, opencodeConfig)
+	assertFileContains(t, opencodeConfig, "user-server")
+	assertFileContains(t, opencodeConfig, "theme")
+	assertFileContainsCount(t, opencodeConfig, `"context7"`, 1)
+	assertFileDoesNotContain(t, opencodeConfig, "rotta-context7")
+	assertContext7ClaudeEntry(t, claudeContext7)
+
+	if !result.Context7.OpenCode.OK || !result.Context7.ClaudeCode.OK {
+		t.Fatalf("expected existing OpenCode and Claude Code Context7 entries to remain successful, got %#v", result.Context7)
+	}
+	if !result.Context7.Codex.OK || result.Context7.Codex.Host != "codex" {
+		t.Fatalf("expected Codex Context7 result to be reported independently, got %#v", result.Context7)
+	}
+	capability := result.Hosts["codex"].Capabilities["mcp:context7"]
+	if capability.Status != HostCapabilityStatusDegraded {
+		t.Fatalf("expected Codex Context7 capability to be reported independently, got %#v", capability)
+	}
+}
+
+func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
+	// Scenario: Recover safely from a partial multi-host install failure
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+
+	if got := installTargetLabel(""); got != "selected" {
+		t.Fatalf("expected empty install target label to be selected, got %q", got)
+	}
+
+	result := &Result{Hosts: map[string]HostInstallResult{}}
+	recordHostArtifactFailure(result, "codex", "Codex MCP config", Options{SetupAncora: true, SetupVela: true, SetupContext7: true})
+	if result.Hosts["codex"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected missing host artifact failure to create failed host result, got %#v", result.Hosts["codex"])
+	}
+	for _, capabilityName := range []string{"mcp:ancora", "mcp:vela", "mcp:context7"} {
+		if result.Hosts["codex"].Capabilities[capabilityName].Status != HostCapabilityStatusFailed {
+			t.Fatalf("expected %s to be failed, got %#v", capabilityName, result.Hosts["codex"].Capabilities)
+		}
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{"codex": {Host: "codex", Status: HostInstallStatusInstalled}}}
+	recordMCPHostCapabilities(result, Options{Target: "codex", SetupAncora: true})
+	if result.Hosts["codex"].Capabilities["mcp:ancora"].Status != HostCapabilityStatusExact {
+		t.Fatalf("expected nil capability map to be initialized with exact Ancora MCP, got %#v", result.Hosts["codex"])
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{"codex": {Host: "codex", Status: HostInstallStatusInstalled}}}
+	recordHostCapabilityMatrix(result, Options{Target: "all"})
+	if result.Hosts["codex"].Capabilities["commands"].Status != HostCapabilityStatusAdapted {
+		t.Fatalf("expected matrix to fill missing command capability, got %#v", result.Hosts["codex"].Capabilities)
+	}
+	if installationCapability(HostInstallStatusFailed).Status != HostCapabilityStatusFailed {
+		t.Fatal("expected failed installation capability for failed host status")
+	}
+
+	result = &Result{Hosts: map[string]HostInstallResult{
+		"opencode": {Host: "opencode", Status: HostInstallStatusFailed},
+		"codex":    {Host: "codex", Status: HostInstallStatusInstalled},
+	}}
+	recordMCPHealthFailure(result, Options{Target: "all"}, "mcp:context7", Context7HealthResult{Category: Context7FailureStartup, Message: "boom"})
+	if result.Hosts["codex"].Capabilities["mcp:context7"].Status != HostCapabilityStatusFailed {
+		t.Fatalf("expected installed selected host to record MCP health failure, got %#v", result.Hosts["codex"])
+	}
+	if _, ok := result.Hosts["opencode"].Capabilities["mcp:context7"]; ok {
+		t.Fatalf("expected already failed host to be skipped by MCP health failure, got %#v", result.Hosts["opencode"])
+	}
+
+	writeTestFile(t, filepath.Join(projectPath, ".rotta"), []byte("not a directory"))
+	if _, err := installAllHosts(Options{InstallSpec: true}, &Result{Hosts: map[string]HostInstallResult{}}, home, projectPath); err == nil {
+		t.Fatal("expected all-host install to report project config write failure")
+	}
+}
+
+func TestSCN215_HostCompatibilityWriteFailuresRemainCovered(t *testing.T) {
+	// REQ-007, REQ-009 → SCN-215 → TestSCN215_HostCompatibilityWriteFailuresRemainCovered
+	// Scenario: Refuse to overwrite malformed host configuration silently
+	home := t.TempDir()
+
+	writeTestFile(t, filepath.Join(home, ".codex"), []byte("not a directory"))
+	if _, err := installCodex(Options{}, home); err == nil {
+		t.Fatal("expected Codex instruction directory creation failure")
+	}
+	if _, err := configureCodexMCPServers(Options{SetupContext7: true}, home); err == nil {
+		t.Fatal("expected Codex MCP directory creation failure")
+	}
+	if _, err := cleanAndInstallHost(Options{}, "codex", home); err == nil {
+		t.Fatal("expected Codex clean/install to surface stale artifact cleanup failure")
+	}
+	if _, err := cleanAndInstallHost(Options{}, "unsupported", home); err == nil {
+		t.Fatal("expected unsupported internal host dispatch to fail")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".codex", "AGENTS.md", "blocked"), []byte("not a file"))
+	if _, err := installCodex(Options{}, home); err == nil {
+		t.Fatal("expected Codex instruction file write failure")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml", "blocked"), []byte("not a file"))
+	if _, err := configureCodexMCPServers(Options{SetupContext7: true}, home); err == nil {
+		t.Fatal("expected Codex MCP config write failure")
+	}
+
+	home = t.TempDir()
+	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte("not json"))
+	if _, err := cleanAndInstallHost(Options{}, "opencode", home); err == nil {
+		t.Fatal("expected OpenCode clean/install to surface malformed config")
+	}
+}
+
+func assertNoDuplicateStrings(t *testing.T, values []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, value := range values {
+		if seen[value] {
+			t.Fatalf("expected no duplicate entries, found duplicate %q in %#v", value, values)
+		}
+		seen[value] = true
+	}
+}
+
+func assertFileContainsCount(t *testing.T, path, want string, count int) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if got := strings.Count(string(data), want); got != count {
+		t.Fatalf("expected %s to contain %q %d time(s), got %d: %s", path, want, count, got, string(data))
+	}
+}
+
+func writeHostCompatibilityFakeAncora(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, `#!/bin/sh
+exit 0
+`)
+}
+
+func writeHostCompatibilityFakeVela(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, `#!/bin/sh
+project=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project) shift; project="$1" ;;
+  esac
+  shift
+done
+if [ -n "$project" ]; then
+  mkdir -p "$project/.vela"
+  printf 'fresh graph' > "$project/.vela/graph.db"
+fi
+exit 0
+`)
+}

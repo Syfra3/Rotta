@@ -2,6 +2,21 @@
 .vela/
 .openspec/
 openspec/
+
+# Rotta workflow runtime/lifecycle state.
+# Keep durable contracts/config in git, but do not track per-run evidence.
+.rotta/*
+!.rotta/quality-gates.yaml
+.rotta/state*
+.rotta/session*
+.rotta/tmp/
+.rotta/cache/
+.rotta/tdd-log.md
+reports/
+specs/.approved
+specs/.implementation-complete
+specs/approvals/
+
 build/
 dist/
 tmp/

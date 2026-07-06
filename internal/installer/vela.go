@@ -55,7 +55,18 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 	}
 
 	if opts.SetupAncora {
-		if opts.Target == "opencode" || opts.Target == "both" {
+		if opts.Target == "all" {
+			claudeDir := filepath.Join(home, ".claude")
+			if err := runVelaInstall(opts, binPath, projectPath, "claude", claudeDir); err != nil {
+				return nil, fmt.Errorf("vela install claude: %w", err)
+			}
+			result.addFiles(
+				filepath.Join(projectPath, ".vela", "graph.db"),
+				filepath.Join(claudeDir, "vela-mcp.json"),
+				filepath.Join(claudeDir, "vela-instructions.md"),
+			)
+		}
+		if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
 			opencodeDir := filepath.Join(home, ".config", "opencode")
 			if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
 				return nil, fmt.Errorf("vela install opencode: %w", err)
@@ -74,7 +85,7 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 		return result, nil
 	}
 
-	if opts.Target == "claude-code" || opts.Target == "both" {
+	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
 		claudeDir := filepath.Join(home, ".claude")
 		if err := runVelaInstall(opts, binPath, projectPath, "claude", claudeDir); err != nil {
 			return nil, fmt.Errorf("vela install claude: %w", err)
@@ -86,7 +97,7 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 		)
 	}
 
-	if opts.Target == "opencode" || opts.Target == "both" {
+	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
 		opencodeDir := filepath.Join(home, ".config", "opencode")
 		if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
 			return nil, fmt.Errorf("vela install opencode: %w", err)
