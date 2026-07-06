@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/Syfra3/Rotta/compare/v1.6.0...v1.6.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **workflow:** enforce clean TDD task boundaries ([a3459bc](https://github.com/Syfra3/Rotta/commit/a3459bc5ca84341a8bec2431b012d83a6773fe88))
+
 ## [1.6.0](https://github.com/Syfra3/Rotta/compare/v1.5.0...v1.6.0) (2026-07-06)
 
 
