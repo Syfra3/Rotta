@@ -7,12 +7,16 @@ openspec/
 # Keep durable contracts/config in git, but do not track per-run evidence.
 .rotta/*
 !.rotta/quality-gates.yaml
+!.rotta/critical-path-coverage.json
 .rotta/state*
 .rotta/session*
 .rotta/tmp/
 .rotta/cache/
 .rotta/tdd-log.md
 reports/
+critical-path-branch-coverage.json
+critical-path.out
+phase4-changed.out
 # go-mutesting writes this per-run report at the repository root.
 report.json
 specs/.approved

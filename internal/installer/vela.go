@@ -22,94 +22,93 @@ type VelaResult struct {
 // SetupVela detects or installs Vela, initializes the project graph, and sets
 // up agent MCP integration when Vela is the standalone graph surface.
 func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
-	result := &VelaResult{}
-
-	binPath, err := detectVelaBin()
+	binPath, installed, err := resolveVelaBin(opts)
 	if err != nil {
-		if installErr := installVela(opts); installErr != nil {
-			return nil, fmt.Errorf(
-				"vela not found and installation failed: %w\n\n"+
-					"Install manually:\n"+
-					"  brew tap Syfra3/tap && brew install vela\n"+
-					"  # or build from source: https://github.com/Syfra3/vela\n\n"+
-					"Then rerun rotta setup or run: vela install --project <project>",
-				installErr,
-			)
-		}
-		result.Installed = true
-		binPath, _ = detectVelaBin()
-		if binPath == "" {
-			binPath = "/opt/homebrew/bin/vela"
-		}
-	} else {
-		if err := upgradeVela(opts, binPath); err != nil {
-			return nil, fmt.Errorf("refresh homebrew vela: %w", err)
-		}
-		if upgradedBinPath, detectErr := detectVelaBin(); detectErr == nil && upgradedBinPath != "" {
-			binPath = upgradedBinPath
-		}
+		return nil, err
 	}
-	result.BinPath = binPath
+	result := &VelaResult{BinPath: binPath, Installed: installed}
 	if err := runVelaClusteringInstallIfConfigured(opts, binPath, projectPath); err != nil {
 		return nil, err
 	}
+	return configureVelaHosts(opts, result, home, projectPath)
+}
 
+func resolveVelaBin(opts Options) (string, bool, error) {
+	binPath, err := detectVelaBin()
+	if err == nil {
+		return refreshedVelaBin(opts, binPath)
+	}
+	if err := installVela(opts); err != nil {
+		return "", false, fmt.Errorf("vela not found and installation failed: %w\n\nInstall manually:\n  brew tap Syfra3/tap && brew install vela\n  # or build from source: https://github.com/Syfra3/vela\n\nThen rerun rotta setup or run: vela install --project <project>", err)
+	}
+	binPath, _ = detectVelaBin()
+	if binPath == "" {
+		binPath = "/opt/homebrew/bin/vela"
+	}
+	return binPath, true, nil
+}
+
+func refreshedVelaBin(opts Options, binPath string) (string, bool, error) {
+	if err := upgradeVela(opts, binPath); err != nil {
+		return "", false, fmt.Errorf("refresh homebrew vela: %w", err)
+	}
+	if upgraded, err := detectVelaBin(); err == nil && upgraded != "" {
+		binPath = upgraded
+	}
+	return binPath, false, nil
+}
+
+func configureVelaHosts(opts Options, result *VelaResult, home, projectPath string) (*VelaResult, error) {
 	if opts.SetupAncora {
-		if opts.Target == "all" {
-			claudeDir := filepath.Join(home, ".claude")
-			if err := runVelaInstall(opts, binPath, projectPath, "claude", claudeDir); err != nil {
-				return nil, fmt.Errorf("vela install claude: %w", err)
-			}
-			result.addFiles(
-				filepath.Join(projectPath, ".vela", "graph.db"),
-				filepath.Join(claudeDir, "vela-mcp.json"),
-				filepath.Join(claudeDir, "vela-instructions.md"),
-			)
-		}
-		if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
-			opencodeDir := filepath.Join(home, ".config", "opencode")
-			if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
-				return nil, fmt.Errorf("vela install opencode: %w", err)
-			}
-			result.addFiles(
-				filepath.Join(projectPath, ".vela", "graph.db"),
-				filepath.Join(opencodeDir, "opencode.json"),
-				filepath.Join(opencodeDir, "instructions.md"),
-			)
-		} else {
-			if err := runVelaInstall(opts, binPath, projectPath, "", ""); err != nil {
-				return nil, fmt.Errorf("initialize vela project graph: %w", err)
-			}
-			result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
-		}
-		return result, nil
+		return configureVelaWithAncora(opts, result, home, projectPath)
 	}
-
-	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
-		claudeDir := filepath.Join(home, ".claude")
-		if err := runVelaInstall(opts, binPath, projectPath, "claude", claudeDir); err != nil {
-			return nil, fmt.Errorf("vela install claude: %w", err)
+	if includesClaude(opts.Target) {
+		if err := installVelaForHost(opts, result, projectPath, "claude", filepath.Join(home, ".claude")); err != nil {
+			return nil, err
 		}
-		result.addFiles(
-			filepath.Join(projectPath, ".vela", "graph.db"),
-			filepath.Join(claudeDir, "vela-mcp.json"),
-			filepath.Join(claudeDir, "vela-instructions.md"),
-		)
 	}
-
-	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
-		opencodeDir := filepath.Join(home, ".config", "opencode")
-		if err := runVelaInstall(opts, binPath, projectPath, "opencode", opencodeDir); err != nil {
-			return nil, fmt.Errorf("vela install opencode: %w", err)
+	if includesOpenCode(opts.Target) {
+		if err := installVelaForHost(opts, result, projectPath, "opencode", filepath.Join(home, ".config", "opencode")); err != nil {
+			return nil, err
 		}
-		result.addFiles(
-			filepath.Join(projectPath, ".vela", "graph.db"),
-			filepath.Join(opencodeDir, "opencode.json"),
-			filepath.Join(opencodeDir, "instructions.md"),
-		)
 	}
-
 	return result, nil
+}
+
+func configureVelaWithAncora(opts Options, result *VelaResult, home, projectPath string) (*VelaResult, error) {
+	if opts.Target == "all" {
+		if err := installVelaForHost(opts, result, projectPath, "claude", filepath.Join(home, ".claude")); err != nil {
+			return nil, err
+		}
+	}
+	if includesOpenCode(opts.Target) {
+		return result, installVelaForHost(opts, result, projectPath, "opencode", filepath.Join(home, ".config", "opencode"))
+	}
+	if err := runVelaInstall(opts, result.BinPath, projectPath, "", ""); err != nil {
+		return nil, fmt.Errorf("initialize vela project graph: %w", err)
+	}
+	result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
+	return result, nil
+}
+
+func includesClaude(target string) bool {
+	return target == "claude-code" || target == "both" || target == "all"
+}
+func includesOpenCode(target string) bool {
+	return target == "opencode" || target == "both" || target == "all"
+}
+
+func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, configDir string) error {
+	if err := runVelaInstall(opts, result.BinPath, projectPath, agent, configDir); err != nil {
+		return fmt.Errorf("vela install %s: %w", agent, err)
+	}
+	result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
+	if agent == "claude" {
+		result.addFiles(filepath.Join(configDir, "vela-mcp.json"), filepath.Join(configDir, "vela-instructions.md"))
+		return nil
+	}
+	result.addFiles(filepath.Join(configDir, "opencode.json"), filepath.Join(configDir, "instructions.md"))
+	return nil
 }
 
 // detectVelaBin finds the vela binary via PATH or common install locations.
@@ -213,7 +212,16 @@ func runVelaInstall(opts Options, binPath, projectPath, agent, configDir string)
 }
 
 func runCommand(opts Options, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	var cmd *exec.Cmd
+	switch filepath.Base(name) {
+	case "brew":
+		cmd = exec.Command("brew")
+	case "vela":
+		cmd = exec.Command("vela")
+	default:
+		return fmt.Errorf("unsupported executable %q", name)
+	}
+	cmd.Args = append(cmd.Args, args...)
 	configureCommandIO(cmd, opts)
 	return cmd.Run()
 }

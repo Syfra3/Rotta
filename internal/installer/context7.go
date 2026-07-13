@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 )
 
 const context7ServerName = "context7"
+
+var context7CommandArgs = []string{"-y", "@upstash/context7-mcp"}
 
 var context7HealthTimeout = 5 * time.Second
 
@@ -153,78 +156,40 @@ func writeOpenCodeContext7MCP(path string, server Context7MCPServer) error {
 }
 
 func writeClaudeContext7MCP(path string, server Context7MCPServer) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("cannot create Claude MCP dir: %w", err)
 	}
 	data, err := json.MarshalIndent(server, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal Context7 Claude MCP: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	return writePrivateFile(path, data, 0o600)
 }
 
 func CheckContext7Health(server Context7MCPServer) Context7HealthResult {
 	result := Context7HealthResult{Command: server.Command, Args: append([]string(nil), server.Args...), Transport: server.Type}
-	if _, err := exec.LookPath(server.Command); err != nil {
-		result.Category = Context7FailureCommandUnavailable
-		result.Message = err.Error()
+	if err := validateContext7HealthCommand(server); err != nil {
+		setContext7HealthFailure(&result, Context7FailureCommandUnavailable, err)
 		return result
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), context7HealthTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
-	stdin, err := cmd.StdinPipe()
+	process, err := startContext7HealthProcess(ctx, server)
 	if err != nil {
-		result.Category = Context7FailureStartup
-		result.Message = err.Error()
+		setContext7HealthFailure(&result, Context7FailureStartup, err)
 		return result
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		result.Category = Context7FailureStartup
-		result.Message = err.Error()
-		return result
-	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		result.Category = Context7FailureStartup
-		result.Message = err.Error()
-		return result
-	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-
-	reader := bufio.NewReader(stdout)
-	if err := writeJSONRPC(stdin, map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]interface{}{"protocolVersion": "2024-11-05", "capabilities": map[string]interface{}{}, "clientInfo": map[string]interface{}{"name": "rotta", "version": "dev"}}}); err != nil {
-		result.Category = Context7FailureStartup
-		result.Message = err.Error()
-		return result
-	}
-	initResp, err := readJSONRPC(ctx, reader)
-	if err != nil {
-		result.Category = categoryForReadError(ctx, Context7FailureStartup)
-		result.Message = err.Error()
-		return result
-	}
-	if _, failed := initResp["error"]; failed {
-		result.Category = Context7FailureInitialization
-		result.Message = fmt.Sprint(initResp["error"])
+	defer process.close()
+	if category, err := initializeContext7(ctx, process); err != nil {
+		setContext7HealthFailure(&result, category, err)
 		return result
 	}
 	result.Initialized = true
-	_ = writeJSONRPC(stdin, map[string]interface{}{"jsonrpc": "2.0", "method": "notifications/initialized"})
-	if err := writeJSONRPC(stdin, map[string]interface{}{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]interface{}{}}); err != nil {
-		result.Category = Context7FailureToolDiscovery
-		result.Message = err.Error()
-		return result
-	}
-	toolsResp, err := readJSONRPC(ctx, reader)
+	tools, err := discoverContext7Tools(ctx, process)
 	if err != nil {
-		result.Category = categoryForReadError(ctx, Context7FailureToolDiscovery)
-		result.Message = err.Error()
+		setContext7HealthFailure(&result, categoryForReadError(ctx, Context7FailureToolDiscovery), err)
 		return result
 	}
-	tools := extractToolNames(toolsResp)
 	result.Tools = tools
 	if !hasContext7Tools(tools) {
 		result.Category = Context7FailureToolDiscovery
@@ -234,6 +199,90 @@ func CheckContext7Health(server Context7MCPServer) Context7HealthResult {
 	result.ToolsDiscovered = true
 	result.OK = true
 	return result
+}
+
+func validateContext7HealthCommand(server Context7MCPServer) error {
+	if server.Command != "npx" || !sameArguments(server.Args, context7CommandArgs) {
+		return fmt.Errorf("Context7 health checks require the managed npx @upstash/context7-mcp command")
+	}
+	_, err := exec.LookPath(server.Command)
+	return err
+}
+
+type context7HealthProcess struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	reader *bufio.Reader
+}
+
+func startContext7HealthProcess(ctx context.Context, server Context7MCPServer) (context7HealthProcess, error) {
+	cmd := exec.CommandContext(ctx, "npx")
+	cmd.Args = append(cmd.Args, server.Args...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return context7HealthProcess{}, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return context7HealthProcess{}, err
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return context7HealthProcess{}, err
+	}
+	return context7HealthProcess{cmd: cmd, stdin: stdin, reader: bufio.NewReader(stdout)}, nil
+}
+
+func (process context7HealthProcess) close() {
+	_ = process.cmd.Process.Kill()
+	_ = process.cmd.Wait()
+}
+
+func initializeContext7(ctx context.Context, process context7HealthProcess) (Context7FailureCategory, error) {
+	if err := writeJSONRPC(process.stdin, context7InitializeRequest()); err != nil {
+		return Context7FailureStartup, err
+	}
+	initResp, err := readJSONRPC(ctx, process.reader)
+	if err != nil {
+		return categoryForReadError(ctx, Context7FailureStartup), err
+	}
+	if _, failed := initResp["error"]; failed {
+		return Context7FailureInitialization, fmt.Errorf("%v", initResp["error"])
+	}
+	_ = writeJSONRPC(process.stdin, map[string]interface{}{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	return Context7FailureNone, nil
+}
+
+func context7InitializeRequest() map[string]interface{} {
+	return map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]interface{}{"protocolVersion": "2024-11-05", "capabilities": map[string]interface{}{}, "clientInfo": map[string]interface{}{"name": "rotta", "version": "dev"}}}
+}
+
+func discoverContext7Tools(ctx context.Context, process context7HealthProcess) ([]string, error) {
+	if err := writeJSONRPC(process.stdin, map[string]interface{}{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]interface{}{}}); err != nil {
+		return nil, err
+	}
+	toolsResp, err := readJSONRPC(ctx, process.reader)
+	if err != nil {
+		return nil, err
+	}
+	return extractToolNames(toolsResp), nil
+}
+
+func setContext7HealthFailure(result *Context7HealthResult, category Context7FailureCategory, err error) {
+	result.Category = category
+	result.Message = err.Error()
+}
+
+func sameArguments(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func writeJSONRPC(stdin interface{ Write([]byte) (int, error) }, msg map[string]interface{}) error {
