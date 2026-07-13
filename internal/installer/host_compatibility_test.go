@@ -1061,6 +1061,19 @@ func TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback(t *t
 	})
 }
 
+func TestSCN222_FailedHostCannotReportConfiguredSelectedMCP(t *testing.T) {
+	// REQ-014, REQ-011, REQ-012, REQ-013 → SCN-222 → TestSCN222_FailedHostCannotReportConfiguredSelectedMCP
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	status := mcpStatusResult(HostInstallResult{
+		Host:   "opencode",
+		Status: HostInstallStatusFailed,
+	}, "mcp:ancora")
+
+	if status.Status == MCPStatusConfigured {
+		t.Fatalf("expected failed selected host to prevent configured/healthy MCP status, got %#v", status)
+	}
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure
