@@ -76,6 +76,13 @@ func memoryInstructions(enabled bool) string {
 - After phase transitions, bug fixes, decisions, or non-obvious discoveries, save a compact pointer/status record with ` + "`ancora_save`" + `.
 - State Index per Cycle (not the full log): save only fields such as ` + "`log_file: .rotta/tdd-log.md`" + `, ` + "`completed_scenarios:`" + `, ` + "`last_scenario:`" + `, ` + "`last_test:`" + `, ` + "`status: green`" + `, and ` + "`files_changed:`" + `.
 - Do not store full hard specs, feature files, TDD logs, or review reports in Ancora; store paths and concise status only.
+
+### Ancora Fallback
+
+- Treat a missing or unavailable Ancora tool, when Ancora times out, permission is denied, Ancora cannot recover workflow state, Ancora cannot save workflow state, or any case where Ancora cannot otherwise be used as an Ancora degradation, not a workflow failure.
+- Continue from workspace and installed-system OpenSpec workflow artifacts as the durable source of truth and state: applicable ` + "`specs/`" + `, ` + "`features/`" + `, ` + "`.rotta/`" + `, reports, approval markers, and workflow configuration.
+- Do not fabricate recovered state, reconstruct authoritative content from Ancora, overwrite reviewed workspace artifacts from memory, and do not block workflow progress while the artifacts are available.
+- Explicitly report the active Ancora fallback state, failure category, and a safe retry or recovery action; retry future pointer/state operations only after Ancora is available again.
 `
 	}
 	return `### Ancora Memory Disabled
