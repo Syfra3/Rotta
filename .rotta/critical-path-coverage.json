@@ -1,0 +1,26 @@
+{
+  "metric": "Source-instrumented branch-outcome coverage for critical-path decision functions",
+  "minimum_branch_coverage": 95,
+  "minimum_statement_coverage": 95,
+  "branch_definition": "Each if condition contributes true and false outcomes; each switch case (including default) contributes its taken outcome. The command rewrites only a temporary copy of the selected source, records outcomes while its package tests execute, and fails below the configured threshold.",
+  "functions": [
+    "internal/installer/instructions.go:integrationInstructions",
+    "internal/installer/instructions.go:memoryInstructions",
+    "internal/installer/instructions.go:velaInstructions",
+    "internal/installer/instructions.go:context7Instructions",
+    "internal/installer/installer_support.go:mcpStatusResult",
+    "internal/installer/installer_support.go:statusForCapability",
+    "internal/tui/mcp_status_view.go:writeMCPStatuses",
+    "internal/tui/mcp_status_view.go:writeHostMCPStatuses"
+  ],
+  "tests": [
+    "TestSCN218_GeneratedHostRulesDescribeAncoraArtifactFallback",
+    "TestSCN219_GeneratedHostRulesPreserveWorkflowGatesDuringAncoraFallback",
+    "TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration",
+    "TestSCN221_GeneratedHostRulesDescribeContext7Degradation",
+    "TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback",
+    "TestSCN222_SelectedMCPStatusMapsEveryCapabilityOutcome",
+    "TestSCN222_ViewSuccessReportsMCPInstallStatusAndLaterRuntimeFallback",
+    "TestSCN222_ViewErrorRetainsFailedMCPStatus"
+  ]
+}
