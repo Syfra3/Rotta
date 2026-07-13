@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // AncoraResult describes what Ancora setup did.
@@ -26,7 +27,7 @@ func SetupAncora(opts Options, home string) (*AncoraResult, error) {
 		return nil, err
 	}
 	result := &AncoraResult{BinPath: binPath, Installed: installed}
-	if err := configureAncoraHosts(opts, binPath); err != nil {
+	if err := configureAncoraHosts(opts, binPath, home); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -47,13 +48,27 @@ func resolveAncoraBin(opts Options) (string, bool, error) {
 	return binPath, true, nil
 }
 
-func configureAncoraHosts(opts Options, binPath string) error {
+func configureAncoraHosts(opts Options, binPath, home string) error {
 	for _, host := range ancoraSetupHosts(opts.Target) {
 		if err := runAncoraSetup(opts, binPath, host); err != nil {
 			return fmt.Errorf("ancora setup %s: %w", host, err)
 		}
+		if err := serializeAncoraMCPCommand(home, host); err != nil {
+			return fmt.Errorf("serialize Ancora MCP command for %s: %w", host, err)
+		}
 	}
 	return nil
+}
+
+func serializeAncoraMCPCommand(home, host string) error {
+	switch host {
+	case "claude-code":
+		return serializeManagedMCPCommand(filepath.Join(home, ".claude", "mcp", "ancora.json"), "", "ancora")
+	case "opencode":
+		return serializeManagedMCPCommand(filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora", "ancora")
+	default:
+		return fmt.Errorf("unsupported Ancora setup target %q", host)
+	}
 }
 
 func ancoraSetupHosts(target string) []string {

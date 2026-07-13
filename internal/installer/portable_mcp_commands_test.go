@@ -1,0 +1,92 @@
+package installer
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestSCN223_SerializesManagedMCPExecutablesAsBareCommands(t *testing.T) {
+	// REQ-015 → SCN-223 → TestSCN223_SerializesManagedMCPExecutablesAsBareCommands
+	// Scenario: Serialize a managed MCP executable as a bare command
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+
+	writeExecutable(t, filepath.Join(bin, "ancora"), `#!/bin/sh
+case "$2" in
+  claude-code) mkdir -p "$HOME/.claude/mcp"; printf '{"command":"/opt/homebrew/Cellar/ancora/1.2.3/bin/ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json" ;;
+  opencode) mkdir -p "$HOME/.config/opencode"; printf '{"mcp":{"ancora":{"command":"/opt/homebrew/Cellar/ancora/1.2.3/bin/ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc" ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(bin, "vela"), `#!/bin/sh
+agent=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in --agent) shift; agent="$1" ;; esac
+  shift
+done
+case "$agent" in
+  claude) mkdir -p "$HOME/.claude"; printf '{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela","args":["mcp"]}' > "$HOME/.claude/vela-mcp.json" ;;
+  opencode) mkdir -p "$HOME/.config/opencode"; printf '{"mcp":{"vela":{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.json" ;;
+esac
+`)
+
+	if _, err := SetupAncora(Options{Target: "both"}, home); err != nil {
+		t.Fatalf("setup Ancora: %v", err)
+	}
+	project := t.TempDir()
+	if _, err := SetupVela(Options{Target: "both"}, home, project); err != nil {
+		t.Fatalf("setup Vela: %v", err)
+	}
+	context7 := Context7ServerConfig()
+	if err := writeOpenCodeContext7MCP(filepath.Join(home, ".config", "opencode", "context7.json"), context7); err != nil {
+		t.Fatalf("write Context7 OpenCode MCP: %v", err)
+	}
+	if err := writeClaudeContext7MCP(filepath.Join(home, ".claude", "mcp", "context7.json"), context7); err != nil {
+		t.Fatalf("write Context7 Claude MCP: %v", err)
+	}
+
+	for path, want := range map[string]struct{ command, resolved, server string }{
+		filepath.Join(home, ".claude", "mcp", "ancora.json"):         {"ancora", "/opt/homebrew/Cellar/ancora/1.2.3/bin/ancora", ""},
+		filepath.Join(home, ".config", "opencode", "opencode.jsonc"): {"ancora", "/opt/homebrew/Cellar/ancora/1.2.3/bin/ancora", "ancora"},
+		filepath.Join(home, ".claude", "vela-mcp.json"):              {"vela", "/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela", ""},
+		filepath.Join(home, ".config", "opencode", "opencode.json"):  {"vela", "/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela", "vela"},
+		filepath.Join(home, ".config", "opencode", "context7.json"):  {"npx", "/home/user/.local/bin/npx", "context7"},
+		filepath.Join(home, ".claude", "mcp", "context7.json"):       {"npx", "/home/user/.local/bin/npx", ""},
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if got := serializedMCPCommand(t, data, want.server); got != want.command {
+			t.Errorf("expected %s to serialize bare %q command, got %q", path, want.command, got)
+		}
+		if strings.Contains(string(data), want.resolved) {
+			t.Errorf("expected %s not to serialize an executable path, got %s", path, data)
+		}
+	}
+}
+
+func serializedMCPCommand(t *testing.T, data []byte, server string) string {
+	t.Helper()
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("decode MCP config: %v", err)
+	}
+	if server != "" {
+		mcp, _ := config["mcp"].(map[string]interface{})
+		config, _ = mcp[server].(map[string]interface{})
+	}
+	if command, ok := config["command"].(string); ok {
+		return command
+	}
+	command, _ := config["command"].([]interface{})
+	if len(command) == 0 {
+		return ""
+	}
+	value, _ := command[0].(string)
+	return value
+}

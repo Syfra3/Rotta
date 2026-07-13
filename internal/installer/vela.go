@@ -102,6 +102,9 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	if err := runVelaInstall(opts, result.BinPath, projectPath, agent, configDir); err != nil {
 		return fmt.Errorf("vela install %s: %w", agent, err)
 	}
+	if err := serializeVelaMCPCommand(agent, configDir); err != nil {
+		return fmt.Errorf("serialize Vela MCP command for %s: %w", agent, err)
+	}
 	result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
 	if agent == "claude" {
 		result.addFiles(filepath.Join(configDir, "vela-mcp.json"), filepath.Join(configDir, "vela-instructions.md"))
@@ -109,6 +112,17 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	}
 	result.addFiles(filepath.Join(configDir, "opencode.json"), filepath.Join(configDir, "instructions.md"))
 	return nil
+}
+
+func serializeVelaMCPCommand(agent, configDir string) error {
+	switch agent {
+	case "claude":
+		return serializeManagedMCPCommand(filepath.Join(configDir, "vela-mcp.json"), "", "vela")
+	case "opencode":
+		return serializeManagedMCPCommand(filepath.Join(configDir, "opencode.json"), "vela", "vela")
+	default:
+		return fmt.Errorf("unsupported Vela setup target %q", agent)
+	}
 }
 
 // detectVelaBin finds the vela binary via PATH or common install locations.
