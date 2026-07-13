@@ -9,17 +9,24 @@ import (
 // serializeManagedMCPCommand replaces a command emitted by a Rotta-managed
 // setup flow with the portable executable name Rotta owns for that server.
 func serializeManagedMCPCommand(path, server, command string) error {
+	_, err := normalizeManagedMCPCommand(path, server, command)
+	return err
+}
+
+// normalizeManagedMCPCommand replaces a stale command and reports whether its
+// managed MCP command field changed.
+func normalizeManagedMCPCommand(path, server, command string) (bool, error) {
 	data, err := readPrivateFile(path)
 	if os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("parse managed MCP config: %w", err)
+		return false, fmt.Errorf("parse managed MCP config: %w", err)
 	}
 	entry := config
 	if server != "" {
@@ -27,14 +34,17 @@ func serializeManagedMCPCommand(path, server, command string) error {
 		entry, _ = mcp[server].(map[string]interface{})
 	}
 	if entry == nil || !replaceManagedMCPCommand(entry, command) {
-		return nil
+		return false, nil
 	}
 
 	data, err = json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal managed MCP config: %w", err)
+		return false, fmt.Errorf("marshal managed MCP config: %w", err)
 	}
-	return writePrivateFile(path, data, 0o600)
+	if err := writePrivateFile(path, data, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func replaceManagedMCPCommand(entry map[string]interface{}, command string) bool {

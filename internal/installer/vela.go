@@ -14,9 +14,10 @@ const (
 
 // VelaResult describes what Vela setup did.
 type VelaResult struct {
-	BinPath   string
-	Installed bool // true if we ran brew install
-	Files     []string
+	BinPath              string
+	Installed            bool // true if we ran brew install
+	Files                []string
+	NormalizedMCPEntries []string
 }
 
 // SetupVela detects or installs Vela, initializes the project graph, and sets
@@ -102,8 +103,12 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	if err := runVelaInstall(opts, result.BinPath, projectPath, agent, configDir); err != nil {
 		return fmt.Errorf("vela install %s: %w", agent, err)
 	}
-	if err := serializeVelaMCPCommand(agent, configDir); err != nil {
+	normalized, err := serializeVelaMCPCommand(agent, configDir)
+	if err != nil {
 		return fmt.Errorf("serialize Vela MCP command for %s: %w", agent, err)
+	}
+	if normalized {
+		result.NormalizedMCPEntries = append(result.NormalizedMCPEntries, velaMCPConfigPath(agent, configDir))
 	}
 	result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
 	if agent == "claude" {
@@ -114,15 +119,22 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	return nil
 }
 
-func serializeVelaMCPCommand(agent, configDir string) error {
+func serializeVelaMCPCommand(agent, configDir string) (bool, error) {
 	switch agent {
 	case "claude":
-		return serializeManagedMCPCommand(filepath.Join(configDir, "vela-mcp.json"), "", "vela")
+		return normalizeManagedMCPCommand(velaMCPConfigPath(agent, configDir), "", "vela")
 	case "opencode":
-		return serializeManagedMCPCommand(filepath.Join(configDir, "opencode.json"), "vela", "vela")
+		return normalizeManagedMCPCommand(velaMCPConfigPath(agent, configDir), "vela", "vela")
 	default:
-		return fmt.Errorf("unsupported Vela setup target %q", agent)
+		return false, fmt.Errorf("unsupported Vela setup target %q", agent)
 	}
+}
+
+func velaMCPConfigPath(agent, configDir string) string {
+	if agent == "claude" {
+		return filepath.Join(configDir, "vela-mcp.json")
+	}
+	return filepath.Join(configDir, "opencode.json")
 }
 
 // detectVelaBin finds the vela binary via PATH or common install locations.
