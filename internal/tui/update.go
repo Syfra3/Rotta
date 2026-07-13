@@ -57,35 +57,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch m.Screen {
-	case ScreenWelcome:
-		return m.updateWelcome(msg)
-	case ScreenTargetSelect:
-		return m.updateTargetSelect(msg)
-	case ScreenProjectPath:
-		return m.updateProjectPath(msg)
-	case ScreenModeSelect:
-		return m.updateModeSelect(msg)
-	case ScreenQualityGates:
-		return m.updateQualityGates(msg)
-	case ScreenAncora:
-		return m.updateAncora(msg)
-	case ScreenVela:
-		return m.updateVela(msg)
-	case ScreenContext7:
-		return m.updateContext7(msg)
-	case ScreenConfirm:
-		return m.updateConfirm(msg)
-	case ScreenSuccess, ScreenError:
-		return m.updateDone(msg)
-	case ScreenRecoveryList:
-		return m.updateRecoveryList(msg)
-	case ScreenRecoveryPreview:
-		return m.updateRecoveryPreview(msg)
-	case ScreenRecoveryConfirm:
-		return m.updateRecoveryConfirm(msg)
+	if handler, ok := m.keyHandler(); ok {
+		return handler(msg)
 	}
 	return m, nil
+}
+
+func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
+	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
+		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
+		ScreenModeSelect: m.updateModeSelect, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
+		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
+		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
+		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
+	}
+	handler, ok := handlers[m.Screen]
+	return handler, ok
 }
 
 func (m Model) updateWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
