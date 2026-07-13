@@ -135,6 +135,27 @@ func TestSCN013_NamespacedWorkflowPolicyArtifactsRejectEitherLegacyPathCollision
 	}
 }
 
+func TestSCN013_NamespacedWorkflowPolicyArtifactsStopAtRequiredWriteFailures(t *testing.T) {
+	// REQ-011 → REQ-020 → SCN-013 → TestSCN013_NamespacedWorkflowPolicyArtifactsStopAtRequiredWriteFailures
+	// Scenario: Namespaced workflow-policy artifacts do not overwrite an existing active contract
+	t.Run("requires a contract id", func(t *testing.T) {
+		_, err := GenerateNamespacedWorkflowPolicyArtifacts(t.TempDir(), WorkflowPolicyArtifactRequest{})
+		if err == nil || !strings.Contains(err.Error(), "contract id is required") {
+			t.Fatalf("expected missing contract id error, got %v", err)
+		}
+	})
+
+	t.Run("does not continue when the hard spec cannot be written", func(t *testing.T) {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "specs"), "not a directory\n")
+		_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{ContractID: "workflow_artifact_lifecycle", HardSpec: "# hard spec\n", Feature: "Feature: artifact lifecycle\n"})
+		if err == nil || !strings.Contains(err.Error(), "create workflow artifact parent") {
+			t.Fatalf("expected hard-spec write failure, got %v", err)
+		}
+		assertFileDoesNotExist(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"))
+	})
+}
+
 func TestSCN014_ImplementedFeatureFileClassifiesAsActiveRegressionContract(t *testing.T) {
 	// REQ-012 → REQ-016 → SCN-014 → TestSCN014_ImplementedFeatureFileClassifiesAsActiveRegressionContract
 	// Scenario: Implemented feature files remain active regression contracts

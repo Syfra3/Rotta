@@ -670,6 +670,161 @@ func TestSCN032_StopsWhenFinalStateWriteFails(t *testing.T) {
 	}
 }
 
+func TestSCN025_PreparationUsesRequestedRepositoryAndVerifiesEveryArtifact(t *testing.T) {
+	// REQ-021 → SCN-025 → TestSCN025_PreparationUsesRequestedRepositoryAndVerifiesEveryArtifact
+	// Scenario: Start autonomous Phase 3 in a new clean isolated feature worktree
+	t.Run("creates the requested branch in the requested repository", func(t *testing.T) {
+		repo := checkpointTestRepository(t)
+		mustWrite(t, filepath.Join(repo, "specs", "unique-contract.md"), "# contract\n")
+		mustWrite(t, filepath.Join(repo, "features", "unique-contract.feature"), "Feature: unique contract\n")
+		runGit(t, repo, "add", "specs/unique-contract.md", "features/unique-contract.feature")
+		runGit(t, repo, "commit", "-m", "test: add unique contract")
+
+		worktreePath := filepath.Join(t.TempDir(), "requested-worktree")
+		branch := "feat/requested-worktree"
+		_, err := PrepareAutonomousPhase3Worktree(repo, AutonomousPhase3WorktreeRequest{
+			Scope:  ContractScope{SpecPath: "specs/unique-contract.md", FeaturePath: "features/unique-contract.feature", ScenarioID: "SCN-025"},
+			Branch: branch, WorktreePath: worktreePath,
+		})
+		if err != nil {
+			t.Fatalf("PrepareAutonomousPhase3Worktree returned error: %v", err)
+		}
+		if !strings.Contains(gitOutput(t, repo, "branch", "--list", branch), branch) {
+			t.Fatalf("expected requested branch %q in requested repository", branch)
+		}
+		if !strings.Contains(gitOutput(t, repo, "worktree", "list", "--porcelain"), "worktree "+worktreePath) {
+			t.Fatalf("expected requested worktree %q in requested repository", worktreePath)
+		}
+	})
+
+	t.Run("rejects a missing second contract artifact", func(t *testing.T) {
+		repo := checkpointTestRepository(t)
+		mustWrite(t, filepath.Join(repo, "specs", "present-contract.md"), "# contract\n")
+		runGit(t, repo, "add", "specs/present-contract.md")
+		runGit(t, repo, "commit", "-m", "test: add only spec")
+
+		_, err := PrepareAutonomousPhase3Worktree(repo, AutonomousPhase3WorktreeRequest{
+			Scope:  ContractScope{SpecPath: "specs/present-contract.md", FeaturePath: "features/missing-contract.feature", ScenarioID: "SCN-025"},
+			Branch: "feat/missing-contract", WorktreePath: filepath.Join(t.TempDir(), "missing-contract"),
+		})
+		if err == nil || !strings.Contains(err.Error(), "verify approved contract artifact features/missing-contract.feature") {
+			t.Fatalf("expected missing feature artifact to halt preparation, got %v", err)
+		}
+	})
+}
+
+func TestSCN030_CheckpointPreservesRepositoryAndStateWriteFailures(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_CheckpointPreservesRepositoryAndStateWriteFailures
+	// Scenario: Do not advance when validation or local commit creation fails
+	t.Run("stops when tracked-change inspection fails", func(t *testing.T) {
+		repo := checkpointTestRepository(t)
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+		runGit(t, repo, "add", "checkpoint.go")
+		runGit(t, repo, "commit", "-m", "test: checkpoint baseline")
+
+		gitPath, err := exec.LookPath("git")
+		if err != nil {
+			t.Fatalf("locate git executable: %v", err)
+		}
+		wrapperDir := t.TempDir()
+		mustWrite(t, filepath.Join(wrapperDir, "git"), fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf 'forced tracked inspection failure\\n' >&2\n  exit 1\nfi\nexec %q \"$@\"\n", gitPath))
+		if err := os.Chmod(filepath.Join(wrapperDir, "git"), 0o755); err != nil {
+			t.Fatalf("make git wrapper executable: %v", err)
+		}
+		t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		_, err = CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{ScenarioID: "SCN-030", ExpectedPaths: []string{"checkpoint.go"}, TDDComplete: true, TestsPassed: true, ValidationPassed: true})
+		if err == nil || !strings.Contains(err.Error(), "inspect tracked scenario changes") {
+			t.Fatalf("expected tracked-change inspection failure, got %v", err)
+		}
+	})
+
+	t.Run("stops when the state file cannot be written", func(t *testing.T) {
+		repo := checkpointTestRepository(t)
+		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+		runGit(t, repo, "add", ".gitignore", "checkpoint.go")
+		runGit(t, repo, "commit", "-m", "test: checkpoint baseline")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+		if err := os.MkdirAll(filepath.Join(repo, ".rotta", "autonomous-phase3-state.json"), 0o755); err != nil {
+			t.Fatalf("create state-file directory: %v", err)
+		}
+
+		_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{ScenarioID: "SCN-030", ExpectedPaths: []string{"checkpoint.go"}, TDDComplete: true, TestsPassed: true, ValidationPassed: true})
+		if err == nil || !strings.Contains(err.Error(), "write autonomous Phase 3 workflow state") {
+			t.Fatalf("expected state-file write failure, got %v", err)
+		}
+	})
+}
+
+func TestSCN030_CheckpointRecordUsesTheScenarioRepositoryHead(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_CheckpointRecordUsesTheScenarioRepositoryHead
+	// Scenario: Do not advance when validation or local commit creation fails
+	repo := checkpointTestRepository(t)
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", ".gitignore", "checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: checkpoint baseline")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	record, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{ScenarioID: "SCN-030", ExpectedPaths: []string{"checkpoint.go"}, TDDComplete: true, TestsPassed: true, ValidationPassed: true})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error: %v", err)
+	}
+	if record.CommitID != gitOutput(t, repo, "rev-parse", "HEAD") {
+		t.Fatalf("expected checkpoint record to use requested repository HEAD, got %#v", record)
+	}
+}
+
+func TestSCN025_PreparationStopsForCreateAndBoundaryStatusFailures(t *testing.T) {
+	// REQ-021 → SCN-025 → TestSCN025_PreparationStopsForCreateAndBoundaryStatusFailures
+	// Scenario: Start autonomous Phase 3 in a new clean isolated feature worktree
+	t.Run("reports worktree creation failure", func(t *testing.T) {
+		repoRootFile := filepath.Join(t.TempDir(), "not-a-repository")
+		mustWrite(t, repoRootFile, "not a directory\n")
+		_, err := PrepareAutonomousPhase3Worktree(repoRootFile, AutonomousPhase3WorktreeRequest{Branch: "feat/no-repo", WorktreePath: filepath.Join(t.TempDir(), "worktree")})
+		if err == nil || !strings.Contains(err.Error(), "create isolated Phase 3 worktree") {
+			t.Fatalf("expected worktree creation failure, got %v", err)
+		}
+	})
+
+	t.Run("rejects a non-clean status result", func(t *testing.T) {
+		repo := checkpointTestRepository(t)
+		mustWrite(t, filepath.Join(repo, "specs", "clean-contract.md"), "# contract\n")
+		mustWrite(t, filepath.Join(repo, "features", "clean-contract.feature"), "Feature: clean contract\n")
+		runGit(t, repo, "add", "specs/clean-contract.md", "features/clean-contract.feature")
+		runGit(t, repo, "commit", "-m", "test: add clean contract")
+
+		gitPath, err := exec.LookPath("git")
+		if err != nil {
+			t.Fatalf("locate git executable: %v", err)
+		}
+		wrapperDir := t.TempDir()
+		mustWrite(t, filepath.Join(wrapperDir, "git"), fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"status\" ]; then\n  printf ' M unexpected.txt\\n'\n  exit 0\nfi\nexec %q \"$@\"\n", gitPath))
+		if err := os.Chmod(filepath.Join(wrapperDir, "git"), 0o755); err != nil {
+			t.Fatalf("make git wrapper executable: %v", err)
+		}
+		t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		_, err = PrepareAutonomousPhase3Worktree(repo, AutonomousPhase3WorktreeRequest{
+			Scope:  ContractScope{SpecPath: "specs/clean-contract.md", FeaturePath: "features/clean-contract.feature", ScenarioID: "SCN-025"},
+			Branch: "feat/dirty-status", WorktreePath: filepath.Join(t.TempDir(), "dirty-status"),
+		})
+		if err == nil || !strings.Contains(err.Error(), "isolated Phase 3 worktree has non-ignored changes") {
+			t.Fatalf("expected non-clean worktree status error, got %v", err)
+		}
+	})
+}
+
+func checkpointTestRepository(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	return repo
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
