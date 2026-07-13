@@ -512,6 +512,15 @@ func TestSCN030_ReportsCheckpointFailurePaths(t *testing.T) {
 	})
 }
 
+func TestSCN030_ValidatesCheckpointEvidence(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_ValidatesCheckpointEvidence
+	// Scenario: Do not advance when validation or local commit creation fails
+	valid := ScenarioCheckpointRequest{TDDComplete: true, TestsPassed: true, ValidationPassed: true}
+	if err := validateScenarioCheckpointEvidence(valid); err != nil {
+		t.Fatalf("expected valid checkpoint evidence, got %v", err)
+	}
+}
+
 func TestSCN030_ReportsCheckpointRevisionLookupFailure(t *testing.T) {
 	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_ReportsCheckpointRevisionLookupFailure
 	// Scenario: Do not advance when validation or local commit creation fails

@@ -83,14 +83,8 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 }
 
 func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointRequest) (ScenarioCheckpointRecord, error) {
-	if !request.TDDComplete {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("strict Red, Green, and Refactor evidence is required before checkpointing")
-	}
-	if !request.TestsPassed {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("required tests must pass before checkpointing")
-	}
-	if !request.ValidationPassed {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("active objective validation must pass before checkpointing")
+	if err := validateScenarioCheckpointEvidence(request); err != nil {
+		return ScenarioCheckpointRecord{}, err
 	}
 
 	untracked, err := untrackedNonIgnoredPaths(repoRoot)
@@ -111,29 +105,60 @@ func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointReque
 		}
 	}
 
-	add := exec.Command("git", append([]string{"add", "--"}, request.ExpectedPaths...)...)
-	add.Dir = repoRoot
-	if output, err := add.CombinedOutput(); err != nil {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("stage scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
+	if err := stageScenarioChanges(repoRoot, request.ExpectedPaths); err != nil {
+		return ScenarioCheckpointRecord{}, err
 	}
 
-	commit := exec.Command("git", "commit", "-m", "checkpoint: "+request.ScenarioID)
-	commit.Dir = repoRoot
-	if output, err := commit.CombinedOutput(); err != nil {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("create scenario checkpoint: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-
-	revision := exec.Command("git", "rev-parse", "HEAD")
-	revision.Dir = repoRoot
-	output, err := revision.CombinedOutput()
+	commitID, err := createScenarioCheckpointCommit(repoRoot, request.ScenarioID)
 	if err != nil {
-		return ScenarioCheckpointRecord{}, fmt.Errorf("read scenario checkpoint commit: %w: %s", err, strings.TrimSpace(string(output)))
+		return ScenarioCheckpointRecord{}, err
 	}
-	record := ScenarioCheckpointRecord{ScenarioID: request.ScenarioID, CommitID: strings.TrimSpace(string(output))}
+	record := ScenarioCheckpointRecord{ScenarioID: request.ScenarioID, CommitID: commitID}
 	if err := writeAutonomousPhase3WorkflowState(repoRoot, record); err != nil {
 		return ScenarioCheckpointRecord{}, err
 	}
 	return record, nil
+}
+
+func validateScenarioCheckpointEvidence(request ScenarioCheckpointRequest) error {
+	if !request.TDDComplete {
+		return fmt.Errorf("strict Red, Green, and Refactor evidence is required before checkpointing")
+	}
+	if !request.TestsPassed {
+		return fmt.Errorf("required tests must pass before checkpointing")
+	}
+	if !request.ValidationPassed {
+		return fmt.Errorf("active objective validation must pass before checkpointing")
+	}
+	return nil
+}
+
+func stageScenarioChanges(repoRoot string, paths []string) error {
+	add := exec.Command("git", append([]string{"add", "--"}, paths...)...)
+	add.Dir = repoRoot
+	if output, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("stage scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func createScenarioCheckpointCommit(repoRoot, scenarioID string) (string, error) {
+	commit := exec.Command("git", "commit", "-m", "checkpoint: "+scenarioID)
+	commit.Dir = repoRoot
+	if output, err := commit.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("create scenario checkpoint: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return scenarioCheckpointCommitID(repoRoot)
+}
+
+func scenarioCheckpointCommitID(repoRoot string) (string, error) {
+	revision := exec.Command("git", "rev-parse", "HEAD")
+	revision.Dir = repoRoot
+	output, err := revision.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("read scenario checkpoint commit: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func untrackedNonIgnoredPaths(repoRoot string) ([]string, error) {
