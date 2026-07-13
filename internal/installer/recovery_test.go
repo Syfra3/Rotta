@@ -3,6 +3,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,21 @@ func TestSCN001_InstallCreatesTimestampedBackupBeforeMutation(t *testing.T) {
 	}
 
 	assertBackupCreatedBeforeMutation(t, result, home, projectPath, preInstallOpenCodeConfig)
+}
+
+func TestSCN001_FirstBackupInTimestampUsesUnsuffixedDirectory(t *testing.T) {
+	// REQ-001 → SCN-001 → TestSCN001_FirstBackupInTimestampUsesUnsuffixedDirectory
+	// Scenario: Install creates a timestamped backup before any mutation
+	backupDir, timestamp, err := nextBackupDir(t.TempDir())
+	if err != nil {
+		t.Fatalf("allocate first timestamped backup: %v", err)
+	}
+	if filepath.Base(backupDir) != timestamp {
+		t.Fatalf("expected first backup directory %q to use the unsuffixed timestamp, got %q", timestamp, filepath.Base(backupDir))
+	}
+	if strings.HasSuffix(timestamp, "-000") {
+		t.Fatalf("expected suffix zero to remain unsuffixed, got %q", timestamp)
+	}
 }
 
 func assertBackupCreatedBeforeMutation(t *testing.T, result *Result, home, projectPath string, preInstallOpenCodeConfig []byte) {
