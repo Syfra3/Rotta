@@ -588,6 +588,7 @@ func TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure(t *testing.T) {
 	t.Run("returns next-scenario callback failure", func(t *testing.T) {
 		repo := t.TempDir()
 		runGit(t, repo, "init")
+		configureTestGitIdentity(t, repo)
 		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
 		runGit(t, repo, "add", ".gitignore")
 		runGit(t, repo, "commit", "-m", "test: ignore workflow state")
@@ -603,6 +604,7 @@ func TestSCN031_StopsWhenContinuingStateWriteFails(t *testing.T) {
 	// Scenario: Continue automatically only from a clean successful checkpoint
 	repo := t.TempDir()
 	runGit(t, repo, "init")
+	configureTestGitIdentity(t, repo)
 	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta\n")
 	runGit(t, repo, "add", ".gitignore")
 	runGit(t, repo, "commit", "-m", "test: ignore workflow state")
@@ -646,6 +648,7 @@ func TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure(t *testing.T) {
 	t.Run("returns review callback failure", func(t *testing.T) {
 		repo := t.TempDir()
 		runGit(t, repo, "init")
+		configureTestGitIdentity(t, repo)
 		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
 		runGit(t, repo, "add", ".gitignore")
 		runGit(t, repo, "commit", "-m", "test: ignore workflow state")
@@ -661,6 +664,7 @@ func TestSCN032_StopsWhenFinalStateWriteFails(t *testing.T) {
 	// Scenario: Send the final checkpointed scenario to review without publishing
 	repo := t.TempDir()
 	runGit(t, repo, "init")
+	configureTestGitIdentity(t, repo)
 	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta\n")
 	runGit(t, repo, "add", ".gitignore")
 	runGit(t, repo, "commit", "-m", "test: ignore workflow state")
@@ -829,9 +833,14 @@ func checkpointTestRepository(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
+	configureTestGitIdentity(t, repo)
+	return repo
+}
+
+func configureTestGitIdentity(t *testing.T, repo string) {
+	t.Helper()
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
-	return repo
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {
