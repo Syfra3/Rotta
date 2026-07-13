@@ -77,15 +77,21 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 func TestSCN002_ClaudeCodeInstallPersistsVelaFreshnessHooks(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_ClaudeCodeInstallPersistsVelaFreshnessHooks
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home, result := installClaudeCodeWithVelaFreshnessGuard(t)
+	hookPath := claudeCodeVelaFreshnessHookPath(home)
+	assertClaudeVelaGuardFile(t, hookPath, result)
+	assertClaudeVelaGuardSettings(t, filepath.Join(home, ".claude", "settings.json"), hookPath)
+}
+
+func installClaudeCodeWithVelaFreshnessGuard(t *testing.T) (string, *Result) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	hookPath := filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh")
-	writeTestFile(t, settingsPath, []byte(`{
+	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), []byte(`{
   "hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "command": "echo keep-session"}]}],
     "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo keep-pretool"}]}]
@@ -114,7 +120,11 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	if err != nil {
 		t.Fatal(err)
 	}
+	return home, result
+}
 
+func assertClaudeVelaGuardFile(t *testing.T, hookPath string, result *Result) {
+	t.Helper()
 	assertPathExists(t, hookPath)
 	info, err := os.Stat(hookPath)
 	if err != nil {
@@ -126,7 +136,10 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	assertFileContains(t, hookPath, "vela update")
 	assertFileContains(t, hookPath, "vela build")
 	assertStringListContains(t, result.Files, hookPath)
+}
 
+func assertClaudeVelaGuardSettings(t *testing.T, settingsPath, hookPath string) {
+	t.Helper()
 	settings := readJSONFile(t, settingsPath)
 	if settings["theme"] != "dark" {
 		t.Fatalf("expected unrelated Claude Code settings to be preserved, got %#v", settings)
@@ -197,6 +210,12 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 func TestSCN002_VelaFreshnessGuardContentTargetsGraphQueriesOnly(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_VelaFreshnessGuardContentTargetsGraphQueriesOnly
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	pluginPath, hookPath := installVelaGuardContent(t)
+	assertVelaGuardQueryContent(t, pluginPath, hookPath)
+}
+
+func installVelaGuardContent(t *testing.T) (string, string) {
+	t.Helper()
 	home := t.TempDir()
 	pluginPath := filepath.Join(home, ".config", "opencode", "plugin", "rotta-vela-freshness-guard.js")
 	hookPath := filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh")
@@ -213,7 +232,11 @@ func TestSCN002_VelaFreshnessGuardContentTargetsGraphQueriesOnly(t *testing.T) {
 	if _, err := installClaudeCodeVelaFreshnessGuard(home); err != nil {
 		t.Fatal(err)
 	}
+	return pluginPath, hookPath
+}
 
+func assertVelaGuardQueryContent(t *testing.T, pluginPath, hookPath string) {
+	t.Helper()
 	pluginContent := readFileString(t, pluginPath)
 	hookContent := readFileString(t, hookPath)
 	for _, content := range []struct {

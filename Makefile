@@ -1,5 +1,5 @@
 # Rotta build/test/release helpers
-.PHONY: build install run test test-ci test-verbose test-coverage test-critical-path-statement-coverage fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
+.PHONY: build install run test test-ci test-verbose test-coverage test-critical-path-statement-coverage test-changed-module-mutation fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
 
 GOPATH := $(shell go env GOPATH)
 GOTESTSUM := $(GOPATH)/bin/gotestsum
@@ -55,6 +55,9 @@ test-coverage:
 test-critical-path-statement-coverage:
 	@go test ./... -coverpkg=./... -coverprofile=critical-path.out -count=1
 	@python3 scripts/critical_path_statement_coverage.py --inventory .rotta/critical-path-coverage.json --profile critical-path.out
+
+test-changed-module-mutation:
+	@python3 scripts/changed_module_mutation.py --timeout 900
 
 lint:
 	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
@@ -115,6 +118,7 @@ help:
 	@echo "  test-verbose   - Run tests verbose"
 	@echo "  test-coverage  - Generate coverage report"
 	@echo "  test-critical-path-statement-coverage - Verify named critical functions with Go statement coverage"
+	@echo "  test-changed-module-mutation - Run bounded isolated critical changed-module mutations"
 	@echo "  lint           - Run golangci-lint"
 	@echo "  cross          - Build all supported OS/arch variants"
 	@echo "  verify         - Run fmt-check, lint, test-ci, build"

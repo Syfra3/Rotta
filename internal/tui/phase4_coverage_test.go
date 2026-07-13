@@ -48,9 +48,62 @@ func TestSCN222_MCPStatusViewHandlesEmptyAndStandaloneVelaStates(t *testing.T) {
 	}
 
 	var status strings.Builder
-	writeMCPStatuses(&status, map[string]map[string]installer.MCPStatusResult{"codex": {"context7": {Status: installer.MCPStatusDegraded}}})
-	if !strings.Contains(status.String(), "codex / context7") {
-		t.Fatalf("expected rendered MCP status, got %s", status.String())
+	writeMCPStatuses(&status, map[string]map[string]installer.MCPStatusResult{"codex": {"context7": {Status: installer.MCPStatusDegraded, Reason: "health deferred", Remediation: "verify in Codex", RuntimeFallback: installer.MCPRuntimeFallback{State: installer.MCPRuntimeFallbackNotObserved}}}})
+	for _, want := range []string{"codex / context7", "Reason: health deferred", "Remediation: verify in Codex", "Runtime fallback:"} {
+		if !strings.Contains(status.String(), want) {
+			t.Fatalf("expected rendered MCP status to contain %q: %s", want, status.String())
+		}
+	}
+}
+
+func TestSCN222_MCPStatusViewOrdersHostsAndCapabilitiesWithDetails(t *testing.T) {
+	// REQ-014 → SCN-222 → TestSCN222_MCPStatusViewOrdersHostsAndCapabilitiesWithDetails
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	var output strings.Builder
+	writeMCPStatuses(&output, map[string]map[string]installer.MCPStatusResult{
+		"opencode": {"vela": degradedMCPStatus("Vela stale"), "ancora": degradedMCPStatus("Ancora unavailable")},
+		"claude":   {"context7": degradedMCPStatus("Context7 timeout")},
+	})
+	assertOrderedMCPStatus(t, output.String(), "claude / context7", "opencode / ancora", "opencode / vela")
+	assertMCPStatusDetails(t, output.String())
+}
+
+func TestSCN222_HostMCPStatusViewOrdersCapabilitiesDirectly(t *testing.T) {
+	// REQ-014 → SCN-222 → TestSCN222_HostMCPStatusViewOrdersCapabilitiesDirectly
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	var output strings.Builder
+	writeHostMCPStatuses(&output, "opencode", map[string]installer.MCPStatusResult{
+		"vela":     degradedMCPStatus("Vela stale"),
+		"context7": degradedMCPStatus("Context7 timeout"),
+	})
+	assertOrderedMCPStatus(t, output.String(), "opencode / context7", "opencode / vela")
+}
+
+func degradedMCPStatus(reason string) installer.MCPStatusResult {
+	return installer.MCPStatusResult{Status: installer.MCPStatusDegraded, Reason: reason, Remediation: "retry safely", RuntimeFallback: installer.MCPRuntimeFallback{State: installer.MCPRuntimeFallbackNotObserved}}
+}
+
+func assertOrderedMCPStatus(t *testing.T, text string, entries ...string) {
+	t.Helper()
+	previous := -1
+	for _, entry := range entries {
+		current := strings.Index(text, entry)
+		if current < 0 || current <= previous {
+			t.Fatalf("expected deterministic MCP status order %q in %q", entries, text)
+		}
+		previous = current
+	}
+}
+
+func assertMCPStatusDetails(t *testing.T, text string) {
+	t.Helper()
+	for _, detail := range []string{"Reason: Vela stale", "Reason: Ancora unavailable", "Reason: Context7 timeout", "Remediation: retry safely", "Runtime fallback:"} {
+		if !strings.Contains(text, detail) {
+			t.Fatalf("expected selected MCP status detail %q in %q", detail, text)
+		}
+	}
+	if !strings.HasSuffix(text, "\n\n") {
+		t.Fatalf("expected MCP status block to terminate before the next view section: %q", text)
 	}
 }
 
