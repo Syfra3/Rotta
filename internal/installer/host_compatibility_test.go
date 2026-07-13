@@ -813,6 +813,48 @@ func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
 	}
 }
 
+func TestSCN218_GeneratedHostRulesDescribeAncoraArtifactFallback(t *testing.T) {
+	// REQ-011, REQ-014 → SCN-218 → TestSCN218_GeneratedHostRulesDescribeAncoraArtifactFallback
+	// Scenario: Continue from OpenSpec workflow artifacts when Ancora is unavailable
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"Ancora Fallback",
+			"missing or unavailable", "times out", "permission is denied",
+			"cannot recover workflow state", "cannot save workflow state", "cannot otherwise be used",
+			"workspace and installed-system OpenSpec workflow artifacts",
+			"Do not fabricate recovered state", "do not block workflow progress",
+			"failure category", "safe retry or recovery action",
+		})
+	}
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure
