@@ -512,6 +512,48 @@ func TestSCN030_ReportsCheckpointFailurePaths(t *testing.T) {
 	})
 }
 
+func TestSCN030_ReportsCheckpointRevisionLookupFailure(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_ReportsCheckpointRevisionLookupFailure
+	// Scenario: Do not advance when validation or local commit creation fails
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish revision lookup baseline")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("locate git executable: %v", err)
+	}
+	wrapperDir := t.TempDir()
+	wrapperPath := filepath.Join(wrapperDir, "git")
+	mustWrite(t, wrapperPath, fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"rev-parse\" ]; then\n  printf '%%s\\n' 'forced revision lookup failure' >&2\n  exit 1\nfi\nexec %q \"$@\"\n", gitPath))
+	if err := os.Chmod(wrapperPath, 0o755); err != nil {
+		t.Fatalf("make git wrapper executable: %v", err)
+	}
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err = CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-030",
+		ExpectedPaths:    []string{"checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "read scenario checkpoint commit") {
+		t.Fatalf("expected checkpoint revision lookup error, got %v", err)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+		t.Fatalf("expected the local checkpoint commit before revision lookup failed, got %s commits", commits)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "autonomous-phase3-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected no checkpoint state after revision lookup failed, got %v", err)
+	}
+}
+
 func TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure(t *testing.T) {
 	// REQ-025 → SCN-031 → TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure
 	// Scenario: Continue automatically only from a clean successful checkpoint
@@ -547,6 +589,29 @@ func TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure(t *testing.T) {
 	})
 }
 
+func TestSCN031_StopsWhenContinuingStateWriteFails(t *testing.T) {
+	// REQ-025 → SCN-031 → TestSCN031_StopsWhenContinuingStateWriteFails
+	// Scenario: Continue automatically only from a clean successful checkpoint
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta\n")
+	runGit(t, repo, "add", ".gitignore")
+	runGit(t, repo, "commit", "-m", "test: ignore workflow state")
+	mustWrite(t, filepath.Join(repo, ".rotta"), "not a directory\n")
+
+	started := false
+	_, err := ContinueFromAutonomousScenarioCheckpoint(repo, ScenarioCheckpointRecord{ScenarioID: "SCN-031", CommitID: "abc123"}, []string{"SCN-032"}, func(string) error {
+		started = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "create autonomous Phase 3 workflow state directory") {
+		t.Fatalf("expected continuing state-write error, got %v", err)
+	}
+	if started {
+		t.Fatal("expected next scenario not to start when workflow state cannot be written")
+	}
+}
+
 func TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure(t *testing.T) {
 	// REQ-025 → REQ-027 → SCN-032 → TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure
 	// Scenario: Send the final checkpointed scenario to review without publishing
@@ -580,6 +645,29 @@ func TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure(t *testing.T) {
 			t.Fatalf("expected review callback error %v, got %v", callbackErr, err)
 		}
 	})
+}
+
+func TestSCN032_StopsWhenFinalStateWriteFails(t *testing.T) {
+	// REQ-025 → REQ-027 → SCN-032 → TestSCN032_StopsWhenFinalStateWriteFails
+	// Scenario: Send the final checkpointed scenario to review without publishing
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta\n")
+	runGit(t, repo, "add", ".gitignore")
+	runGit(t, repo, "commit", "-m", "test: ignore workflow state")
+	mustWrite(t, filepath.Join(repo, ".rotta"), "not a directory\n")
+
+	reviewStarted := false
+	_, err := CompleteAutonomousPhase3Boundary(repo, ScenarioCheckpointRecord{ScenarioID: "SCN-032", CommitID: "abc123"}, func() error {
+		reviewStarted = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "create autonomous Phase 3 workflow state directory") {
+		t.Fatalf("expected final state-write error, got %v", err)
+	}
+	if reviewStarted {
+		t.Fatal("expected review not to start when workflow state cannot be written")
+	}
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {
