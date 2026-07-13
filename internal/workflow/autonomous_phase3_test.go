@@ -182,6 +182,40 @@ func TestSCN028_HaltsForUnexpectedTrackedChange(t *testing.T) {
 	}
 }
 
+func TestSCN029_HaltsForUntrackedNonIgnoredFile(t *testing.T) {
+	// REQ-024 → SCN-029 → TestSCN029_HaltsForUntrackedNonIgnoredFile
+	// Scenario: Halt for an untracked non-ignored file before checkpointing
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "internal/workflow/checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+	mustWrite(t, filepath.Join(repo, "scenario-report.txt"), "unexpected report\n")
+
+	_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-029",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err == nil {
+		t.Fatal("expected checkpoint evaluation to halt for untracked path scenario-report.txt")
+	}
+	if !strings.Contains(err.Error(), "scenario-report.txt") {
+		t.Fatalf("expected halt to identify scenario-report.txt, got %q", err)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "1" {
+		t.Fatalf("expected no scenario commit, got %s commits", commits)
+	}
+	if status := gitOutput(t, repo, "status", "--short"); status != "M internal/workflow/checkpoint.go\n?? scenario-report.txt" {
+		t.Fatalf("expected worktree changes to remain untouched, got %q", status)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
