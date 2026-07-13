@@ -13,6 +13,13 @@ import (
 func TestSCN002_OpenCodeInstallPersistsVelaFreshnessGuard(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_OpenCodeInstallPersistsVelaFreshnessGuard
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home, result, pluginPath, pluginURL := installOpenCodeWithVelaFreshnessGuard(t)
+	assertOpenCodeVelaGuardPlugin(t, pluginPath, result)
+	assertOpenCodeVelaGuardBackupAndConfig(t, home, result, pluginPath, pluginURL)
+}
+
+func installOpenCodeWithVelaFreshnessGuard(t *testing.T) (string, *Result, string, string) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
@@ -48,7 +55,11 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	if err != nil {
 		t.Fatal(err)
 	}
+	return home, result, pluginPath, pluginURL
+}
 
+func assertOpenCodeVelaGuardPlugin(t *testing.T, pluginPath string, result *Result) {
+	t.Helper()
 	assertPathExists(t, pluginPath)
 	assertFileContains(t, pluginPath, "tool.execute.before")
 	assertFileContains(t, pluginPath, "scheduleVelaGraphRefresh")
@@ -59,7 +70,10 @@ printf 'fresh graph' > "$project/.vela/graph.db"
 	assertFileDoesNotContain(t, pluginPath, "session.created")
 	assertFileDoesNotContain(t, pluginPath, "spawnSync")
 	assertStringListContains(t, result.Files, pluginPath)
+}
 
+func assertOpenCodeVelaGuardBackupAndConfig(t *testing.T, home string, result *Result, pluginPath, pluginURL string) {
+	t.Helper()
 	manifest := readBackupManifest(t, filepath.Join(result.BackupDir, "manifest.json"))
 	assertManifestContainsPath(t, manifest.BackedUpPaths, pluginPath)
 

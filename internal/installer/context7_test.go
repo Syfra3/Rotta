@@ -355,7 +355,7 @@ func TestSCN107_Context7HealthRejectsStartupAndProtocolFailures(t *testing.T) {
 	}{
 		{name: "start fails", script: "not a script", category: Context7FailureStartup},
 		{name: "initialization write fails", script: "#!/bin/sh\nexit 0\n", category: Context7FailureStartup},
-		{name: "tool discovery write fails", script: "#!/bin/sh\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\nexit 0\n", category: Context7FailureToolDiscovery},
+		{name: "tool discovery write fails", script: "#!/bin/sh\nIFS= read -r initialize\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\nIFS= read -r initialized\nexit 0\n", category: Context7FailureToolDiscovery},
 		{name: "tool discovery read fails", script: "#!/bin/sh\nif IFS= read -r line; then printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'; fi\nwhile IFS= read -r line; do case \"$line\" in *tools/list*) exit 0 ;; esac; done\n", category: Context7FailureToolDiscovery},
 	}
 	for _, tt := range tests {
