@@ -29,14 +29,15 @@ Feature: Context7 MCP integration in the TUI installer
     And Vela remains selected
 
   @SCN-103 @REQ-002 @REQ-003
-  Scenario: Selected Context7 configures both host MCP entries with the compatible stdio command
+  Scenario: Selected Context7 configures host MCP entries with their compatible command transports
     Given the user selected Context7
     When installation reaches host MCP configuration
     Then OpenCode receives one Rotta-managed MCP server named "context7"
     And Claude Code receives one Rotta-managed MCP server named "context7"
-    And each Context7 server uses command "npx"
-    And each Context7 server uses args "-y" and "@upstash/context7-mcp" in that order
-    And each Context7 server uses stdio command-based MCP transport
+    And the OpenCode Context7 server uses local command "npx", "-y", and "@upstash/context7-mcp" in that order
+    And the OpenCode Context7 server is enabled
+    And the Claude Code Context7 server uses command "npx" with args "-y" and "@upstash/context7-mcp" in that order
+    And the Claude Code Context7 server uses stdio command-based MCP transport
     And unrelated host MCP servers and user settings are preserved
 
   @SCN-104 @REQ-002 @REQ-006

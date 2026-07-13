@@ -144,9 +144,9 @@ func writeOpenCodeContext7MCP(path string, server Context7MCPServer) error {
 	}
 	delete(mcp, "rotta-context7")
 	mcp[context7ServerName] = map[string]interface{}{
-		"type":    server.Type,
-		"command": server.Command,
-		"args":    server.Args,
+		"type":    "local",
+		"command": append([]string{server.Command}, server.Args...),
+		"enabled": true,
 	}
 	config["mcp"] = mcp
 	return writeOpenCodeConfig(path, config)
