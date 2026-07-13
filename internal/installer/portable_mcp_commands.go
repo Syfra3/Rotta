@@ -69,8 +69,10 @@ func normalizeProvenManagedMCPCommand(path, server, command string) (changed, am
 }
 
 func isProvenManagedMCPEntry(entry map[string]interface{}) bool {
+	// Rotta-managed entries start their MCP invocation with "mcp"; any remaining
+	// arguments are valid managed-server options and are preserved.
 	args, ok := entry["args"].([]interface{})
-	return ok && len(args) == 1 && args[0] == "mcp"
+	return ok && len(args) > 0 && args[0] == "mcp"
 }
 
 func hasSlashMCPCommand(entry map[string]interface{}) bool {
