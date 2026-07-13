@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,23 @@ type AutonomousScenarioLoopDecision struct {
 	Reason   string
 }
 
+type ScenarioCheckpointRequest struct {
+	ScenarioID       string
+	ExpectedPaths    []string
+	TDDComplete      bool
+	TestsPassed      bool
+	ValidationPassed bool
+}
+
+type ScenarioCheckpointRecord struct {
+	ScenarioID string
+	CommitID   string
+}
+
+type AutonomousPhase3WorkflowState struct {
+	Checkpoints map[string]string `json:"checkpoints"`
+}
+
 func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoopRequest) (AutonomousScenarioLoopDecision, error) {
 	gate, err := EvaluateImplementationGate(repoRoot, request.Scope)
 	if err != nil {
@@ -42,6 +60,48 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 	}
 
 	return AutonomousScenarioLoopDecision{Approved: true, Reason: gate.Reason}, nil
+}
+
+func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointRequest) (ScenarioCheckpointRecord, error) {
+	add := exec.Command("git", append([]string{"add", "--"}, request.ExpectedPaths...)...)
+	add.Dir = repoRoot
+	if output, err := add.CombinedOutput(); err != nil {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("stage scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	commit := exec.Command("git", "commit", "-m", "checkpoint: "+request.ScenarioID)
+	commit.Dir = repoRoot
+	if output, err := commit.CombinedOutput(); err != nil {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("create scenario checkpoint: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	revision := exec.Command("git", "rev-parse", "HEAD")
+	revision.Dir = repoRoot
+	output, err := revision.CombinedOutput()
+	if err != nil {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("read scenario checkpoint commit: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	record := ScenarioCheckpointRecord{ScenarioID: request.ScenarioID, CommitID: strings.TrimSpace(string(output))}
+	if err := writeAutonomousPhase3WorkflowState(repoRoot, record); err != nil {
+		return ScenarioCheckpointRecord{}, err
+	}
+	return record, nil
+}
+
+func writeAutonomousPhase3WorkflowState(repoRoot string, record ScenarioCheckpointRecord) error {
+	state := AutonomousPhase3WorkflowState{Checkpoints: map[string]string{record.ScenarioID: record.CommitID}}
+	content, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("serialize autonomous Phase 3 workflow state: %w", err)
+	}
+	path := filepath.Join(repoRoot, ".rotta", "autonomous-phase3-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create autonomous Phase 3 workflow state directory: %w", err)
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return fmt.Errorf("write autonomous Phase 3 workflow state: %w", err)
+	}
+	return nil
 }
 
 func PrepareAutonomousPhase3Worktree(repoRoot string, request AutonomousPhase3WorktreeRequest) (AutonomousPhase3WorktreePreparation, error) {

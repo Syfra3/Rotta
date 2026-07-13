@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,6 +91,59 @@ func TestSCN026_RefusesLoopWithoutScopedHumanApproval(t *testing.T) {
 	}
 	if committed {
 		t.Fatal("expected loop not to create a scenario commit without scoped approval")
+	}
+}
+
+func TestSCN027_CheckpointsValidatedScenarioInOneLocalCommit(t *testing.T) {
+	// REQ-022 → REQ-023 → SCN-027 → TestSCN027_CheckpointsValidatedScenarioInOneLocalCommit
+	// Scenario: Checkpoint one approved scenario after strict TDD and objective validation pass
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint_test.go"), "package workflow\n")
+	runGit(t, repo, "add", "internal/workflow/checkpoint.go", "internal/workflow/checkpoint_test.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint_test.go"), "package workflow\n\nfunc TestCheckpoint() {}\n")
+
+	record, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-027",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go", "internal/workflow/checkpoint_test.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error: %v", err)
+	}
+	if record.ScenarioID != "SCN-027" || record.CommitID == "" {
+		t.Fatalf("expected checkpoint record for SCN-027 with a local commit ID, got %#v", record)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+		t.Fatalf("expected exactly one scenario commit, got %s commits", commits)
+	}
+	if changed := gitOutput(t, repo, "show", "--format=", "--name-only", "HEAD"); changed != "internal/workflow/checkpoint.go\ninternal/workflow/checkpoint_test.go" {
+		t.Fatalf("expected only scenario paths in checkpoint commit, got %q", changed)
+	}
+	message := gitOutput(t, repo, "show", "-s", "--format=%B", "HEAD")
+	for _, attribution := range []string{"AI-generated", "Generated-by", "Co-authored-by"} {
+		if strings.Contains(strings.ToLower(message), strings.ToLower(attribution)) {
+			t.Fatalf("expected no AI attribution in scenario commit, got %q", message)
+		}
+	}
+
+	stateContent, err := os.ReadFile(filepath.Join(repo, ".rotta", "autonomous-phase3-state.json"))
+	if err != nil {
+		t.Fatalf("read workflow state: %v", err)
+	}
+	var state AutonomousPhase3WorkflowState
+	if err := json.Unmarshal(stateContent, &state); err != nil {
+		t.Fatalf("unmarshal workflow state: %v", err)
+	}
+	if state.Checkpoints["SCN-027"] != record.CommitID {
+		t.Fatalf("expected workflow state to record SCN-027 commit %q, got %#v", record.CommitID, state)
 	}
 }
 
