@@ -19,13 +19,24 @@ type VelaResult struct {
 	Files                      []string
 	NormalizedMCPEntries       []string
 	SkippedAmbiguousMCPEntries []string
+	MCPAvailability            map[string]map[string]MCPStatusResult
 }
 
 // SetupVela detects or installs Vela, initializes the project graph, and sets
 // up agent MCP integration when Vela is the standalone graph surface.
 func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
+	if _, err := exec.LookPath("vela"); err != nil {
+		result := unavailableVelaMCPResult(opts, home)
+		if len(result.MCPAvailability) != 0 {
+			return result, nil
+		}
+	}
 	binPath, installed, err := resolveVelaBin(opts)
 	if err != nil {
+		result := unavailableVelaMCPResult(opts, home)
+		if len(result.MCPAvailability) != 0 {
+			return result, nil
+		}
 		return nil, err
 	}
 	result := &VelaResult{BinPath: binPath, Installed: installed}
@@ -33,6 +44,46 @@ func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
 		return nil, err
 	}
 	return configureVelaHosts(opts, result, home, projectPath)
+}
+
+func unavailableVelaMCPResult(opts Options, home string) *VelaResult {
+	result := &VelaResult{MCPAvailability: map[string]map[string]MCPStatusResult{}}
+	for _, host := range selectedHosts(opts.Target) {
+		agent, configDir := velaHostConfig(host, home)
+		if agent == "" {
+			continue
+		}
+		path := velaMCPConfigPath(agent, configDir)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		normalized, ambiguous, err := serializeVelaMCPCommand(agent, configDir)
+		if err != nil {
+			continue
+		}
+		if normalized {
+			result.NormalizedMCPEntries = append(result.NormalizedMCPEntries, path)
+		}
+		if ambiguous {
+			result.SkippedAmbiguousMCPEntries = append(result.SkippedAmbiguousMCPEntries, path)
+		}
+		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": {
+			Status: MCPStatusDegraded, Reason: "command availability",
+			Remediation: "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
+			RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
+		}}
+	}
+	return result
+}
+
+func velaHostConfig(host, home string) (agent, configDir string) {
+	switch host {
+	case "claude-code":
+		return "claude", filepath.Join(home, ".claude")
+	case "opencode":
+		return "opencode", filepath.Join(home, ".config", "opencode")
+	}
+	return "", ""
 }
 
 func resolveVelaBin(opts Options) (string, bool, error) {
