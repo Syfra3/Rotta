@@ -11,6 +11,8 @@
 - A host can resolve a bare executable only if its own launch environment exposes that executable on `PATH`; the installer cannot prove this solely from its own process.
 - An absolute path can remain valid when it is a non-executable resource reference, including a Rotta-generated hook script, and is not subject to executable-command normalization.
 - Existing installers and delegated setup tools may have emitted stale absolute command paths, so migration must inspect the serialized configuration rather than rely on the current installation method.
+- Each coding agent has its own configuration contract and installation transaction; a failure for one agent must not roll back a previously completed agent installation.
+- Rotta can validate the command in its own process environment, but the coding agent may be launched with a different `PATH`.
 
 ## Alternatives Considered
 | Approach | Reason Rejected |
@@ -19,9 +21,10 @@
 | Write a platform-specific absolute fallback alongside the bare command | It preserves the same staleness problem and creates different serialized contracts by platform. |
 | Rewrite every absolute string in managed host configuration | It can corrupt generated hook paths and unrelated user settings that are not executable MCP commands. |
 | Skip migration of existing entries | Existing installations retain upgrade-sensitive configuration and violate the portability requirement until manually repaired. |
+| Roll back every selected agent when one agent fails | Agent installations are independent; global rollback would undo successful work and unnecessarily affect unrelated integrations. |
 
 ## Summary
-Rotta must serialize bare executable names, never absolute executable paths, in every Rotta-managed MCP server command field across supported host configuration formats. Installation and reinstallation must recognize and normalize stale Rotta-managed MCP command entries for Ancora, Vela, Context7, and future managed servers, while preserving absolute paths that are not MCP executable commands, such as generated hook scripts. Rotta may use its current environment to validate that a command is presently available, but validation results must not be serialized. Because a host such as OpenCode can run with a different `PATH`, the installer must distinguish installer-side availability from host-side resolution, avoid non-portable path fallback, and report explicit degraded or failed states with remediation.
+Rotta must serialize bare executable names, never absolute executable paths, in every Rotta-managed MCP server command field across the supported Claude Code, OpenCode, and Codex configuration contracts. A canonical internal MCP model must be translated and validated by one agent-specific adapter per coding agent. Installation and reinstallation must recognize only proven Rotta-managed MCP entries for Ancora, Vela, Context7, and future registered managed servers. A successful agent installation may normalize or create only validated managed entries; a failed agent installation must leave that agent's previous configuration intact, or create no MCP configuration when none existed. Each agent is an independent transaction: a later agent failure must not roll back an earlier successful agent. Rotta may use its current environment to validate a command, but validation locations must not be serialized. Because a coding agent can run with a different `PATH`, Rotta must distinguish installer-side availability from host-side resolution, avoid absolute path fallback, and report remediation.
 
 ## Requirements
 
@@ -42,13 +45,15 @@ Rotta must serialize bare executable names, never absolute executable paths, in 
 - Rewriting command arguments unless they are themselves a Rotta-defined executable-command field.
 
 ### REQ-016: Normalize Only Proven Rotta-Managed Stale MCP Commands
-**Description:** During install and reinstall, Rotta must inspect supported host configurations and replace a stale absolute or slash-containing executable command only when the MCP entry is proven Rotta-managed; it must preserve non-command absolute references and entries of unknown ownership.
+**Description:** During an agent installation or reinstall, Rotta must inspect that agent's supported configuration contract and replace a stale absolute or slash-containing executable command only when the MCP entry is proven Rotta-managed by the agent-specific contract; it must preserve non-command absolute references and entries of unknown ownership.
 **Acceptance Criteria:**
+- Each supported coding agent has an explicit contract describing its configuration format, file locations, MCP entry locations, server identity, command representation, arguments, and managed fields.
 - Reinstall normalizes recognized Rotta-managed Ancora, Vela, Context7, legacy Rotta Context7, and future explicitly registered managed MCP entries to their canonical bare command names.
-- Recognition uses server identity plus the expected Rotta-managed configuration shape or explicit ownership metadata; an ambiguous entry is preserved and reported rather than rewritten.
-- Normalization occurs before install success is reported and is idempotent: a subsequent reinstall produces no further command-field change.
+- Recognition uses the complete agent-specific contract, including server identity and expected managed shape or explicit ownership metadata; an ambiguous entry is preserved and reported rather than rewritten.
+- Normalization occurs before agent success is reported and is idempotent: a subsequent reinstall produces no further command-field change.
 - Rotta preserves generated hook-script paths and other absolute values that are not the executable command field of a proven managed MCP entry.
 - Rotta preserves unrelated user MCP servers and unrelated user configuration.
+- A malformed or contract-mismatched configuration is reported and excluded from the agent transaction; Rotta does not repair arbitrary third-party configuration.
 **Edge Cases:**
 - A legacy managed entry contains `/opt/homebrew/Cellar/<tool>/<version>/bin/<tool>`.
 - A known server name has been manually repurposed with an incompatible command or arguments.
@@ -59,13 +64,14 @@ Rotta must serialize bare executable names, never absolute executable paths, in 
 - Inferring ownership from an absolute path alone.
 
 ### REQ-017: Validate Availability Without Persisting Validation Locations
-**Description:** Rotta must validate each selected managed executable in the installer process environment without allowing the discovered location to influence serialized MCP configuration.
+**Description:** Rotta must install and validate each selected managed executable through its bare command in the installer process environment without allowing a discovered location to influence serialized MCP configuration.
 **Acceptance Criteria:**
 - Rotta reports command availability separately from configuration normalization and serialization.
 - When the installer can resolve the command, it may run the command for installation or health validation using the current environment, while the serialized MCP command remains bare.
-- When the installer cannot resolve a required selected command, Rotta does not substitute an absolute fallback path into configuration.
-- An unavailable command produces an explicit per-host/per-server degraded or failed result that identifies command availability and supplies installation or `PATH` remediation.
-- Existing stale managed entries are still normalized to their canonical bare command during reinstall even when the installer cannot currently resolve that command, and the result is reported as degraded or failed rather than healthy.
+- When installation or validation cannot resolve a required selected command, Rotta does not create or modify a new MCP configuration and does not substitute an absolute fallback path.
+- An unavailable command produces an explicit per-agent/per-server skipped or failed result that identifies command availability and supplies installation or `PATH` remediation.
+- If a previous managed entry exists and the agent transaction fails, Rotta restores that agent's backup unchanged and reports the previous configuration as preserved but unverified.
+- `which`, `exec.LookPath`, or equivalent discovery may provide diagnostics only; Rotta invokes the validated bare command and never serializes the discovered location.
 **Edge Cases:**
 - A command becomes unavailable between preflight validation and health checking.
 - `brew`, `curl`, or a manual installer is available but the installed command is not visible to the current process afterward.
@@ -82,6 +88,7 @@ Rotta must serialize bare executable names, never absolute executable paths, in 
 - When host-side verification is unavailable, Rotta reports the command as portable-but-host-resolution-unverified and directs the user to launch the host with a `PATH` containing the bare command.
 - For OpenCode and other hosts with a different process environment, Rotta does not inject a Homebrew, Cellar, or other machine-specific path as an automatic fallback.
 - A failed or unverified host resolution must not be presented as a healthy MCP configuration.
+- Successful installer-side validation is sufficient to commit the bare command, but host-side resolution remains a separate reported state when it cannot be observed.
 **Edge Cases:**
 - OpenCode is launched from a desktop environment whose `PATH` omits the user's shell initialization.
 - Rotta is run from an interactive shell with a richer `PATH` than the host process.
@@ -104,8 +111,27 @@ Rotta must serialize bare executable names, never absolute executable paths, in 
 **Out of Scope:**
 - Automatic package upgrades or automatic repair of a host process environment.
 
+### REQ-020: Apply Per-Agent Transactional Configuration Changes
+**Description:** Rotta must treat each coding agent's MCP setup as an independent transaction, backing up all affected agent-owned files before changes and restoring only that agent's backup when its setup fails.
+**Acceptance Criteria:**
+- Before changing an agent's configuration or generated Rotta artifacts, Rotta creates a restorable backup of every affected file and records whether each file previously existed.
+- A successful agent transaction commits only validated managed MCP configuration and its related Rotta-managed artifacts.
+- If an agent transaction fails, Rotta restores all of that agent's affected files to their exact pre-transaction state and removes newly created files.
+- A failure for OpenCode does not roll back a previously successful Claude Code transaction; failures for one agent do not modify another agent's configuration.
+- If no MCP configuration existed before a failed transaction, Rotta creates no MCP configuration and reports the MCP as skipped with remediation.
+- If an MCP configuration existed before a failed transaction, Rotta preserves it and reports that the previous configuration remains available but was not newly validated.
+- Package installation or upgrade is not rolled back; only Rotta-managed configuration and generated artifacts are restored, and package state is reported separately.
+**Edge Cases:**
+- A delegated setup tool writes several files and fails after writing only some of them.
+- An existing configuration is a symlink, unreadable, malformed, or changed concurrently during the transaction.
+- One agent succeeds while a later selected agent fails.
+- A backup or restore operation fails.
+**Out of Scope:**
+- Rolling back Ancora, Vela, Node, npm, or other installed package versions.
+- Restoring unrelated user-owned files modified outside Rotta's managed paths.
+
 ## Open Questions
-- None. The contract intentionally treats host-side command resolution as unverified unless Rotta has observable host startup or health evidence; it must not infer that result from the installer process `PATH`.
+- None. Agent adapters must follow the current official configuration documentation for Claude Code, OpenCode, and Codex when defining their exact paths, schemas, command representations, and parsing behavior. The approved transaction rules define backup, rollback, and reporting semantics independently of those agent-specific details.
 
 ## Trade-offs
 - Bare commands eliminate upgrade-stale serialized paths, but users must ensure the host process inherits a suitable `PATH`.
