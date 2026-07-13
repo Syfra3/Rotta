@@ -14,10 +14,11 @@ const (
 
 // VelaResult describes what Vela setup did.
 type VelaResult struct {
-	BinPath              string
-	Installed            bool // true if we ran brew install
-	Files                []string
-	NormalizedMCPEntries []string
+	BinPath                    string
+	Installed                  bool // true if we ran brew install
+	Files                      []string
+	NormalizedMCPEntries       []string
+	SkippedAmbiguousMCPEntries []string
 }
 
 // SetupVela detects or installs Vela, initializes the project graph, and sets
@@ -103,12 +104,15 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	if err := runVelaInstall(opts, result.BinPath, projectPath, agent, configDir); err != nil {
 		return fmt.Errorf("vela install %s: %w", agent, err)
 	}
-	normalized, err := serializeVelaMCPCommand(agent, configDir)
+	normalized, ambiguous, err := serializeVelaMCPCommand(agent, configDir)
 	if err != nil {
 		return fmt.Errorf("serialize Vela MCP command for %s: %w", agent, err)
 	}
 	if normalized {
 		result.NormalizedMCPEntries = append(result.NormalizedMCPEntries, velaMCPConfigPath(agent, configDir))
+	}
+	if ambiguous {
+		result.SkippedAmbiguousMCPEntries = append(result.SkippedAmbiguousMCPEntries, velaMCPConfigPath(agent, configDir))
 	}
 	result.addFile(filepath.Join(projectPath, ".vela", "graph.db"))
 	if agent == "claude" {
@@ -119,14 +123,14 @@ func installVelaForHost(opts Options, result *VelaResult, projectPath, agent, co
 	return nil
 }
 
-func serializeVelaMCPCommand(agent, configDir string) (bool, error) {
+func serializeVelaMCPCommand(agent, configDir string) (bool, bool, error) {
 	switch agent {
 	case "claude":
-		return normalizeManagedMCPCommand(velaMCPConfigPath(agent, configDir), "", "vela")
+		return normalizeProvenManagedMCPCommand(velaMCPConfigPath(agent, configDir), "", "vela")
 	case "opencode":
-		return normalizeManagedMCPCommand(velaMCPConfigPath(agent, configDir), "vela", "vela")
+		return normalizeProvenManagedMCPCommand(velaMCPConfigPath(agent, configDir), "vela", "vela")
 	default:
-		return false, fmt.Errorf("unsupported Vela setup target %q", agent)
+		return false, false, fmt.Errorf("unsupported Vela setup target %q", agent)
 	}
 }
 
