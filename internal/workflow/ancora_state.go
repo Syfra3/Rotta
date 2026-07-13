@@ -71,7 +71,7 @@ func ValidateAncoraWorkflowPointers(repoRoot string, state AncoraWorkflowState, 
 }
 
 func validateWorkflowPointer(repoRoot, path, expectedChecksum string) (WorkflowPointerIssue, bool, error) {
-	content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
+	content, err := readRepositoryFile(repoRoot, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return WorkflowPointerIssue{Path: path, Kind: PointerIssueMissing}, true, nil
@@ -125,7 +125,7 @@ func findTrackedScenarioPath(repoRoot string, paths []string, prefix string, sce
 			contractCandidate = path
 			contractCandidateCount++
 		}
-		content, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		content, err := readRepositoryFile(repoRoot, path)
 		if err != nil {
 			continue
 		}

@@ -14,10 +14,10 @@ const (
 
 func installCodex(opts Options, home string) ([]string, error) {
 	path := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create Codex instructions dir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(codexInstructions(opts)), 0o644); err != nil {
+	if err := writePrivateFile(path, []byte(codexInstructions(opts)), 0o600); err != nil {
 		return nil, fmt.Errorf("cannot write Codex instructions: %w", err)
 	}
 	return []string{path}, nil
@@ -33,16 +33,16 @@ func cleanPreviousCodexInstallation(home string) error {
 
 func configureCodexMCPServers(opts Options, home string) ([]string, error) {
 	path := filepath.Join(home, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create Codex config dir: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := readPrivateFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("cannot read Codex config: %w", err)
 	}
 
 	content := replaceCodexManagedMCPBlock(string(data), codexManagedMCPBlock(opts))
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := writePrivateFile(path, []byte(content), 0o600); err != nil {
 		return nil, fmt.Errorf("cannot write Codex MCP config: %w", err)
 	}
 	return []string{path}, nil

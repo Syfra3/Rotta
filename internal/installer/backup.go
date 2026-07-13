@@ -3,7 +3,6 @@ package installer
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +116,7 @@ func restorePreRestoreBackup(preRestoreBackupDir, home string) error {
 }
 
 func loadBackupManifest(path string) (backupManifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := readPrivateFile(path)
 	if err != nil {
 		return backupManifest{}, fmt.Errorf("cannot read backup manifest: %w", err)
 	}
@@ -186,7 +185,7 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 		Status: "complete",
 	}
 
-	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
 		return "", err
 	}
 
@@ -215,7 +214,7 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(backupDir, "manifest.json"), data, 0o644); err != nil {
+	if err := writePrivateFile(filepath.Join(backupDir, "manifest.json"), data, 0o600); err != nil {
 		return "", err
 	}
 
@@ -225,7 +224,7 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 func nextBackupDir(home string) (string, string, error) {
 	timestamp := time.Now().UTC().Format("20060102T150405Z")
 	root := filepath.Join(home, ".rotta", "backups")
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		return "", "", err
 	}
 	for suffix := 0; suffix < 1000; suffix++ {
@@ -234,7 +233,7 @@ func nextBackupDir(home string) (string, string, error) {
 			name = fmt.Sprintf("%s-%03d", timestamp, suffix)
 		}
 		path := filepath.Join(root, name)
-		if err := os.Mkdir(path, 0o755); err == nil {
+		if err := os.Mkdir(path, 0o750); err == nil {
 			return path, name, nil
 		} else if !os.IsExist(err) {
 			return "", "", err
@@ -344,19 +343,12 @@ func copyDir(src, dst string) error {
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
-	in, err := os.Open(src)
+	data, err := readPrivateFile(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	return writePrivateFile(dst, data, mode)
 }

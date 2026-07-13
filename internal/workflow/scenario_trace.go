@@ -104,11 +104,11 @@ func PlanImplementationReadyScenarios(repoRoot string) ([]FeatureScenario, error
 		}
 		featurePath = filepath.ToSlash(featurePath)
 
-		file, err := os.Open(path)
+		file, closeFile, err := openRepositoryFile(repoRoot, featurePath)
 		if err != nil {
 			return fmt.Errorf("open feature file %s: %w", featurePath, err)
 		}
-		defer file.Close()
+		defer closeFile()
 
 		scenarios, err := ParseFeatureScenarioTags(featurePath, file)
 		if err != nil {

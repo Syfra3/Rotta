@@ -394,7 +394,17 @@ func loadRecoveryBackups() ([]recoveryBackup, string) {
 }
 
 func readRecoveryBackup(path string) (recoveryBackup, bool) {
-	data, err := os.ReadFile(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return recoveryBackup{}, false
+	}
+	defer root.Close()
+	file, err := root.Open(filepath.Base(path))
+	if err != nil {
+		return recoveryBackup{}, false
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return recoveryBackup{}, false
 	}
