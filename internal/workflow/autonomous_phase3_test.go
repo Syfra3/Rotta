@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -410,6 +411,175 @@ func TestSCN034_ReportsHumanMayPushOnceAfterReview(t *testing.T) {
 	if remotes := gitOutput(t, repo, "remote"); remotes != "" {
 		t.Fatalf("expected final report not to publish remotely, got remotes %q", remotes)
 	}
+}
+
+func TestSCN026_ReportsApprovalGateErrorAndApprovedDecision(t *testing.T) {
+	// REQ-022 → SCN-026 → TestSCN026_ReportsApprovalGateErrorAndApprovedDecision
+	// Scenario: Refuse autonomous execution without scoped human approval
+	scope := ContractScope{
+		SpecPath:    "specs/autonomous_scenario_checkpoints.md",
+		FeaturePath: "features/autonomous_scenario_checkpoints.feature",
+		ScenarioID:  "SCN-026",
+	}
+
+	t.Run("returns approval inspection errors", func(t *testing.T) {
+		repoFile := filepath.Join(t.TempDir(), "not-a-repository")
+		mustWrite(t, repoFile, "not a directory\n")
+
+		if _, err := StartAutonomousScenarioLoop(repoFile, AutonomousScenarioLoopRequest{Scope: scope}); err == nil {
+			t.Fatal("expected approval inspection error when repository root is a file")
+		}
+	})
+
+	t.Run("reports scoped approval", func(t *testing.T) {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-026\n")
+
+		decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{Scope: scope})
+		if err != nil {
+			t.Fatalf("StartAutonomousScenarioLoop returned error: %v", err)
+		}
+		if !decision.Approved || decision.Reason != "scoped human approval recorded" {
+			t.Fatalf("expected scoped approval decision, got %#v", decision)
+		}
+	})
+}
+
+func TestSCN030_ReportsCheckpointFailurePaths(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_ReportsCheckpointFailurePaths
+	// Scenario: Do not advance when validation or local commit creation fails
+	request := ScenarioCheckpointRequest{ScenarioID: "SCN-030", ExpectedPaths: []string{"checkpoint.go"}, TDDComplete: true, TestsPassed: true, ValidationPassed: true}
+
+	t.Run("rejects missing TDD evidence and objective validation", func(t *testing.T) {
+		withoutTDD := request
+		withoutTDD.TDDComplete = false
+		if _, err := CheckpointApprovedScenario(t.TempDir(), withoutTDD); err == nil || !strings.Contains(err.Error(), "strict Red, Green, and Refactor") {
+			t.Fatalf("expected missing TDD evidence error, got %v", err)
+		}
+
+		withoutValidation := request
+		withoutValidation.ValidationPassed = false
+		if _, err := CheckpointApprovedScenario(t.TempDir(), withoutValidation); err == nil || !strings.Contains(err.Error(), "active objective validation") {
+			t.Fatalf("expected objective validation error, got %v", err)
+		}
+	})
+
+	t.Run("reports repository inspection and staging errors", func(t *testing.T) {
+		repoFile := filepath.Join(t.TempDir(), "not-a-repository")
+		mustWrite(t, repoFile, "not a directory\n")
+		if _, err := CheckpointApprovedScenario(repoFile, request); err == nil || !strings.Contains(err.Error(), "inspect untracked scenario changes") {
+			t.Fatalf("expected untracked inspection error, got %v", err)
+		}
+		if _, err := trackedChangedPaths(repoFile); err == nil || !strings.Contains(err.Error(), "inspect tracked scenario changes") {
+			t.Fatalf("expected tracked inspection error, got %v", err)
+		}
+
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		if _, err := CheckpointApprovedScenario(repo, request); err == nil || !strings.Contains(err.Error(), "stage scenario changes") {
+			t.Fatalf("expected staging error, got %v", err)
+		}
+	})
+
+	t.Run("reports commit and state-write errors", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		runGit(t, repo, "config", "user.email", "test@example.invalid")
+		runGit(t, repo, "config", "user.name", "Test User")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+		runGit(t, repo, "add", "checkpoint.go")
+		runGit(t, repo, "commit", "-m", "test: establish checkpoint baseline")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+		runGit(t, repo, "config", "user.name", "")
+		runGit(t, repo, "config", "user.email", "")
+		if _, err := CheckpointApprovedScenario(repo, request); err == nil || !strings.Contains(err.Error(), "create scenario checkpoint") {
+			t.Fatalf("expected commit creation error, got %v", err)
+		}
+
+		repo = t.TempDir()
+		runGit(t, repo, "init")
+		runGit(t, repo, "config", "user.email", "test@example.invalid")
+		runGit(t, repo, "config", "user.name", "Test User")
+		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta\n")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+		runGit(t, repo, "add", ".gitignore", "checkpoint.go")
+		runGit(t, repo, "commit", "-m", "test: establish state-write baseline")
+		mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+		mustWrite(t, filepath.Join(repo, ".rotta"), "not a directory\n")
+		if _, err := CheckpointApprovedScenario(repo, request); err == nil || !strings.Contains(err.Error(), "create autonomous Phase 3 workflow state directory") {
+			t.Fatalf("expected state-write error, got %v", err)
+		}
+	})
+}
+
+func TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure(t *testing.T) {
+	// REQ-025 → SCN-031 → TestSCN031_StopsAtDirtyBoundaryAndCallbackFailure
+	// Scenario: Continue automatically only from a clean successful checkpoint
+	record := ScenarioCheckpointRecord{ScenarioID: "SCN-031", CommitID: "abc123"}
+
+	t.Run("reports checkpoint status inspection failure", func(t *testing.T) {
+		repoFile := filepath.Join(t.TempDir(), "not-a-repository")
+		mustWrite(t, repoFile, "not a directory\n")
+		if _, err := ContinueFromAutonomousScenarioCheckpoint(repoFile, record, []string{"SCN-032"}, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "check scenario checkpoint boundary") {
+			t.Fatalf("expected checkpoint status inspection error, got %v", err)
+		}
+	})
+
+	t.Run("rejects a dirty checkpoint boundary", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		mustWrite(t, filepath.Join(repo, "unexpected.txt"), "unexpected\n")
+		if _, err := ContinueFromAutonomousScenarioCheckpoint(repo, record, []string{"SCN-032"}, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "non-ignored changes") {
+			t.Fatalf("expected dirty boundary error, got %v", err)
+		}
+	})
+
+	t.Run("returns next-scenario callback failure", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+		runGit(t, repo, "add", ".gitignore")
+		runGit(t, repo, "commit", "-m", "test: ignore workflow state")
+		callbackErr := fmt.Errorf("next scenario failed")
+		if _, err := ContinueFromAutonomousScenarioCheckpoint(repo, record, []string{"SCN-032"}, func(string) error { return callbackErr }); err != callbackErr {
+			t.Fatalf("expected callback error %v, got %v", callbackErr, err)
+		}
+	})
+}
+
+func TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure(t *testing.T) {
+	// REQ-025 → REQ-027 → SCN-032 → TestSCN032_StopsAtDirtyFinalBoundaryAndReviewFailure
+	// Scenario: Send the final checkpointed scenario to review without publishing
+	record := ScenarioCheckpointRecord{ScenarioID: "SCN-032", CommitID: "abc123"}
+
+	t.Run("reports final-boundary status inspection failure", func(t *testing.T) {
+		repoFile := filepath.Join(t.TempDir(), "not-a-repository")
+		mustWrite(t, repoFile, "not a directory\n")
+		if _, err := CompleteAutonomousPhase3Boundary(repoFile, record, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "check final scenario checkpoint boundary") {
+			t.Fatalf("expected final-boundary status inspection error, got %v", err)
+		}
+	})
+
+	t.Run("rejects a dirty final boundary", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		mustWrite(t, filepath.Join(repo, "unexpected.txt"), "unexpected\n")
+		if _, err := CompleteAutonomousPhase3Boundary(repo, record, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "non-ignored changes") {
+			t.Fatalf("expected dirty final boundary error, got %v", err)
+		}
+	})
+
+	t.Run("returns review callback failure", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+		runGit(t, repo, "add", ".gitignore")
+		runGit(t, repo, "commit", "-m", "test: ignore workflow state")
+		callbackErr := fmt.Errorf("review failed")
+		if _, err := CompleteAutonomousPhase3Boundary(repo, record, func() error { return callbackErr }); err != callbackErr {
+			t.Fatalf("expected review callback error %v, got %v", callbackErr, err)
+		}
+	})
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {
