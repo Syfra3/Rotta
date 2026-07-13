@@ -74,7 +74,22 @@ Run full test suite. Capture pass/fail per test. If any test fails → HARD FAIL
 
 ### Step 3 — Coverage
 
-Run coverage on changed files only. Check `changed_line_coverage >= 0.90` and `critical_path_branch >= 0.95`.
+Run coverage on changed files only. Check `changed_line_coverage >= 0.90`.
+
+For the `critical_path_statement_coverage` hard gate, produce reproducible Go
+coverage-profile evidence for every function named in
+`.rotta/quality-gates.yaml#critical_path_functions`:
+
+```sh
+go test ./internal/workflow -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+Record the statement-coverage percentage reported for
+`CheckpointApprovedScenario`, `ContinueFromAutonomousScenarioCheckpoint`, and
+`CompleteAutonomousPhase3Boundary`; each must be `>= 0.95`. Do not infer branch
+coverage from Go coverage output. Mutation testing remains the decision-strength
+gate and is evaluated separately in Step 4.
 
 ### Step 4 — Mutation Testing
 
@@ -105,6 +120,10 @@ judge_decision:
   scenario_traceability: "100%"
   tests_passing: true | false
   changed_line_coverage: 92.4
+  critical_path_statement_coverage:
+    CheckpointApprovedScenario: 100.0
+    ContinueFromAutonomousScenarioCheckpoint: 95.0
+    CompleteAutonomousPhase3Boundary: 100.0
   mutation_score: 84.1
   surviving_mutations:
     - id: MUT-014

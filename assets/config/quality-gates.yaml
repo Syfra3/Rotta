@@ -4,13 +4,20 @@
 
 defaults:
   changed_line_coverage: 0.90
-  critical_path_branch_coverage: 0.95
+  critical_path_statement_coverage: 0.95
   mutation_score: 0.80
   surviving_critical_mutations: 0
   cyclomatic_complexity_max: 10
   circular_dependencies: 0
   forbidden_import_violations: 0
   unauthorized_files_changed: 0
+
+# Critical-path statement coverage is measured from a reproducible Go coverage
+# profile for each named function. Mutation testing remains the decision-strength gate.
+critical_path_functions:
+  - CheckpointApprovedScenario
+  - ContinueFromAutonomousScenarioCheckpoint
+  - CompleteAutonomousPhase3Boundary
 
 # Override thresholds for high-risk domains
 critical_domains:
@@ -39,7 +46,7 @@ severity:
     - scenario_traceability
     - tests_passing
     - changed_line_coverage
-    - critical_path_branch_coverage
+    - critical_path_statement_coverage
     - mutation_score
     - surviving_critical_mutations
     - circular_dependencies
