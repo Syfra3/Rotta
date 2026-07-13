@@ -53,6 +53,46 @@ func TestSCN025_PreparesCleanIsolatedFeatureWorktree(t *testing.T) {
 	}
 }
 
+func TestSCN026_RefusesLoopWithoutScopedHumanApproval(t *testing.T) {
+	// REQ-022 → SCN-026 → TestSCN026_RefusesLoopWithoutScopedHumanApproval
+	// Scenario: Refuse autonomous execution without scoped human approval
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-025\n")
+
+	launched := false
+	committed := false
+	decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{
+		Scope: ContractScope{
+			SpecPath:    "specs/autonomous_scenario_checkpoints.md",
+			FeaturePath: "features/autonomous_scenario_checkpoints.feature",
+			ScenarioID:  "SCN-026",
+		},
+		LaunchScenario: func() error {
+			launched = true
+			return nil
+		},
+		CreateScenarioCommit: func() error {
+			committed = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartAutonomousScenarioLoop returned error: %v", err)
+	}
+	if decision.Approved {
+		t.Fatalf("expected loop to refuse unapproved scenario, got %#v", decision)
+	}
+	if !strings.Contains(decision.Reason, "explicit human Gherkin approval is required") {
+		t.Fatalf("expected explicit human Gherkin approval report, got %q", decision.Reason)
+	}
+	if launched {
+		t.Fatal("expected loop not to launch a scenario agent without scoped approval")
+	}
+	if committed {
+		t.Fatal("expected loop not to create a scenario commit without scoped approval")
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
