@@ -204,12 +204,71 @@ func setupVela(opts Options, result *Result, home, projectPath string) error {
 	result.Files = append(result.Files, vr.Files...)
 	result.VelaInstalled = vr.Installed
 	result.VelaBin = vr.BinPath
+	if len(vr.MCPAvailability) != 0 {
+		markBackedUpVelaConfigurations(vr, result.BackupDir, home)
+		if velaConfigurationNeedsRestore(vr) {
+			if _, err := RestoreBackup(result.BackupDir); err != nil {
+				return fmt.Errorf("restore previous Vela configuration: %w", err)
+			}
+		}
+		recordVelaMCPAvailability(result, vr)
+		return nil
+	}
 	files, err := installVelaFreshnessGuards(opts, home)
 	if err != nil {
 		return fmt.Errorf("vela freshness guard setup: %w", err)
 	}
 	result.Files = append(result.Files, files...)
 	return nil
+}
+
+func markBackedUpVelaConfigurations(result *VelaResult, backupDir, home string) {
+	// Host cleanup precedes Vela setup, so use the transaction backup to
+	// distinguish a missing configuration from one that must be restored.
+	manifest, err := loadBackupManifest(filepath.Join(backupDir, "manifest.json"))
+	if err != nil {
+		return
+	}
+	backedUp := map[string]bool{}
+	for _, path := range manifest.BackedUpPaths {
+		backedUp[path] = true
+	}
+	for host, statuses := range result.MCPAvailability {
+		agent, configDir := velaHostConfig(host, home)
+		if statuses["vela"].Status == MCPStatusSkipped && backedUp[velaMCPConfigPath(agent, configDir)] {
+			statuses["vela"] = preservedVelaMCPStatus()
+		}
+	}
+}
+
+func velaConfigurationNeedsRestore(result *VelaResult) bool {
+	for _, hostStatuses := range result.MCPAvailability {
+		if hostStatuses["vela"].Status == MCPStatusDegraded {
+			return true
+		}
+	}
+	return false
+}
+
+func recordVelaMCPAvailability(result *Result, vela *VelaResult) {
+	for host, statuses := range vela.MCPAvailability {
+		hostResult := result.Hosts[host]
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		status := statuses["vela"]
+		capabilityStatus := HostCapabilityStatusSkipped
+		if status.Status == MCPStatusDegraded {
+			capabilityStatus = HostCapabilityStatusDegraded
+		}
+		hostResult.Capabilities["mcp:vela"] = HostCapability{
+			Name:        "mcp:vela",
+			Status:      capabilityStatus,
+			Reason:      status.Reason,
+			Remediation: status.Remediation,
+		}
+		result.Hosts[host] = hostResult
+	}
 }
 
 func finalizeInstall(result *Result, opts Options, projectPath string) {
@@ -362,7 +421,9 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 			hostResult.Capabilities["mcp:ancora"] = exactMCPCapability("mcp:ancora")
 		}
 		if opts.SetupVela {
-			hostResult.Capabilities["mcp:vela"] = exactMCPCapability("mcp:vela")
+			if _, reported := hostResult.Capabilities["mcp:vela"]; !reported {
+				hostResult.Capabilities["mcp:vela"] = exactMCPCapability("mcp:vela")
+			}
 		}
 		if opts.SetupContext7 {
 			hostResult.Capabilities["mcp:context7"] = context7MCPCapability(host)

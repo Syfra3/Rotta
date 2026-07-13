@@ -60,17 +60,7 @@ func unavailableVelaMCPResult(opts Options, home string) *VelaResult {
 		} else if err != nil {
 			continue
 		}
-		normalized, ambiguous, err := serializeVelaMCPCommand(agent, configDir)
-		if err != nil {
-			continue
-		}
-		if normalized {
-			result.NormalizedMCPEntries = append(result.NormalizedMCPEntries, path)
-		}
-		if ambiguous {
-			result.SkippedAmbiguousMCPEntries = append(result.SkippedAmbiguousMCPEntries, path)
-		}
-		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": unavailableVelaMCPStatus(MCPStatusDegraded)}
+		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": preservedVelaMCPStatus()}
 	}
 	return result
 }
@@ -79,6 +69,15 @@ func unavailableVelaMCPStatus(status MCPStatus) MCPStatusResult {
 	return MCPStatusResult{
 		Status:          status,
 		Reason:          "command availability",
+		Remediation:     "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
+		RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
+	}
+}
+
+func preservedVelaMCPStatus() MCPStatusResult {
+	return MCPStatusResult{
+		Status:          MCPStatusDegraded,
+		Reason:          "previous configuration preserved but not newly validated",
 		Remediation:     "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
 		RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
 	}
