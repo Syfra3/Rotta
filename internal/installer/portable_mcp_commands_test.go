@@ -70,6 +70,48 @@ esac
 	}
 }
 
+// REQ-016 → SCN-224 → TestSCN224_ReinstallNormalizesManagedVelaCellarCommand
+func TestSCN224_ReinstallNormalizesManagedVelaCellarCommand(t *testing.T) {
+	// Scenario: Normalize a stale managed Homebrew MCP executable during reinstall
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	project := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+	writeExecutable(t, filepath.Join(bin, "vela"), "#!/bin/sh\nexit 0\n")
+
+	configPath := filepath.Join(home, ".claude", "vela-mcp.json")
+	writeTestFile(t, configPath, []byte(`{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela","args":["mcp"]}`))
+
+	first, err := SetupVela(Options{Target: "claude-code"}, home, project)
+	if err != nil {
+		t.Fatalf("first Vela reinstall: %v", err)
+	}
+	if got := first.NormalizedMCPEntries; len(got) != 1 || got[0] != configPath {
+		t.Fatalf("expected normalized Vela entry %q, got %v", configPath, got)
+	}
+	if got := serializedMCPCommand(t, mustReadFile(t, configPath), ""); got != "vela" {
+		t.Fatalf("expected normalized Vela command vela, got %q", got)
+	}
+
+	second, err := SetupVela(Options{Target: "claude-code"}, home, project)
+	if err != nil {
+		t.Fatalf("second Vela reinstall: %v", err)
+	}
+	if len(second.NormalizedMCPEntries) != 0 {
+		t.Fatalf("expected idempotent reinstall to report no command-field change, got %v", second.NormalizedMCPEntries)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
+}
+
 func serializedMCPCommand(t *testing.T, data []byte, server string) string {
 	t.Helper()
 	var config map[string]interface{}
