@@ -88,16 +88,12 @@ func addClaudeCodePermissions(settingsPath string, opts Options) error {
 }
 
 func cleanClaudeCodePermissions(settingsPath string) error {
-	settings := map[string]interface{}{}
-	data, err := readPrivateFile(settingsPath)
+	settings, err := readClaudeCodeSettings(settingsPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("cannot read settings.json: %w", err)
+		return err
 	}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return fmt.Errorf("cannot parse settings.json: %w", err)
+	if settings == nil {
+		return nil
 	}
 	permissions, _ := settings["permissions"].(map[string]interface{})
 	if permissions == nil {
@@ -108,13 +104,32 @@ func cleanClaudeCodePermissions(settingsPath string) error {
 		return nil
 	}
 
-	owned := map[string]bool{}
-	for _, entry := range selectedClaudeCodePermissions(Options{InstallSpec: true, InstallImpl: true, InstallReview: true}) {
-		owned[entry] = true
+	permissions["allow"] = removeOwnedClaudeCodePermissions(allow)
+	settings["permissions"] = permissions
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cannot marshal settings.json: %w", err)
 	}
-	for _, entry := range legacyCleanClaudeCodePermissions() {
-		owned[entry] = true
+	return writePrivateFile(settingsPath, out, 0o600)
+}
+
+func readClaudeCodeSettings(settingsPath string) (map[string]interface{}, error) {
+	settings := map[string]interface{}{}
+	data, err := readPrivateFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("cannot read settings.json: %w", err)
 	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, fmt.Errorf("cannot parse settings.json: %w", err)
+	}
+	return settings, nil
+}
+
+func removeOwnedClaudeCodePermissions(allow []interface{}) []interface{} {
+	owned := allOwnedClaudeCodePermissions()
 	kept := allow[:0]
 	for _, entry := range allow {
 		value, _ := entry.(string)
@@ -122,13 +137,18 @@ func cleanClaudeCodePermissions(settingsPath string) error {
 			kept = append(kept, entry)
 		}
 	}
-	permissions["allow"] = kept
-	settings["permissions"] = permissions
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("cannot marshal settings.json: %w", err)
+	return kept
+}
+
+func allOwnedClaudeCodePermissions() map[string]bool {
+	owned := map[string]bool{}
+	for _, entry := range selectedClaudeCodePermissions(Options{InstallSpec: true, InstallImpl: true, InstallReview: true}) {
+		owned[entry] = true
 	}
-	return writePrivateFile(settingsPath, out, 0o600)
+	for _, entry := range legacyCleanClaudeCodePermissions() {
+		owned[entry] = true
+	}
+	return owned
 }
 
 func selectedClaudeCodePermissions(opts Options) []string {

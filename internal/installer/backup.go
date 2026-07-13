@@ -166,8 +166,25 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 	if err != nil {
 		return "", err
 	}
+	manifest := newBackupManifest(opts, timestamp, projectPath)
+	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
+		return "", err
+	}
+	if err := backupInstallPaths(&manifest, backupDir, home, backupScope(opts, home, projectPath)); err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := writePrivateFile(filepath.Join(backupDir, "manifest.json"), data, 0o600); err != nil {
+		return "", err
+	}
+	return backupDir, nil
+}
 
-	manifest := backupManifest{
+func newBackupManifest(opts Options, timestamp, projectPath string) backupManifest {
+	return backupManifest{
 		Version:     backupManifestVersion,
 		Timestamp:   timestamp,
 		ProjectPath: projectPath,
@@ -184,41 +201,29 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 		},
 		Status: "complete",
 	}
+}
 
-	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
-		return "", err
-	}
-
-	for _, path := range backupScope(opts, home, projectPath) {
+func backupInstallPaths(manifest *backupManifest, backupDir, home string, paths []string) error {
+	for _, path := range paths {
 		info, statErr := os.Stat(path)
 		if statErr != nil {
 			if os.IsNotExist(statErr) {
 				manifest.MissingPaths = append(manifest.MissingPaths, path)
 				continue
 			}
-			return "", statErr
+			return statErr
 		}
-
 		dst := backupDestination(backupDir, home, path)
 		if info.IsDir() {
 			if err := copyDir(path, dst); err != nil {
-				return "", err
+				return err
 			}
 		} else if err := copyFile(path, dst, info.Mode()); err != nil {
-			return "", err
+			return err
 		}
 		manifest.BackedUpPaths = append(manifest.BackedUpPaths, path)
 	}
-
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := writePrivateFile(filepath.Join(backupDir, "manifest.json"), data, 0o600); err != nil {
-		return "", err
-	}
-
-	return backupDir, nil
+	return nil
 }
 
 func nextBackupDir(home string) (string, string, error) {
@@ -243,61 +248,42 @@ func nextBackupDir(home string) (string, string, error) {
 }
 
 func backupScope(opts Options, home, projectPath string) []string {
-	paths := []string{
+	paths := append([]string{
 		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
 		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
-	}
-
-	paths = append(paths, filepath.Join(projectPath, ".vela", "graph.db"))
-
-	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
-		paths = append(paths,
-			filepath.Join(home, ".config", "opencode", "opencode.json"),
-			filepath.Join(home, ".config", "opencode", "opencode.jsonc"),
-			filepath.Join(home, ".config", "opencode", "instructions.md"),
-			filepath.Join(home, ".config", "opencode", "plugin", "rotta-vela-freshness-guard.js"),
-			filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator"),
-			filepath.Join(home, ".config", "opencode", "skills", "rotta-spec"),
-			filepath.Join(home, ".config", "opencode", "skills", "rotta-impl"),
-			filepath.Join(home, ".config", "opencode", "skills", "rotta-review"),
-			filepath.Join(home, ".config", "opencode", "skills", "clean-orchestrator"),
-			filepath.Join(home, ".config", "opencode", "skills", "clean-spec"),
-			filepath.Join(home, ".config", "opencode", "skills", "clean-impl"),
-			filepath.Join(home, ".config", "opencode", "skills", "clean-review"),
-			filepath.Join(home, ".config", "opencode", "skills", "bob-orchestrator"),
-			filepath.Join(home, ".config", "opencode", "skills", "bob-spec"),
-			filepath.Join(home, ".config", "opencode", "skills", "bob-impl"),
-			filepath.Join(home, ".config", "opencode", "skills", "bob-review"),
-		)
-	}
-
-	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
-		paths = append(paths,
-			filepath.Join(home, ".claude", "settings.json"),
-			filepath.Join(home, ".claude", "hooks", "rotta-vela-freshness-guard.sh"),
-			filepath.Join(home, ".claude", "skills", "rotta"),
-			filepath.Join(home, ".claude", "skills", "clean-workflow"),
-			filepath.Join(home, ".claude", "mcp", "ancora.json"),
-			filepath.Join(home, ".claude", "vela-mcp.json"),
-			filepath.Join(home, ".claude", "vela-instructions.md"),
-		)
-	}
-
-	if opts.Target == "codex" || opts.Target == "all" {
-		paths = append(paths,
-			filepath.Join(home, ".codex", "AGENTS.md"),
-			filepath.Join(home, ".codex", "config.toml"),
-		)
-	}
-
+	}, filepath.Join(projectPath, ".vela", "graph.db"))
+	paths = append(paths, targetBackupPaths(opts.Target, home)...)
 	if opts.SetupContext7 {
-		paths = appendUniquePaths(paths,
-			filepath.Join(home, ".config", "opencode", "opencode.json"),
-			filepath.Join(home, ".claude", "mcp", "context7.json"),
-		)
+		paths = appendUniquePaths(paths, filepath.Join(home, ".config", "opencode", "opencode.json"), filepath.Join(home, ".claude", "mcp", "context7.json"))
 	}
-
 	return paths
+}
+
+func targetBackupPaths(target, home string) []string {
+	var paths []string
+	if target == "opencode" || target == "both" || target == "all" {
+		paths = append(paths, openCodeBackupPaths(home)...)
+	}
+	if target == "claude-code" || target == "both" || target == "all" {
+		paths = append(paths, claudeCodeBackupPaths(home)...)
+	}
+	if target == "codex" || target == "all" {
+		paths = append(paths, filepath.Join(home, ".codex", "AGENTS.md"), filepath.Join(home, ".codex", "config.toml"))
+	}
+	return paths
+}
+
+func openCodeBackupPaths(home string) []string {
+	root := filepath.Join(home, ".config", "opencode")
+	paths := []string{filepath.Join(root, "opencode.json"), filepath.Join(root, "opencode.jsonc"), filepath.Join(root, "instructions.md"), filepath.Join(root, "plugin", "rotta-vela-freshness-guard.js")}
+	for _, skill := range append(append([]string{}, []string{"rotta-orchestrator", "rotta-spec", "rotta-impl", "rotta-review"}...), append(legacyCleanOpenCodeAgentKeys, legacyBobOpenCodeAgentKeys...)...) {
+		paths = append(paths, filepath.Join(root, "skills", skill))
+	}
+	return paths
+}
+func claudeCodeBackupPaths(home string) []string {
+	root := filepath.Join(home, ".claude")
+	return []string{filepath.Join(root, "settings.json"), filepath.Join(root, "hooks", "rotta-vela-freshness-guard.sh"), filepath.Join(root, "skills", "rotta"), filepath.Join(root, "skills", "clean-workflow"), filepath.Join(root, "mcp", "ancora.json"), filepath.Join(root, "vela-mcp.json"), filepath.Join(root, "vela-instructions.md")}
 }
 
 func appendUniquePaths(paths []string, candidates ...string) []string {
