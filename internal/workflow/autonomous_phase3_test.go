@@ -216,6 +216,42 @@ func TestSCN029_HaltsForUntrackedNonIgnoredFile(t *testing.T) {
 	}
 }
 
+func TestSCN030_DoesNotCheckpointWhenValidationFails(t *testing.T) {
+	// REQ-023 → REQ-025 → SCN-030 → TestSCN030_DoesNotCheckpointWhenValidationFails
+	// Scenario: Do not advance when validation or local commit creation fails
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "internal/workflow/checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-030",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      false,
+		ValidationPassed: true,
+	})
+	if err == nil {
+		t.Fatal("expected checkpoint evaluation to halt when required tests fail")
+	}
+	if !strings.Contains(err.Error(), "required tests") {
+		t.Fatalf("expected failed validation report, got %q", err)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "1" {
+		t.Fatalf("expected no scenario commit, got %s commits", commits)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "autonomous-phase3-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected no checkpoint state to be written, got %v", err)
+	}
+	if status := gitOutput(t, repo, "status", "--short"); status != "M internal/workflow/checkpoint.go" {
+		t.Fatalf("expected scenario change to remain uncheckpointed, got %q", status)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)

@@ -63,6 +63,16 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 }
 
 func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointRequest) (ScenarioCheckpointRecord, error) {
+	if !request.TDDComplete {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("strict Red, Green, and Refactor evidence is required before checkpointing")
+	}
+	if !request.TestsPassed {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("required tests must pass before checkpointing")
+	}
+	if !request.ValidationPassed {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("active objective validation must pass before checkpointing")
+	}
+
 	untracked, err := untrackedNonIgnoredPaths(repoRoot)
 	if err != nil {
 		return ScenarioCheckpointRecord{}, err
