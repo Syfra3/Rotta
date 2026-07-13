@@ -83,6 +83,7 @@ func memoryInstructions(enabled bool) string {
 - Continue from workspace and installed-system OpenSpec workflow artifacts as the durable source of truth and state: applicable ` + "`specs/`" + `, ` + "`features/`" + `, ` + "`.rotta/`" + `, reports, approval markers, and workflow configuration.
 - Do not fabricate recovered state, reconstruct authoritative content from Ancora, overwrite reviewed workspace artifacts from memory, and do not block workflow progress while the artifacts are available.
 - Explicitly report the active Ancora fallback state, failure category, and a safe retry or recovery action; retry future pointer/state operations only after Ancora is available again.
+- While Ancora fallback is active, preserve the canonical phase order, explicit human approval gate, TDD preconditions, quality gates, and workspace/OpenSpec source-of-truth precedence; do not bypass a required human approval or quality gate.
 `
 	}
 	return `### Ancora Memory Disabled
