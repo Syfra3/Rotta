@@ -93,7 +93,22 @@ gate and is evaluated separately in Step 4.
 
 ### Step 4 — Mutation Testing
 
-Run mutation tests on changed modules only (not full codebase). Inject: `==` → `!=`, `&&` → `||`, `>` → `>=`, boundary conditions. Record surviving mutations with file, line, and mapped SCN ID.
+Read `.rotta/quality-gates.yaml#mutation_testing`; do not invent a runner or
+scope. For each changed, non-exempt Go package, substitute its repository-root
+package path into `changed_module_target` and run:
+
+```sh
+<runner_command> ./<changed-module>
+```
+
+For example, the changed workflow package is run as `go-mutesting
+./internal/workflow`, not `go-mutesting ./...`. Parse the score with
+`score_pattern` (the installed runner emits `The mutation score is <score>`).
+Record every `FAIL` mutation as a survivor with its file, line when available,
+and mapped SCN ID. The gate passes only when the parsed score meets
+`score_threshold` and survivors in critical changed packages do not exceed
+`critical_survivors_max` (zero). Missing runner, output, score, or survivor
+evidence is a HARD `mutation_score`/`surviving_critical_mutations` failure.
 
 ### Step 5 — Architecture
 

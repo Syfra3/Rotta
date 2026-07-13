@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestInstallConfigGeneratesActionableCriticalPathStatementCoverageGate(t *testing.T) {
+func TestInstallConfigGeneratesActionableCoverageAndMutationGates(t *testing.T) {
 	projectPath := t.TempDir()
 
 	if _, err := installConfig(projectPath); err != nil {
@@ -26,6 +26,11 @@ func TestInstallConfigGeneratesActionableCriticalPathStatementCoverageGate(t *te
 		"CheckpointApprovedScenario",
 		"ContinueFromAutonomousScenarioCheckpoint",
 		"CompleteAutonomousPhase3Boundary",
+		"runner_command: go-mutesting",
+		"changed_module_target: ./<changed-module>",
+		"score_pattern: 'The mutation score is ([0-9]+(?:\\.[0-9]+)?)'",
+		"score_threshold: 0.80",
+		"critical_survivors_max: 0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated quality gates missing %q:\n%s", want, got)
