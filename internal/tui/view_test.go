@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Syfra3/Rotta/internal/installer"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -91,6 +93,68 @@ func TestViewConfirmRendersAncoraVelaCombinations(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSCN222_ViewSuccessReportsMCPInstallStatusAndLaterRuntimeFallback(t *testing.T) {
+	// REQ-014, REQ-011, REQ-012, REQ-013 → SCN-222 → TestSCN222_ViewSuccessReportsMCPInstallStatusAndLaterRuntimeFallback
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	model := New()
+	model.Screen = ScreenSuccess
+	model.InstallResult = &installer.Result{MCPStatuses: map[string]map[string]installer.MCPStatusResult{
+		"codex": {
+			"context7": {
+				Status:      installer.MCPStatusDegraded,
+				Reason:      "Codex has no observable Context7 health check.",
+				Remediation: "Verify Context7 from Codex after install.",
+				RuntimeFallback: installer.MCPRuntimeFallback{
+					State: installer.MCPRuntimeFallbackNotObserved,
+				},
+			},
+		},
+	}}
+
+	got := model.viewSuccess()
+	for _, want := range []string{
+		"MCP status",
+		"codex / context7: degraded",
+		"Codex has no observable Context7 health check.",
+		"Verify Context7 from Codex after install.",
+		"Runtime fallback: not observed during installation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSCN222_ViewErrorRetainsFailedMCPStatus(t *testing.T) {
+	// REQ-014 → SCN-222 → TestSCN222_ViewErrorRetainsFailedMCPStatus
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	model := New()
+	result := &installer.Result{MCPStatuses: map[string]map[string]installer.MCPStatusResult{
+		"opencode": {
+			"context7": {
+				Status:      installer.MCPStatusFailed,
+				Reason:      "MCP health check failed during startup.",
+				Remediation: "Ensure the MCP command starts before rerunning Rotta.",
+				RuntimeFallback: installer.MCPRuntimeFallback{
+					State: installer.MCPRuntimeFallbackNotObserved,
+				},
+			},
+		},
+	}}
+	updated, _ := model.Update(installDoneMsg{result: result, err: errors.New("context7 health: startup")})
+	got := updated.(Model).viewError()
+	for _, want := range []string{
+		"opencode / context7: failed",
+		"MCP health check failed during startup.",
+		"Ensure the MCP command starts before rerunning Rotta.",
+		"Runtime fallback: not observed during installation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
 	}
 }
 

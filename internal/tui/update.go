@@ -35,6 +35,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case installDoneMsg:
 		if msg.err != nil {
+			m.InstallResult = msg.result
 			m.InstallError = msg.err.Error()
 			m.Screen = ScreenError
 		} else {
