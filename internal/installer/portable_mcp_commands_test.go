@@ -189,6 +189,32 @@ func TestSCN227_SkipsNewMCPConfigurationWhenCommandUnavailable(t *testing.T) {
 	}
 }
 
+// REQ-017, REQ-020 → SCN-231 → TestSCN231_PreservesExistingMCPConfigurationWhenCommandUnavailable
+func TestSCN231_PreservesExistingMCPConfigurationWhenCommandUnavailable(t *testing.T) {
+	// Scenario: Preserve an existing MCP configuration when command installation fails
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	configPath := filepath.Join(home, ".claude", "vela-mcp.json")
+	previous := []byte(`{"type":"stdio","command":"vela","args":["mcp"]}`)
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "empty-bin"))
+	writeTestFile(t, configPath, previous)
+
+	result, err := Install(Options{Target: "claude-code", ProjectPath: project, SetupVela: true})
+	if err != nil {
+		t.Fatalf("reinstall with unavailable Vela command: %v", err)
+	}
+	if got := mustReadFile(t, configPath); string(got) != string(previous) {
+		t.Fatalf("expected previous MCP configuration unchanged, got %s", got)
+	} else if strings.Contains(string(got), "/") {
+		t.Fatalf("expected no absolute fallback executable path, got %s", got)
+	}
+	availability := result.MCPStatuses["claude-code"]["vela"]
+	if availability.Status != MCPStatusDegraded || availability.Reason != "previous configuration preserved but not newly validated" || availability.Remediation == "" {
+		t.Fatalf("expected preserved-but-unvalidated status with remediation, got %#v", availability)
+	}
+}
+
 // REQ-018 → SCN-228 → TestSCN228_OpenCodeReportsUnverifiedHostCommandResolution
 func TestSCN228_OpenCodeReportsUnverifiedHostCommandResolution(t *testing.T) {
 	// Scenario: Distinguish OpenCode PATH uncertainty from installer command availability
