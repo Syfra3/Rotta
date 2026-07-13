@@ -56,6 +56,18 @@ type AutonomousPhase3BoundaryDecision struct {
 	FinalHumanApproval bool
 }
 
+type AutonomousWorkflowCompletionReport struct {
+	HumanMayPushOnce bool
+	Message          string
+}
+
+func ReportAutonomousWorkflowCompletion() AutonomousWorkflowCompletionReport {
+	return AutonomousWorkflowCompletionReport{
+		HumanMayPushOnce: true,
+		Message:          "workflow and Phase 4 review are complete; a human may manually push the feature branch once",
+	}
+}
+
 func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoopRequest) (AutonomousScenarioLoopDecision, error) {
 	gate, err := EvaluateImplementationGate(repoRoot, request.Scope)
 	if err != nil {
