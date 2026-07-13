@@ -54,7 +54,10 @@ func unavailableVelaMCPResult(opts Options, home string) *VelaResult {
 			continue
 		}
 		path := velaMCPConfigPath(agent, configDir)
-		if _, err := os.Stat(path); err != nil {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": unavailableVelaMCPStatus(MCPStatusSkipped)}
+			continue
+		} else if err != nil {
 			continue
 		}
 		normalized, ambiguous, err := serializeVelaMCPCommand(agent, configDir)
@@ -67,13 +70,18 @@ func unavailableVelaMCPResult(opts Options, home string) *VelaResult {
 		if ambiguous {
 			result.SkippedAmbiguousMCPEntries = append(result.SkippedAmbiguousMCPEntries, path)
 		}
-		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": {
-			Status: MCPStatusDegraded, Reason: "command availability",
-			Remediation:     "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
-			RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
-		}}
+		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": unavailableVelaMCPStatus(MCPStatusDegraded)}
 	}
 	return result
+}
+
+func unavailableVelaMCPStatus(status MCPStatus) MCPStatusResult {
+	return MCPStatusResult{
+		Status:          status,
+		Reason:          "command availability",
+		Remediation:     "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
+		RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
+	}
 }
 
 func velaHostConfig(host, home string) (agent, configDir string) {

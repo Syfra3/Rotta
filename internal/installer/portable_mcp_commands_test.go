@@ -167,29 +167,25 @@ printf '{"command":"/usr/local/bin/vela","args":["serve","--private"]}' > "$HOME
 	}
 }
 
-// REQ-017 → SCN-227 → TestSCN227_ReinstallReportsUnavailableManagedCommand
-func TestSCN227_ReinstallReportsUnavailableManagedCommand(t *testing.T) {
-	// Scenario: Report an unavailable installer command without serializing a fallback path
+// REQ-017 → SCN-227 → TestSCN227_SkipsNewMCPConfigurationWhenCommandUnavailable
+func TestSCN227_SkipsNewMCPConfigurationWhenCommandUnavailable(t *testing.T) {
+	// Scenario: Skip a new MCP configuration when command installation fails
 	home := t.TempDir()
 	project := filepath.Join(home, "project")
 	configPath := filepath.Join(home, ".claude", "vela-mcp.json")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", filepath.Join(home, "empty-bin"))
-	writeTestFile(t, configPath, []byte(`{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela","args":["mcp"]}`))
 
 	result, err := SetupVela(Options{Target: "claude-code"}, home, project)
 	if err != nil {
-		t.Fatalf("reinstall with unavailable Vela command: %v", err)
+		t.Fatalf("install with unavailable Vela command: %v", err)
 	}
-	if got := serializedMCPCommand(t, mustReadFile(t, configPath), ""); got != "vela" {
-		t.Fatalf("expected stale command to normalize to bare vela, got %q", got)
-	}
-	if strings.Contains(string(mustReadFile(t, configPath)), "/home/linuxbrew/.linuxbrew/") {
-		t.Fatal("expected no absolute fallback executable path")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected no new Vela MCP configuration, stat error: %v", err)
 	}
 	availability := result.MCPAvailability["claude-code"]["vela"]
-	if availability.Status != MCPStatusDegraded || availability.Reason != "command availability" || availability.Remediation == "" {
-		t.Fatalf("expected degraded command availability with remediation, got %#v", availability)
+	if availability.Status != MCPStatusSkipped || availability.Reason != "command availability" || availability.Remediation == "" {
+		t.Fatalf("expected skipped command availability with remediation, got %#v", availability)
 	}
 }
 
