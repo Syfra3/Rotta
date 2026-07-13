@@ -51,6 +51,11 @@ type AutonomousPhase3WorkflowState struct {
 	NextScenario       string            `json:"next_scenario"`
 }
 
+type AutonomousPhase3BoundaryDecision struct {
+	Phase              string
+	FinalHumanApproval bool
+}
+
 func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoopRequest) (AutonomousScenarioLoopDecision, error) {
 	gate, err := EvaluateImplementationGate(repoRoot, request.Scope)
 	if err != nil {
@@ -177,6 +182,31 @@ func ContinueFromAutonomousScenarioCheckpoint(repoRoot string, record ScenarioCh
 		return AutonomousPhase3WorkflowState{}, err
 	}
 	return state, nil
+}
+
+func CompleteAutonomousPhase3Boundary(repoRoot string, record ScenarioCheckpointRecord, startReview func() error) (AutonomousPhase3BoundaryDecision, error) {
+	status := exec.Command("git", "status", "--short")
+	status.Dir = repoRoot
+	output, err := status.CombinedOutput()
+	if err != nil {
+		return AutonomousPhase3BoundaryDecision{}, fmt.Errorf("check final scenario checkpoint boundary: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if strings.TrimSpace(string(output)) != "" {
+		return AutonomousPhase3BoundaryDecision{}, fmt.Errorf("final scenario checkpoint boundary has non-ignored changes: %s", strings.TrimSpace(string(output)))
+	}
+
+	state := AutonomousPhase3WorkflowState{
+		Checkpoints:        map[string]string{record.ScenarioID: record.CommitID},
+		CompletedScenario:  record.ScenarioID,
+		RemainingScenarios: []string{},
+	}
+	if err := writeAutonomousPhase3WorkflowStateValue(repoRoot, state); err != nil {
+		return AutonomousPhase3BoundaryDecision{}, err
+	}
+	if err := startReview(); err != nil {
+		return AutonomousPhase3BoundaryDecision{}, err
+	}
+	return AutonomousPhase3BoundaryDecision{Phase: "Phase 4 review"}, nil
 }
 
 func writeAutonomousPhase3WorkflowStateValue(repoRoot string, state AutonomousPhase3WorkflowState) error {

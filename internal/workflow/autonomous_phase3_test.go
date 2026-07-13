@@ -295,6 +295,55 @@ func TestSCN031_ContinuesFromCleanSuccessfulCheckpoint(t *testing.T) {
 	}
 }
 
+func TestSCN032_SendsFinalCheckpointToReviewWithoutPublishing(t *testing.T) {
+	// REQ-025 → REQ-027 → SCN-032 → TestSCN032_SendsFinalCheckpointToReviewWithoutPublishing
+	// Scenario: Send the final checkpointed scenario to review without publishing
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", ".gitignore", "internal/workflow/checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	record, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-032",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error: %v", err)
+	}
+
+	reviewStarted := false
+	decision, err := CompleteAutonomousPhase3Boundary(repo, record, func() error {
+		reviewStarted = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("CompleteAutonomousPhase3Boundary returned error: %v", err)
+	}
+	if !reviewStarted || decision.Phase != "Phase 4 review" {
+		t.Fatalf("expected final checkpoint to advance to Phase 4 review, got %#v", decision)
+	}
+	if decision.FinalHumanApproval {
+		t.Fatalf("expected Phase 4 review gate, not final human approval, got %#v", decision)
+	}
+	if state := gitOutput(t, repo, "status", "--short"); state != "" {
+		t.Fatalf("expected final checkpoint boundary to remain clean, got %q", state)
+	}
+	if remotes := gitOutput(t, repo, "remote"); remotes != "" {
+		t.Fatalf("expected no remote branch publication, got remotes %q", remotes)
+	}
+	if tags := gitOutput(t, repo, "tag"); tags != "" {
+		t.Fatalf("expected no tag publication, got tags %q", tags)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
