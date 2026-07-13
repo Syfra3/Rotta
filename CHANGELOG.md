@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/Syfra3/Rotta/compare/v1.6.2...v1.7.0) (2026-07-13)
+
+
+### Features
+
+* **workflow:** add MCP fallbacks and autonomous TDD checkpoints ([e05917a](https://github.com/Syfra3/Rotta/commit/e05917ab37d8be963381d63a279b12560d1bd18c))
+
 ## [1.6.2](https://github.com/Syfra3/Rotta/compare/v1.6.1...v1.6.2) (2026-07-13)
 
 
