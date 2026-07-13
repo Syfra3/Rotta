@@ -11,15 +11,24 @@ func TestSCN218_WorkflowArtifactsRejectEscapingRepositoryPaths(t *testing.T) {
 	// REQ-011 → SCN-218 → TestSCN218_WorkflowArtifactsRejectEscapingRepositoryPaths
 	// Scenario: Continue from OpenSpec workflow artifacts when Ancora is unavailable
 	repo := t.TempDir()
-	for _, path := range []string{"../outside", "/outside"} {
+	assertRepositoryPathsRejected(t, repo, "../outside", "/outside")
+	assertRepositoryArtifactAccess(t, repo)
+}
+
+func assertRepositoryPathsRejected(t *testing.T, repo string, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
 		if _, err := readRepositoryFile(repo, path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("expected %q to be rejected, got %v", path, err)
 		}
 		if _, closeFile, err := openRepositoryFile(repo, path); !errors.Is(err, os.ErrNotExist) || closeFile != nil {
-			t.Fatalf("expected open of %q to be rejected, got non-nil close function=%t err=%v", path, closeFile != nil, err)
+			t.Fatalf("expected open of %q to be rejected, got close=%t err=%v", path, closeFile != nil, err)
 		}
 	}
+}
 
+func assertRepositoryArtifactAccess(t *testing.T, repo string) {
+	t.Helper()
 	path := filepath.Join(repo, "features", "approved.feature")
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
@@ -31,6 +40,11 @@ func TestSCN218_WorkflowArtifactsRejectEscapingRepositoryPaths(t *testing.T) {
 	if err != nil || string(data) != "Feature: approved\n" {
 		t.Fatalf("expected in-repository artifact read, data=%q err=%v", data, err)
 	}
+	assertMissingRepositoryArtifacts(t, repo)
+}
+
+func assertMissingRepositoryArtifacts(t *testing.T, repo string) {
+	t.Helper()
 	if _, err := readRepositoryFile(repo, "features/missing.feature"); err == nil {
 		t.Fatal("expected missing in-repository artifact to be reported")
 	}
