@@ -39,14 +39,22 @@ Feature: Portable Rotta-managed MCP executable commands
     Then Rotta leaves that entry unchanged
     And Rotta reports that normalization was skipped because ownership is ambiguous
 
-  @SCN-227 @REQ-017
-  Scenario: Report an unavailable installer command without serializing a fallback path
-    Given a selected Rotta-managed MCP command is unavailable in Rotta's current environment
-    And an existing proven Rotta-managed entry uses a stale absolute executable path
-    When the user reinstalls Rotta
-    Then Rotta normalizes the managed command to its canonical bare name
+@SCN-227 @REQ-017
+  Scenario: Skip a new MCP configuration when command installation fails
+    Given no MCP configuration exists for the selected agent and server
+    And installation or validation of the selected Rotta-managed command fails
+    When the user installs Rotta for that agent
+    Then Rotta does not create the MCP configuration
+    And Rotta reports the server as skipped for command availability with remediation
+
+  @SCN-231 @REQ-017 @REQ-020
+  Scenario: Preserve an existing MCP configuration when command installation fails
+    Given the selected agent has an existing MCP configuration
+    And installation or validation of the selected Rotta-managed command fails
+    When the user reinstalls Rotta for that agent
+    Then Rotta restores the agent's previous MCP configuration unchanged
+    And Rotta reports that the previous configuration was preserved but not newly validated
     And Rotta does not serialize an absolute fallback executable path
-    And Rotta reports the server as degraded or failed for command availability with remediation
 
   @SCN-228 @REQ-018
   Scenario: Distinguish OpenCode PATH uncertainty from installer command availability
@@ -74,3 +82,21 @@ Feature: Portable Rotta-managed MCP executable commands
     When the user reinstalls Rotta
     Then every proven Rotta-managed MCP executable command remains a canonical bare name
     And Rotta does not introduce a versioned Cellar path or other absolute binary location
+
+  @SCN-232 @REQ-020
+  Scenario: Roll back only the failing coding agent installation
+    Given Claude Code has completed a successful Rotta MCP installation
+    And OpenCode has its pre-installation configuration backup
+    When OpenCode setup fails after changing one of its configuration files
+    Then Rotta restores OpenCode's complete pre-installation configuration
+    And Rotta preserves the completed Claude Code installation
+    And Rotta reports the OpenCode failure with remediation
+
+  @SCN-233 @REQ-020
+  Scenario: Roll back partial configuration changes within one coding agent
+    Given a coding agent setup writes multiple Rotta-managed configuration files
+    And setup fails before committing the agent transaction
+    When Rotta handles the setup failure
+    Then Rotta restores every affected file for that agent to its pre-installation state
+    And Rotta removes files that did not exist before the transaction
+    And Rotta reports the agent installation as failed
