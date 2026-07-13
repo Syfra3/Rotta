@@ -4,6 +4,8 @@
 - Failure mode 1: Rotta claims host parity but writes OpenCode-shaped files or MCP settings into Claude Code or Codex locations, leaving users with generated artifacts that are syntactically valid files but ignored by the target host.
 - Failure mode 2: Compatibility work fragments Rotta's workflow into host-specific behavior, causing commands, lifecycle artifacts, MCP availability, or phase gates to diverge silently between Claude Code, OpenCode, and Codex.
 - Failure mode 3: Installers mutate user-level host configuration without backups, ownership markers, or idempotency, producing duplicate MCP entries, broken personal settings, dirty project worktrees, or unrecoverable partial installs.
+- Failure mode 4: An optional Ancora outage is treated as a workflow outage, so an agent cannot recover state, save a pointer, or continue a human-approved phase even though the reviewed workspace artifacts remain available.
+- Failure mode 5: Vela or Context7 failure is hidden, causing unbounded source exploration, invented library/API details, or a false claim that documentation or graph evidence informed a decision.
 
 ## Hidden Assumptions
 - Claude Code, OpenCode, and Codex each provide a supported way to consume generated instructions and at least some combination of agent, skill, command, or MCP configuration files; where a host lacks an exact primitive, Rotta can generate the closest supported equivalent and disclose the limitation.
@@ -11,6 +13,8 @@
 - Workspace files remain the source of truth for hard specs, features, reports, and lifecycle artifacts; Ancora or any other memory MCP stores compact pointers/status only.
 - Generated Rotta lifecycle artifacts such as `.rotta/`, `features/`, `reports/`, and `specs/` are not committed by default unless the user explicitly chooses to do so.
 - Existing OpenCode and Claude Code support from recent Context7 installer work is expected behavior and must not regress while adding Codex and formal host abstraction.
+- The installed OpenSpec workflow artifacts can preserve Rotta's phase, approval, gate, and source-of-truth rules when an optional MCP is unavailable; no MCP owns authoritative contract content.
+- A detected runtime MCP failure can be surfaced by generated host rules and workflow status even when a prior installer run reported a healthy configuration.
 
 ## Alternatives Considered
 | Approach | Reason Rejected |
@@ -20,9 +24,12 @@
 | Generate only generic markdown instructions and require users to configure agents/MCPs manually | Avoids host mutation risk but fails the explicit scope covering installation, generated host files, MCP configuration, and command/workflow preservation. |
 | Normalize all hosts to OpenCode's file layout | Simple internally, but unsafe because Claude Code and Codex may ignore or misinterpret OpenCode-specific locations and schema. |
 | Add Claude Code and Codex but postpone host-specific limitations | Hides real parity gaps and prevents users from knowing which Rotta capabilities are exact, adapted, degraded, or unsupported per host. |
+| Stop the workflow whenever any optional MCP is unavailable | Makes an advisory or pointer-only integration a single point of failure and contradicts the workspace-source-of-truth model. |
+| Replace a failed MCP with another remote MCP | Introduces a second availability and trust dependency instead of using the durable workflow artifacts and bounded local exploration already available. |
+| Continue silently after an MCP failure | Hides reduced evidence or persistence capability and prevents users from verifying assumptions, remediation, and the active fallback state. |
 
 ## Summary
-Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Code, OpenCode, and Codex while preserving the same Rotta workflow, commands, MCPs, generated instructions, approval gates, lifecycle artifacts, and user-facing behavior as much as each host permits. Rotta must generate host-appropriate agent, skill, instruction, command, and MCP configuration artifacts from one canonical Rotta contract, report exact/adapted/unsupported capabilities per host, remain idempotent and recovery-safe, preserve clean worktree expectations for generated lifecycle artifacts, and fail clearly without silently degrading workflow guarantees.
+Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Code, OpenCode, and Codex while preserving the same Rotta workflow, commands, MCPs, generated instructions, approval gates, lifecycle artifacts, and user-facing behavior as much as each host permits. Rotta must generate host-appropriate agent, skill, instruction, command, and MCP configuration artifacts from one canonical Rotta contract, report exact/adapted/unsupported capabilities per host, remain idempotent and recovery-safe, preserve clean worktree expectations for generated lifecycle artifacts, and fail clearly without silently degrading workflow guarantees. Optional MCP runtime failures must be visible and non-blocking: Ancora falls back to OpenSpec workflow artifacts as durable state, Vela falls back to bounded simple source exploration, and Context7 continues without documentation lookup while clearly identifying assumptions and verification needs.
 
 ## Requirements
 
@@ -188,6 +195,71 @@ Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Co
 **Out of Scope:**
 - Supporting pre-Rotta or manually invented configuration formats that Rotta never generated and cannot detect safely.
 
+### REQ-011: Continue in an OpenSpec Artifact Fallback When Ancora Fails
+**Description:** For Claude Code, OpenCode, and Codex, Rotta must treat Ancora as optional pointer/state assistance and continue in an explicitly reported fallback state when Ancora is missing, unavailable, times out, is denied permission, cannot recover state, cannot save state, or otherwise cannot be used.
+**Acceptance Criteria:**
+- Generated host rules classify each listed condition as an Ancora degradation rather than a workflow failure.
+- On an Ancora degradation, Rotta reads and updates the available workspace and installed-system OpenSpec workflow artifacts as the durable source of truth and state, including applicable `specs/`, `features/`, `.rotta/`, reports, approval markers, and workflow configuration.
+- Rotta does not reconstruct authoritative contract content from Ancora, overwrite reviewed workspace artifacts from memory, fabricate recovered state, or require a successful Ancora call before continuing.
+- The fallback preserves the canonical phase order, explicit human approval gate, TDD preconditions, quality gates, source-of-truth precedence, and no-attribution rule.
+- Rotta records and surfaces that the active workflow is in Ancora fallback, identifies the failure category, and provides a safe retry or recovery action without blocking unrelated workflow progress.
+- Restoring Ancora availability permits future pointer/state operations but does not replace the workspace/OpenSpec artifacts as the source of truth.
+**Edge Cases:**
+- Ancora fails before any state recovery, after workspace state has been read, or while saving a phase transition.
+- A timeout, permission denial, and missing tool occur in different sessions or on different supported hosts.
+- Ancora returns stale pointers while workspace artifacts are available.
+- A workflow begins on one host in fallback and continues from another supported host.
+**Out of Scope:**
+- Repairing Ancora infrastructure, credentials, permissions, or server-side data.
+- Storing full hard-spec, feature, TDD-log, or review-report content in an alternate memory service.
+
+### REQ-012: Use Bounded Source Exploration When Vela Fails
+**Description:** For Claude Code, OpenCode, and Codex, a Vela failure must not block Rotta or invoke a replacement graph MCP; Rotta must continue with bounded, focused source/code exploration and disclose the resulting evidence limits.
+**Acceptance Criteria:**
+- Vela unavailability, timeout, permission failure, stale/unusable graph, missing graph tools, or graph query failure enters a visible Vela-degraded state.
+- Rotta uses no replacement graph MCP and performs at most five focused source/code exploration actions for the affected structural question before reporting the available evidence and remaining gap.
+- The fallback explores concrete files, symbols, callers, or configuration relevant to the question rather than expanding into broad or unbounded repository searching.
+- Rotta labels the conclusion as source-derived, reports that Vela graph proof was unavailable, and does not allow the missing graph evidence to alter phase order, approval gates, or quality-gate requirements.
+**Edge Cases:**
+- Vela fails after returning partial or stale graph data.
+- The source exploration budget is exhausted without resolving an architectural question.
+- A user requests graph proof while Vela remains unavailable.
+**Out of Scope:**
+- Rebuilding, repairing, or substituting the Vela graph service automatically.
+- Claiming dependency, impact, path, ownership, or ranking proof that the bounded source exploration cannot establish.
+
+### REQ-013: Continue Safely Without Context7 Documentation
+**Description:** For Claude Code, OpenCode, and Codex, Context7 failure is non-blocking: Rotta must continue without a documentation lookup, must not invent library/API details, and must surface assumptions and verification work needed to proceed safely.
+**Acceptance Criteria:**
+- Missing/unavailable Context7 tools, timeout, permission failure, command/initialization failure, or documentation-query failure enters a visible Context7-degraded state.
+- Rotta continues the applicable workflow without substituting undocumented library/API claims for the failed lookup.
+- Any library-specific behavior that cannot be verified from available project evidence is labeled as an assumption or verification need in the response or workflow status.
+- Rotta uses only available project evidence and user-provided information for the affected decision; it asks for or defers verification when the unavailable documentation is required to make a safe claim.
+- Context7 degradation does not bypass or weaken phase order, approval, TDD, review, quality-gate, or source-of-truth requirements.
+**Edge Cases:**
+- Context7 fails after a library ID resolves but before documentation is returned.
+- The project contains a pinned dependency version but no local usage evidence.
+- The requested library behavior is security-sensitive or required to satisfy an approved scenario.
+**Out of Scope:**
+- Guessing library/API syntax, version behavior, configuration, or migration details.
+- Installing or replacing Context7 during a workflow session.
+
+### REQ-014: Expose MCP Degradation and Fallback State in Generated Rules and Installer Status
+**Description:** Rotta must make optional MCP degradation observable at both installation and workflow use, so users of Claude Code, OpenCode, and Codex can distinguish configured capability from the active runtime fallback and understand its effect.
+**Acceptance Criteria:**
+- Generated host rules for all three supported hosts state the fallback behavior, durable source of truth, and reporting obligation for Ancora, Vela, and Context7 degradation.
+- Generated workflow status or response output identifies the affected MCP, failure category, active fallback mode, evidence or persistence limitation, and safe next action.
+- Installer/TUI status summarizes each selected MCP as configured, skipped, degraded, or failed with a concise reason and remediation; when installation detects a failure, it must not present the MCP as fully healthy.
+- Installer/TUI status and generated rules distinguish configuration/health status from a later runtime degradation and do not claim that a successful installation prevents fallback use.
+- Status reporting is per selected host where host-specific configuration or health differs, while fallback semantics remain the same across Claude Code, OpenCode, and Codex.
+**Edge Cases:**
+- One host has a healthy MCP configuration while another host is degraded.
+- An MCP was intentionally skipped and later is unavailable at runtime.
+- More than one optional MCP is degraded during the same workflow step.
+**Out of Scope:**
+- Continuous background telemetry or a guarantee that a closed installer UI can observe future runtime failures.
+- Concealing a degradation merely because another host or MCP remains healthy.
+
 ## Open Questions
 - None.
 
@@ -196,6 +268,8 @@ Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Co
 - Idempotent safe writes, backups, and health checks increase installer complexity and runtime, but prevent false success and protect user-level AI host configuration.
 - Preserving exact workflow semantics across hosts may require adapted command surfaces or composed instruction files where a host does not support named agents, skills, or slash commands.
 - Keeping lifecycle artifacts out of commits by default protects clean worktree expectations, but teams that want committable specs/features will need an explicit opt-in path.
+- Continuing without optional MCPs preserves progress and durable contracts, but users receive less memory, graph, or documentation evidence and must act on disclosed verification needs.
+- A fixed source-exploration budget prevents an unavailable Vela graph from causing unbounded investigation, but may require an explicit follow-up when evidence is incomplete.
 
 ## Risk Level
-high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, and clean worktree expectations.
+high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, clean worktree expectations, and explicit safe degradation when optional MCP services fail at runtime.

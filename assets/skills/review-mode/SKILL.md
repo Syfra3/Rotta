@@ -98,11 +98,16 @@ If either threshold is not met → HARD FAIL with specific file and line gaps.
 
 ## Step 4 — Mutation Testing
 
-Run mutation tests only on changed modules (not the entire codebase):
+Read `.rotta/quality-gates.yaml#mutation_testing`; do not invent a runner or
+scope. Run the configured `runner_command` once from the repository root for
+each changed, non-exempt Go package, substituting its package path into
+`changed_module_target`. For example, use `go-mutesting ./internal/workflow`
+for that changed package, never `go-mutesting ./...` for this gate. Parse the
+runner output with `score_pattern` (`go-mutesting` emits `The mutation score is
+<score>`).
 
-1. Inject controlled mutations: `==` → `!=`, `&&` → `||`, `>` → `>=`, boundary conditions.
-2. Run the suite for each mutation.
-3. Record surviving mutations in `reports/mutation.json`:
+1. Record every `FAIL` mutation as a survivor with its file, line when
+   available, mutation, and mapped SCN ID in `reports/mutation.json`:
 
 ```json
 {
@@ -113,7 +118,10 @@ Run mutation tests only on changed modules (not the entire codebase):
 }
 ```
 
-If mutation score < threshold → HARD FAIL. Send surviving mutations to TDD Craftsman with gap analysis.
+If the runner, parseable score, or survivor evidence is missing, the score is
+below `score_threshold`, or critical survivors exceed
+`critical_survivors_max` (zero) → HARD FAIL. Send survivors to TDD Craftsman
+with gap analysis.
 
 ---
 
