@@ -103,6 +103,43 @@ func TestSCN224_ReinstallNormalizesManagedVelaCellarCommand(t *testing.T) {
 	}
 }
 
+// REQ-016 → SCN-225 → TestSCN225_ReinstallPreservesAbsoluteHookScriptReference
+func TestSCN225_ReinstallPreservesAbsoluteHookScriptReference(t *testing.T) {
+	// Scenario: Preserve non-executable absolute references during MCP normalization
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	project := filepath.Join(home, "project")
+	hookPath := filepath.Join(home, ".config", "opencode", "plugin", "rotta-vela-freshness-guard.js")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+	writeExecutable(t, filepath.Join(bin, "vela"), `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  case "$1" in --opencode-dir) shift; opencode_dir="$1" ;; esac
+  shift
+done
+mkdir -p "$opencode_dir"
+printf '{"plugin":["file://%s"],"mcp":{"vela":{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/4.5.6/bin/vela","args":["mcp"]}}}' "$HOME/.config/opencode/plugin/rotta-vela-freshness-guard.js" > "$opencode_dir/opencode.json"
+`)
+
+	if _, err := SetupVela(Options{Target: "opencode"}, home, project); err != nil {
+		t.Fatalf("reinstall Vela: %v", err)
+	}
+
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	data := mustReadFile(t, configPath)
+	if got := serializedMCPCommand(t, data, "vela"); got != "vela" {
+		t.Fatalf("expected normalized Vela command vela, got %q", got)
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("decode OpenCode config: %v", err)
+	}
+	plugins, _ := config["plugin"].([]interface{})
+	if len(plugins) != 1 || plugins[0] != "file://"+hookPath {
+		t.Fatalf("expected absolute generated hook reference to be preserved, got %#v", plugins)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)
