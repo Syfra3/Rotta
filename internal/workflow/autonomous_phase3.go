@@ -19,6 +19,31 @@ type AutonomousPhase3WorktreePreparation struct {
 	WorktreePath string
 }
 
+type AutonomousScenarioLoopRequest struct {
+	Scope                ContractScope
+	LaunchScenario       func() error
+	CreateScenarioCommit func() error
+}
+
+type AutonomousScenarioLoopDecision struct {
+	Approved bool
+	Reason   string
+}
+
+func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoopRequest) (AutonomousScenarioLoopDecision, error) {
+	gate, err := EvaluateImplementationGate(repoRoot, request.Scope)
+	if err != nil {
+		return AutonomousScenarioLoopDecision{}, err
+	}
+	if !gate.Approved {
+		return AutonomousScenarioLoopDecision{
+			Reason: fmt.Sprintf("explicit human Gherkin approval is required for %s#%s", request.Scope.FeaturePath, request.Scope.ScenarioID),
+		}, nil
+	}
+
+	return AutonomousScenarioLoopDecision{Approved: true, Reason: gate.Reason}, nil
+}
+
 func PrepareAutonomousPhase3Worktree(repoRoot string, request AutonomousPhase3WorktreeRequest) (AutonomousPhase3WorktreePreparation, error) {
 	command := exec.Command("git", "worktree", "add", "-b", request.Branch, request.WorktreePath, "HEAD")
 	command.Dir = repoRoot
