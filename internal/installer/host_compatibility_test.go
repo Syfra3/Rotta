@@ -813,6 +813,174 @@ func TestSCN217_PreserveExistingContext7WhenAddingCodex(t *testing.T) {
 	}
 }
 
+func TestSCN218_GeneratedHostRulesDescribeAncoraArtifactFallback(t *testing.T) {
+	// REQ-011, REQ-014 → SCN-218 → TestSCN218_GeneratedHostRulesDescribeAncoraArtifactFallback
+	// Scenario: Continue from OpenSpec workflow artifacts when Ancora is unavailable
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"Ancora Fallback",
+			"missing or unavailable", "times out", "permission is denied",
+			"cannot recover workflow state", "cannot save workflow state", "cannot otherwise be used",
+			"workspace and installed-system OpenSpec workflow artifacts",
+			"Do not fabricate recovered state", "do not block workflow progress",
+			"failure category", "safe retry or recovery action",
+		})
+	}
+}
+
+func TestSCN219_GeneratedHostRulesPreserveWorkflowGatesDuringAncoraFallback(t *testing.T) {
+	// REQ-011, REQ-005 → SCN-219 → TestSCN219_GeneratedHostRulesPreserveWorkflowGatesDuringAncoraFallback
+	// Scenario: Preserve workflow gates while Ancora fallback is active
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"While Ancora fallback is active",
+			"canonical phase order", "explicit human approval gate", "TDD preconditions", "quality gates",
+			"workspace and installed-system OpenSpec workflow artifacts",
+			"do not bypass a required human approval or quality gate",
+		})
+	}
+}
+
+func TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration(t *testing.T) {
+	// REQ-012, REQ-014 → SCN-220 → TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration
+	// Scenario: Use bounded source exploration when Vela cannot provide graph evidence
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupVela:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		got := string(data)
+		assertContainsAll(t, got, []string{
+			"Vela Degradation Fallback",
+			"missing graph tools", "times out", "permission is denied", "stale, unusable, or failed graph data",
+			"visible Vela-degraded state", "Do not invoke a replacement graph MCP",
+			"no more than five focused source/code exploration actions",
+			"source-derived evidence", "Vela graph proof was unavailable", "remaining gap",
+			"phase order", "approval gates", "quality gates",
+		})
+	}
+}
+
+func TestSCN221_GeneratedHostRulesDescribeContext7Degradation(t *testing.T) {
+	// REQ-013, REQ-014 → SCN-221 → TestSCN221_GeneratedHostRulesDescribeContext7Degradation
+	// Scenario: Continue without inventing library details when Context7 fails
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"Context7 Degradation Fallback",
+			"missing or unavailable Context7 tools", "times out", "permission is denied",
+			"command, initialization, or documentation-query failure",
+			"visible Context7-degraded state", "continues without a documentation lookup",
+			"does not present unverified library or API details as fact",
+			"assumptions and verification needs", "project or user-provided evidence",
+			"phase order", "approval", "TDD", "review", "quality-gate", "source-of-truth",
+		})
+	}
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure

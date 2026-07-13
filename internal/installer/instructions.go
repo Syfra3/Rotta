@@ -32,6 +32,8 @@ func integrationInstructions(opts Options) string {
 	b.WriteString("\n")
 	b.WriteString(velaInstructions(opts.SetupVela, opts.SetupAncora))
 	b.WriteString("\n")
+	b.WriteString(context7Instructions(opts.SetupContext7))
+	b.WriteString("\n")
 	b.WriteString(explorationEnrichmentInstructions(opts.SetupVela))
 	return b.String()
 }
@@ -76,6 +78,14 @@ func memoryInstructions(enabled bool) string {
 - After phase transitions, bug fixes, decisions, or non-obvious discoveries, save a compact pointer/status record with ` + "`ancora_save`" + `.
 - State Index per Cycle (not the full log): save only fields such as ` + "`log_file: .rotta/tdd-log.md`" + `, ` + "`completed_scenarios:`" + `, ` + "`last_scenario:`" + `, ` + "`last_test:`" + `, ` + "`status: green`" + `, and ` + "`files_changed:`" + `.
 - Do not store full hard specs, feature files, TDD logs, or review reports in Ancora; store paths and concise status only.
+
+### Ancora Fallback
+
+- Treat a missing or unavailable Ancora tool, when Ancora times out, permission is denied, Ancora cannot recover workflow state, Ancora cannot save workflow state, or any case where Ancora cannot otherwise be used as an Ancora degradation, not a workflow failure.
+- Continue from workspace and installed-system OpenSpec workflow artifacts as the durable source of truth and state: applicable ` + "`specs/`" + `, ` + "`features/`" + `, ` + "`.rotta/`" + `, reports, approval markers, and workflow configuration.
+- Do not fabricate recovered state, reconstruct authoritative content from Ancora, overwrite reviewed workspace artifacts from memory, and do not block workflow progress while the artifacts are available.
+- Explicitly report the active Ancora fallback state, failure category, and a safe retry or recovery action; retry future pointer/state operations only after Ancora is available again.
+- While Ancora fallback is active, preserve the canonical phase order, explicit human approval gate, TDD preconditions, quality gates, and workspace/OpenSpec source-of-truth precedence; do not bypass a required human approval or quality gate.
 `
 	}
 	return `### Ancora Memory Disabled
@@ -118,7 +128,27 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 - Launch an exploration subagent for structural questions only after the exact Vela workflow fails or text/app caller verification is required. Before launching that subagent, state the specific Vela insufficiency or gap, such as empty symbol and file results, ambiguous/truncated graph data, stale/missing graph after refresh, or required source verification.
 - Final answers must report Vela confidence and gaps when graph results are ambiguous, empty, stale, missing, truncated, or when optional ranking metrics are unavailable. Mention file-level fallback, graph-call budget use, and subagent justification when used.
 - Vela is advisory only: do not let Vela control Rotta phase decisions, approvals, or review outcomes.
+
+### Vela Degradation Fallback
+
+- Treat missing graph tools or an unavailable Vela, when Vela times out, permission is denied, or stale, unusable, or failed graph data as a visible Vela-degraded state.
+- Do not invoke a replacement graph MCP. For the affected structural question, perform no more than five focused source/code exploration actions against concrete files, symbols, callers, or configuration.
+- Report source-derived evidence, state that Vela graph proof was unavailable, and identify any remaining gap; do not claim graph proof that source exploration cannot establish.
+- Vela degradation does not change the canonical phase order, approval gates, or quality gates.
 `, surface)
+}
+
+func context7Instructions(enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	return `### Context7 Degradation Fallback
+
+- Treat missing or unavailable Context7 tools, when Context7 times out, permission is denied, or there is a command, initialization, or documentation-query failure as a visible Context7-degraded state.
+- The applicable workflow action continues without a documentation lookup and does not present unverified library or API details as fact.
+- Identify assumptions and verification needs using only available project or user-provided evidence; ask for or defer verification when documentation is needed for a safe claim.
+- Context7 degradation does not change phase order, approval, TDD, review, quality-gate, or source-of-truth requirements.
+`
 }
 
 func explorationEnrichmentInstructions(velaEnabled bool) string {

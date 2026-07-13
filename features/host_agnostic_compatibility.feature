@@ -139,3 +139,72 @@ Feature: Host-agnostic Rotta compatibility
     Then Rotta does not remove, rename, duplicate, or silently degrade the existing OpenCode Context7 entry
     And Rotta does not remove, rename, duplicate, or silently degrade the existing Claude Code Context7 entry
     And Rotta reports the Codex Context7 result independently
+
+  @SCN-218 @REQ-011 @REQ-014
+  Scenario Outline: Continue from OpenSpec workflow artifacts when Ancora is unavailable
+    Given Rotta is running in <host> with Ancora selected for the workflow
+    And Ancora <failure condition>
+    And the workspace contains the applicable OpenSpec workflow artifacts
+    When Rotta needs workflow state or needs to save workflow state
+    Then Rotta continues in an explicitly reported Ancora fallback state
+    And Rotta uses the workspace and installed-system workflow artifacts as the durable source of truth and state
+    And Rotta does not fabricate recovered state or require Ancora success before continuing
+    And Rotta reports the Ancora failure category and a safe retry or recovery action
+
+    Examples:
+      | host          | failure condition                                      |
+      | Claude Code   | has missing or unavailable tools                       |
+      | OpenCode      | times out                                               |
+      | Codex         | is denied permission                                   |
+      | Claude Code   | cannot recover workflow state                          |
+      | OpenCode      | cannot save workflow state                             |
+      | Codex         | otherwise cannot be used to save or use workflow state |
+
+  @SCN-219 @REQ-011 @REQ-005
+  Scenario: Preserve workflow gates while Ancora fallback is active
+    Given Rotta is continuing in an Ancora fallback state
+    And the current phase and approval state are available from workspace workflow artifacts
+    When the user requests the next Rotta workflow action
+    Then Rotta preserves the same phase order, approval gate, TDD preconditions, quality gates, and source-of-truth precedence
+    And Rotta does not use the fallback state to bypass a required human approval or quality gate
+
+  @SCN-220 @REQ-012 @REQ-014
+  Scenario Outline: Use bounded source exploration when Vela cannot provide graph evidence
+    Given Rotta is running in <host> with Vela selected for a structural question
+    And Vela <failure condition>
+    When Rotta investigates the structural question
+    Then Rotta reports a visible Vela-degraded state
+    And Rotta does not invoke a replacement graph MCP
+    And Rotta performs no more than five focused source/code exploration actions
+    And Rotta reports the source-derived evidence, the unavailable graph proof, and any remaining gap
+
+    Examples:
+      | host        | failure condition                         |
+      | Claude Code | is unavailable or has missing graph tools |
+      | OpenCode    | times out or is denied permission         |
+      | Codex       | returns stale, unusable, or failed data   |
+
+  @SCN-221 @REQ-013 @REQ-014
+  Scenario Outline: Continue without inventing library details when Context7 fails
+    Given Rotta is running in <host> with Context7 selected for a library or API question
+    And Context7 <failure condition>
+    When Rotta continues the applicable workflow action
+    Then Rotta reports a visible Context7-degraded state
+    And Rotta continues without a documentation lookup
+    And Rotta does not present unverified library or API details as fact
+    And Rotta identifies assumptions and verification needs from the available project or user-provided evidence
+
+    Examples:
+      | host        | failure condition                                  |
+      | Claude Code | has missing or unavailable tools                   |
+      | OpenCode    | times out or is denied permission                  |
+      | Codex       | fails during command startup, initialization, or query |
+
+  @SCN-222 @REQ-014 @REQ-011 @REQ-012 @REQ-013
+  Scenario: Expose selected MCP configuration and runtime fallback states
+    Given the user installs Rotta for Claude Code, OpenCode, and Codex with Ancora, Vela, and Context7 selected
+    When installation completes with one or more MCP configuration or health degradations
+    Then the installer or TUI reports each selected MCP as configured, skipped, degraded, or failed with a reason and remediation
+    And the report distinguishes host-specific configuration or health results from later runtime fallback states
+    And the generated host rules describe the Ancora, Vela, and Context7 fallback behavior and reporting obligation
+    And no selected MCP with a detected degradation is presented as fully healthy
