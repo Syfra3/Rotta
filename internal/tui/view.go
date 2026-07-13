@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/Syfra3/Rotta/internal/installer"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -525,6 +527,7 @@ func (m Model) viewSuccess() string {
 			b.WriteString(progressDoneStyle.Render("  ✓ ") + valueStyle.Render(f) + "\n")
 		}
 		b.WriteString("\n")
+		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
 	}
 
 	b.WriteString(sectionStyle.Render("Next steps") + "\n")
@@ -537,10 +540,40 @@ func (m Model) viewSuccess() string {
 	return appStyle.Render(b.String())
 }
 
+func writeMCPStatuses(b *strings.Builder, statuses map[string]map[string]installer.MCPStatusResult) {
+	if len(statuses) == 0 {
+		return
+	}
+	b.WriteString(sectionStyle.Render("MCP status") + "\n")
+	hosts := make([]string, 0, len(statuses))
+	for host := range statuses {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	for _, host := range hosts {
+		mcps := make([]string, 0, len(statuses[host]))
+		for mcp := range statuses[host] {
+			mcps = append(mcps, mcp)
+		}
+		sort.Strings(mcps)
+		for _, mcp := range mcps {
+			status := statuses[host][mcp]
+			b.WriteString(menuItemStyle.Render(fmt.Sprintf("  %s / %s: %s", host, mcp, status.Status)) + "\n")
+			b.WriteString(menuItemStyle.Render("    Reason: "+status.Reason) + "\n")
+			b.WriteString(menuItemStyle.Render("    Remediation: "+status.Remediation) + "\n")
+			b.WriteString(menuItemStyle.Render("    Runtime fallback: "+string(status.RuntimeFallback.State)) + "\n")
+		}
+	}
+	b.WriteString("\n")
+}
+
 func (m Model) viewError() string {
 	var b strings.Builder
 	b.WriteString(errorStyle.Render("✗ Installation Failed") + "\n\n")
 	b.WriteString(valueStyle.Render(m.InstallError) + "\n\n")
+	if m.InstallResult != nil {
+		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
+	}
 	b.WriteString(helpStyle.Render("Press Enter or q to exit"))
 	return appStyle.Render(b.String())
 }

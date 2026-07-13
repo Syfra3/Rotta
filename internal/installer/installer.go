@@ -42,6 +42,35 @@ type Result struct {
 	VelaInstalled                   bool   // true if Vela binary was installed during this run
 	VelaBin                         string // resolved path to the vela binary
 	Context7                        Context7Result
+	MCPStatuses                     map[string]map[string]MCPStatusResult
+}
+
+// MCPStatus reports a selected MCP's installation configuration or health state.
+type MCPStatus string
+
+const (
+	MCPStatusConfigured MCPStatus = "configured"
+	MCPStatusSkipped    MCPStatus = "skipped"
+	MCPStatusDegraded   MCPStatus = "degraded"
+	MCPStatusFailed     MCPStatus = "failed"
+)
+
+// MCPRuntimeFallbackState reports only runtime fallback observed during workflow use.
+type MCPRuntimeFallbackState string
+
+const (
+	MCPRuntimeFallbackNotObserved MCPRuntimeFallbackState = "not observed during installation"
+)
+
+type MCPRuntimeFallback struct {
+	State MCPRuntimeFallbackState
+}
+
+type MCPStatusResult struct {
+	Status          MCPStatus
+	Reason          string
+	Remediation     string
+	RuntimeFallback MCPRuntimeFallback
 }
 
 type FileChangeCategory string
@@ -193,7 +222,9 @@ func Install(opts Options) (*Result, error) {
 			if health.OK && context7Result.FullyConfigured {
 				result.Context7.Status = Context7StatusConfigured
 			} else if !health.OK {
+				recordMCPHostCapabilities(result, opts)
 				recordMCPHealthFailure(result, opts, "mcp:context7", health)
+				recordMCPStatuses(result, opts)
 				recordChangedFiles(result, projectPath)
 				return result, fmt.Errorf("context7 health: %s", health.Category)
 			}
@@ -222,6 +253,7 @@ func Install(opts Options) (*Result, error) {
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
+	recordMCPStatuses(result, opts)
 	recordChangedFiles(result, projectPath)
 
 	return result, nil
@@ -478,6 +510,57 @@ func failedMCPCapability(name string, health Context7HealthResult) HostCapabilit
 
 func exactMCPCapability(name string) HostCapability {
 	return HostCapability{Name: name, Status: HostCapabilityStatusExact}
+}
+
+func recordMCPStatuses(result *Result, opts Options) {
+	result.MCPStatuses = map[string]map[string]MCPStatusResult{}
+	for _, host := range selectedHosts(opts.Target) {
+		hostStatuses := map[string]MCPStatusResult{}
+		for _, capabilityName := range selectedMCPCapabilities(opts) {
+			mcp := strings.TrimPrefix(capabilityName, "mcp:")
+			hostStatuses[mcp] = mcpStatusResult(result.Hosts[host], capabilityName)
+		}
+		result.MCPStatuses[host] = hostStatuses
+	}
+}
+
+func mcpStatusResult(host HostInstallResult, capabilityName string) MCPStatusResult {
+	status := MCPStatusConfigured
+	reason := "Selected MCP configuration completed for this host."
+	remediation := "Use the generated host rules to report and recover from any later runtime fallback."
+	if host.Status == HostInstallStatusFailed {
+		status = MCPStatusFailed
+		reason = "Host installation failed before this selected MCP could be confirmed."
+		remediation = "Repair the reported host configuration failure and safely rerun Rotta."
+	}
+	if capability, ok := host.Capabilities[capabilityName]; ok {
+		switch capability.Status {
+		case HostCapabilityStatusExact:
+			status = MCPStatusConfigured
+			reason = "Selected MCP configuration completed for this host."
+			remediation = "Use the generated host rules to report and recover from any later runtime fallback."
+		case HostCapabilityStatusSkipped:
+			status = MCPStatusSkipped
+		case HostCapabilityStatusDegraded, HostCapabilityStatusUnsupported:
+			status = MCPStatusDegraded
+		case HostCapabilityStatusFailed:
+			status = MCPStatusFailed
+		}
+		if capability.Reason != "" {
+			reason = capability.Reason
+		}
+		if capability.Remediation != "" {
+			remediation = capability.Remediation
+		}
+	}
+	return MCPStatusResult{
+		Status:      status,
+		Reason:      reason,
+		Remediation: remediation,
+		RuntimeFallback: MCPRuntimeFallback{
+			State: MCPRuntimeFallbackNotObserved,
+		},
+	}
 }
 
 func context7MCPCapability(host string) HostCapability {

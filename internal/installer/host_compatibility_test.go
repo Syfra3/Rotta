@@ -981,6 +981,86 @@ func TestSCN221_GeneratedHostRulesDescribeContext7Degradation(t *testing.T) {
 	}
 }
 
+func TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback(t *testing.T) {
+	// REQ-014, REQ-011, REQ-012, REQ-013 → SCN-222 → TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, host := range []string{"claude-code", "opencode", "codex"} {
+		for _, mcp := range []string{"ancora", "vela", "context7"} {
+			status, ok := result.MCPStatuses[host][mcp]
+			if !ok {
+				t.Fatalf("expected %s MCP status for %s, got %#v", mcp, host, result.MCPStatuses)
+			}
+			if status.Reason == "" || status.Remediation == "" {
+				t.Fatalf("expected %s MCP status for %s to include reason/remediation, got %#v", mcp, host, status)
+			}
+			if status.RuntimeFallback.State != MCPRuntimeFallbackNotObserved {
+				t.Fatalf("expected installer to distinguish later runtime fallback from install status, got %#v", status)
+			}
+		}
+	}
+
+	codexContext7 := result.MCPStatuses["codex"]["context7"]
+	if codexContext7.Status != MCPStatusDegraded {
+		t.Fatalf("expected detected Codex Context7 health limitation to be degraded, not healthy, got %#v", codexContext7)
+	}
+
+	t.Run("health failure is reported per selected MCP", func(t *testing.T) {
+		failureHome := t.TempDir()
+		failureProjectPath := filepath.Join(failureHome, "project")
+		failureBinDir := filepath.Join(failureHome, "bin")
+		t.Setenv("HOME", failureHome)
+		t.Setenv("PATH", failureBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		writeHostCompatibilityFakeAncora(t, filepath.Join(failureBinDir, "ancora"))
+		writeHostCompatibilityFakeVela(t, filepath.Join(failureBinDir, "vela"))
+		writeExecutable(t, filepath.Join(failureBinDir, "npx"), "#!/bin/sh\nexit 2\n")
+
+		failed, installErr := Install(Options{
+			Target:        "all",
+			ProjectPath:   failureProjectPath,
+			InstallSpec:   true,
+			InstallImpl:   true,
+			InstallReview: true,
+			SetupAncora:   true,
+			SetupVela:     true,
+			SetupContext7: true,
+		})
+		if installErr == nil {
+			t.Fatal("expected Context7 health failure")
+		}
+		for _, host := range []string{"claude-code", "opencode", "codex"} {
+			if got := failed.MCPStatuses[host]["context7"].Status; got != MCPStatusFailed {
+				t.Fatalf("expected Context7 health failure for %s to be reported as failed, got %#v", host, failed.MCPStatuses)
+			}
+			if got := failed.MCPStatuses[host]["ancora"].Status; got != MCPStatusConfigured {
+				t.Fatalf("expected unrelated configured Ancora status for %s to remain configured, got %#v", host, failed.MCPStatuses)
+			}
+		}
+	})
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure
