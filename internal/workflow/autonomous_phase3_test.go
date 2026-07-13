@@ -389,6 +389,29 @@ func TestSCN033_CheckpointsExpectedSensitiveScopeAfterOrdinaryValidation(t *test
 	}
 }
 
+func TestSCN034_ReportsHumanMayPushOnceAfterReview(t *testing.T) {
+	// REQ-027 → SCN-034 → TestSCN034_ReportsHumanMayPushOnceAfterReview
+	// Scenario: Require a human to push once after review completes
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish checkpointed review baseline")
+
+	report := ReportAutonomousWorkflowCompletion()
+	if !report.HumanMayPushOnce {
+		t.Fatalf("expected report to permit one manual human push, got %#v", report)
+	}
+	if !strings.Contains(report.Message, "human may manually push the feature branch once") {
+		t.Fatalf("expected manual-push report, got %q", report.Message)
+	}
+	if remotes := gitOutput(t, repo, "remote"); remotes != "" {
+		t.Fatalf("expected final report not to publish remotely, got remotes %q", remotes)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
