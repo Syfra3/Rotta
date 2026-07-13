@@ -53,56 +53,38 @@ func TestSCN221_GeneratedHostRulesDescribeContext7Degradation(t *testing.T) {
 func TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback(t *testing.T) {
 	// REQ-014, REQ-011, REQ-012, REQ-013 → SCN-222 → TestSCN222_ReportSelectedMCPConfigurationSeparatelyFromRuntimeFallback
 	// Scenario: Expose selected MCP configuration and runtime fallback states
-	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
-	binDir := filepath.Join(home, "bin")
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
-	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
-	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
-
-	result, err := Install(Options{
-		Target:        "all",
-		ProjectPath:   projectPath,
-		InstallSpec:   true,
-		InstallImpl:   true,
-		InstallReview: true,
-		SetupAncora:   true,
-		SetupVela:     true,
-		SetupContext7: true,
-	})
+	result, err := Install(setupSelectedMCPInstall(t, true))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assertSelectedMCPStatuses(t, result)
 
-	t.Run("health failure is reported per selected MCP", func(t *testing.T) {
-		failureHome := t.TempDir()
-		failureProjectPath := filepath.Join(failureHome, "project")
-		failureBinDir := filepath.Join(failureHome, "bin")
-		t.Setenv("HOME", failureHome)
-		t.Setenv("PATH", failureBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		writeHostCompatibilityFakeAncora(t, filepath.Join(failureBinDir, "ancora"))
-		writeHostCompatibilityFakeVela(t, filepath.Join(failureBinDir, "vela"))
-		writeExecutable(t, filepath.Join(failureBinDir, "npx"), "#!/bin/sh\nexit 2\n")
+	t.Run("health failure is reported per selected MCP", testSelectedMCPHealthFailure)
+}
 
-		failed, installErr := Install(Options{
-			Target:        "all",
-			ProjectPath:   failureProjectPath,
-			InstallSpec:   true,
-			InstallImpl:   true,
-			InstallReview: true,
-			SetupAncora:   true,
-			SetupVela:     true,
-			SetupContext7: true,
-		})
-		if installErr == nil {
-			t.Fatal("expected Context7 health failure")
-		}
-		assertContext7HealthFailures(t, failed)
-	})
+func setupSelectedMCPInstall(t *testing.T, healthyContext7 bool) Options {
+	t.Helper()
+	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+	if healthyContext7 {
+		writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+	} else {
+		writeExecutable(t, filepath.Join(binDir, "npx"), "#!/bin/sh\nexit 2\n")
+	}
+	return Options{Target: "all", ProjectPath: filepath.Join(home, "project"), InstallSpec: true, InstallImpl: true, InstallReview: true, SetupAncora: true, SetupVela: true, SetupContext7: true}
+}
+
+func testSelectedMCPHealthFailure(t *testing.T) {
+	failed, err := Install(setupSelectedMCPInstall(t, false))
+	if err == nil {
+		t.Fatal("expected Context7 health failure")
+	}
+	assertContext7HealthFailures(t, failed)
 }
 
 func assertSelectedMCPStatuses(t *testing.T, result *Result) {
@@ -298,4 +280,14 @@ if [ -n "$project" ]; then
 fi
 exit 0
 `)
+}
+
+func writeLoggingAncora(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, "#!/bin/sh\nprintf 'ancora %s\\n' \"$*\" >> \"$HOME/setup.log\"\nif [ \"$1\" = setup ] && [ \"$2\" = claude-code ]; then mkdir -p \"$HOME/.claude/mcp\"; printf '{\"type\":\"stdio\",\"command\":\"ancora\",\"args\":[\"mcp\"]}' > \"$HOME/.claude/mcp/ancora.json\"; fi\nif [ \"$1\" = setup ] && [ \"$2\" = opencode ]; then mkdir -p \"$HOME/.config/opencode\"; printf '{\"mcp\":{\"ancora\":{\"type\":\"stdio\",\"command\":\"ancora\",\"args\":[\"mcp\"]}}}' > \"$HOME/.config/opencode/opencode.jsonc\"; fi\n")
+}
+
+func writeLoggingVela(t *testing.T, path string) {
+	t.Helper()
+	writeExecutable(t, path, "#!/bin/sh\nprintf 'vela %s\\n' \"$*\" >> \"$HOME/setup.log\"\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in --project) shift; project=\"$1\" ;; --agent) shift; agent=\"$1\" ;; --claude-dir) shift; claude_dir=\"$1\" ;; --opencode-dir) shift; opencode_dir=\"$1\" ;; esac; shift; done\nmkdir -p \"$project/.vela\"; printf 'fresh graph' > \"$project/.vela/graph.db\"\nif [ \"$agent\" = claude ]; then mkdir -p \"$claude_dir\"; printf '{\"type\":\"stdio\",\"command\":\"vela\",\"args\":[\"mcp\"]}' > \"$claude_dir/vela-mcp.json\"; fi\nif [ \"$agent\" = opencode ]; then mkdir -p \"$opencode_dir\"; printf '{\"mcp\":{\"vela\":{\"type\":\"stdio\",\"command\":\"vela\",\"args\":[\"mcp\"]}}}' > \"$opencode_dir/opencode-vela.json\"; fi\n")
 }

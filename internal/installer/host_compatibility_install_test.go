@@ -81,65 +81,37 @@ func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {
 func TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts(t *testing.T) {
 	// REQ-007, REQ-010 → SCN-213 → TestSCN213_RerunInstallationWithoutDuplicatingRottaManagedArtifacts
 	// Scenario: Re-run installation without duplicating Rotta-managed artifacts
+	home, opencodeConfig, codexConfig, options := setupRepeatInstall(t)
+	if _, err := Install(options); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRepeatInstallArtifacts(t, result, opencodeConfig, codexConfig)
+	_ = home
+}
+
+func setupRepeatInstall(t *testing.T) (string, string, string, Options) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
 	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
 	codexConfig := filepath.Join(home, ".codex", "config.toml")
 	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
 	writeTestFile(t, codexConfig, []byte("model = \"gpt-5\"\n"))
-	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
-exit 0
-`)
-	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
-project=""
-agent=""
-claude_dir=""
-opencode_dir=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --project) shift; project="$1" ;;
-    --agent) shift; agent="$1" ;;
-    --claude-dir) shift; claude_dir="$1" ;;
-    --opencode-dir) shift; opencode_dir="$1" ;;
-  esac
-  shift
-done
-mkdir -p "$project/.vela"
-printf 'fresh graph' > "$project/.vela/graph.db"
-if [ "$agent" = claude ]; then
-  mkdir -p "$claude_dir"
-  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
-fi
-if [ "$agent" = opencode ]; then
-  mkdir -p "$opencode_dir"
-  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
-fi
-`)
+	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
 	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+	return home, opencodeConfig, codexConfig, Options{Target: "all", ProjectPath: projectPath, InstallSpec: true, InstallImpl: true, InstallReview: true, SetupAncora: true, SetupVela: true, SetupContext7: true}
+}
 
-	options := Options{
-		Target:        "all",
-		ProjectPath:   projectPath,
-		InstallSpec:   true,
-		InstallImpl:   true,
-		InstallReview: true,
-		SetupAncora:   true,
-		SetupVela:     true,
-		SetupContext7: true,
-	}
-	if _, err := Install(options); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := Install(options)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func assertRepeatInstallArtifacts(t *testing.T, result *Result, opencodeConfig, codexConfig string) {
+	t.Helper()
 	assertNoDuplicateStrings(t, result.Files)
 	assertNoDuplicateStrings(t, result.Hosts["claude-code"].Files)
 	assertNoDuplicateStrings(t, result.Hosts["opencode"].Files)
