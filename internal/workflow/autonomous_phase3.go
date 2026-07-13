@@ -63,6 +63,16 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 }
 
 func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointRequest) (ScenarioCheckpointRecord, error) {
+	changed, err := trackedChangedPaths(repoRoot)
+	if err != nil {
+		return ScenarioCheckpointRecord{}, err
+	}
+	for _, path := range changed {
+		if !containsPath(request.ExpectedPaths, path) {
+			return ScenarioCheckpointRecord{}, fmt.Errorf("unexpected tracked change before checkpointing: %s", path)
+		}
+	}
+
 	add := exec.Command("git", append([]string{"add", "--"}, request.ExpectedPaths...)...)
 	add.Dir = repoRoot
 	if output, err := add.CombinedOutput(); err != nil {
@@ -86,6 +96,25 @@ func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointReque
 		return ScenarioCheckpointRecord{}, err
 	}
 	return record, nil
+}
+
+func trackedChangedPaths(repoRoot string) ([]string, error) {
+	status := exec.Command("git", "diff", "--name-only")
+	status.Dir = repoRoot
+	output, err := status.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("inspect tracked scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.Fields(string(output)), nil
+}
+
+func containsPath(paths []string, candidate string) bool {
+	for _, path := range paths {
+		if path == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func writeAutonomousPhase3WorkflowState(repoRoot string, record ScenarioCheckpointRecord) error {

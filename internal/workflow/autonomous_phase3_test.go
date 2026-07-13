@@ -147,6 +147,41 @@ func TestSCN027_CheckpointsValidatedScenarioInOneLocalCommit(t *testing.T) {
 	}
 }
 
+func TestSCN028_HaltsForUnexpectedTrackedChange(t *testing.T) {
+	// REQ-024 → SCN-028 → TestSCN028_HaltsForUnexpectedTrackedChange
+	// Scenario: Halt for an unexpected tracked change before checkpointing
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	mustWrite(t, filepath.Join(repo, "README.md"), "# Baseline\n")
+	runGit(t, repo, "add", "internal/workflow/checkpoint.go", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+	mustWrite(t, filepath.Join(repo, "README.md"), "# Unexpected change\n")
+
+	_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-028",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err == nil {
+		t.Fatal("expected checkpoint evaluation to halt for unexpected tracked path README.md")
+	}
+	if !strings.Contains(err.Error(), "README.md") {
+		t.Fatalf("expected halt to identify README.md, got %q", err)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "1" {
+		t.Fatalf("expected no scenario commit, got %s commits", commits)
+	}
+	if status := gitOutput(t, repo, "status", "--short"); status != "M README.md\n M internal/workflow/checkpoint.go" {
+		t.Fatalf("expected unexpected change to remain untouched, got %q", status)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
