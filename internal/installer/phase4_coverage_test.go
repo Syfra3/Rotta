@@ -61,8 +61,11 @@ func TestSCN222_OptionalSetupReportsUnavailableBinaries(t *testing.T) {
 	// REQ-014 → SCN-222 → TestSCN222_OptionalSetupReportsUnavailableBinaries
 	// Scenario: Expose selected MCP configuration and runtime fallback states
 	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
-	t.Setenv("PATH", filepath.Join(home, "empty-bin"))
+	t.Setenv("PATH", binDir)
+	writeExecutable(t, filepath.Join(binDir, "ancora"), "#!/bin/sh\nexit 1\n")
+	writeExecutable(t, filepath.Join(binDir, "vela"), "#!/bin/sh\nexit 1\n")
 	assertOptionalSetupUnavailable(t, home)
 }
 
