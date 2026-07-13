@@ -245,6 +245,72 @@ func TestSCN229_ReportsHostCommandLookupFailure(t *testing.T) {
 	}
 }
 
+// REQ-019 → SCN-230 → TestSCN230_ReinstallRetainsBareCommandsAfterExecutableUpgrades
+func TestSCN230_ReinstallRetainsBareCommandsAfterExecutableUpgrades(t *testing.T) {
+	// Scenario: Retain portable managed commands after an executable upgrade
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	project := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+
+	// The upgraded executables reproduce their setup output with their new,
+	// installation-specific locations.
+	writeExecutable(t, filepath.Join(bin, "ancora"), `#!/bin/sh
+case "$2" in
+  claude-code) mkdir -p "$HOME/.claude/mcp"; printf '{"command":"/opt/homebrew/Cellar/ancora/2.0.0/bin/ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json" ;;
+  opencode) mkdir -p "$HOME/.config/opencode"; printf '{"mcp":{"ancora":{"command":"/opt/homebrew/Cellar/ancora/2.0.0/bin/ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc" ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(bin, "vela"), `#!/bin/sh
+agent=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in --agent) shift; agent="$1" ;; esac
+  shift
+done
+case "$agent" in
+  claude) mkdir -p "$HOME/.claude"; printf '{"command":"/home/user/.local/bin/vela","args":["mcp"]}' > "$HOME/.claude/vela-mcp.json" ;;
+  opencode) mkdir -p "$HOME/.config/opencode"; printf '{"mcp":{"vela":{"command":"/home/linuxbrew/.linuxbrew/Cellar/vela/9.0.0/bin/vela","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.json" ;;
+esac
+`)
+
+	if _, err := SetupAncora(Options{Target: "both"}, home); err != nil {
+		t.Fatalf("reinstall after Homebrew Ancora upgrade: %v", err)
+	}
+	if _, err := SetupVela(Options{Target: "both"}, home, project); err != nil {
+		t.Fatalf("reinstall after curl/manual Vela upgrade: %v", err)
+	}
+
+	context7 := Context7ServerConfig()
+	if err := writeOpenCodeContext7MCP(filepath.Join(home, ".config", "opencode", "context7.json"), context7); err != nil {
+		t.Fatalf("write initial OpenCode Context7 config: %v", err)
+	}
+	if err := writeClaudeContext7MCP(filepath.Join(home, ".claude", "mcp", "context7.json"), context7); err != nil {
+		t.Fatalf("write initial Claude Context7 config: %v", err)
+	}
+	if _, err := ConfigureContext7(Options{SetupContext7: true}, home); err != nil {
+		t.Fatalf("reinstall after manual Context7 command upgrade: %v", err)
+	}
+
+	for path, want := range map[string]struct{ command, server string }{
+		filepath.Join(home, ".claude", "mcp", "ancora.json"):         {"ancora", ""},
+		filepath.Join(home, ".config", "opencode", "opencode.jsonc"): {"ancora", "ancora"},
+		filepath.Join(home, ".claude", "vela-mcp.json"):              {"vela", ""},
+		filepath.Join(home, ".config", "opencode", "opencode.json"):  {"vela", "vela"},
+		filepath.Join(home, ".config", "opencode", "context7.json"):  {"npx", "context7"},
+		filepath.Join(home, ".claude", "mcp", "context7.json"):       {"npx", ""},
+	} {
+		data := mustReadFile(t, path)
+		got := serializedMCPCommand(t, data, want.server)
+		if got != want.command {
+			t.Errorf("expected %s to retain bare command %q after upgrade, got %q", path, want.command, got)
+		}
+		if strings.Contains(got, "/") {
+			t.Errorf("expected %s not to retain an absolute binary location, got command %q", path, got)
+		}
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)
