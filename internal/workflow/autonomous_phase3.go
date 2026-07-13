@@ -45,7 +45,10 @@ type ScenarioCheckpointRecord struct {
 }
 
 type AutonomousPhase3WorkflowState struct {
-	Checkpoints map[string]string `json:"checkpoints"`
+	Checkpoints        map[string]string `json:"checkpoints"`
+	CompletedScenario  string            `json:"completed_scenario"`
+	RemainingScenarios []string          `json:"remaining_scenarios"`
+	NextScenario       string            `json:"next_scenario"`
 }
 
 func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoopRequest) (AutonomousScenarioLoopDecision, error) {
@@ -147,6 +150,36 @@ func containsPath(paths []string, candidate string) bool {
 
 func writeAutonomousPhase3WorkflowState(repoRoot string, record ScenarioCheckpointRecord) error {
 	state := AutonomousPhase3WorkflowState{Checkpoints: map[string]string{record.ScenarioID: record.CommitID}}
+	return writeAutonomousPhase3WorkflowStateValue(repoRoot, state)
+}
+
+func ContinueFromAutonomousScenarioCheckpoint(repoRoot string, record ScenarioCheckpointRecord, remainingScenarios []string, startScenario func(string) error) (AutonomousPhase3WorkflowState, error) {
+	status := exec.Command("git", "status", "--short")
+	status.Dir = repoRoot
+	output, err := status.CombinedOutput()
+	if err != nil {
+		return AutonomousPhase3WorkflowState{}, fmt.Errorf("check scenario checkpoint boundary: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if strings.TrimSpace(string(output)) != "" {
+		return AutonomousPhase3WorkflowState{}, fmt.Errorf("scenario checkpoint boundary has non-ignored changes: %s", strings.TrimSpace(string(output)))
+	}
+
+	state := AutonomousPhase3WorkflowState{
+		Checkpoints:        map[string]string{record.ScenarioID: record.CommitID},
+		CompletedScenario:  record.ScenarioID,
+		RemainingScenarios: remainingScenarios,
+		NextScenario:       remainingScenarios[0],
+	}
+	if err := writeAutonomousPhase3WorkflowStateValue(repoRoot, state); err != nil {
+		return AutonomousPhase3WorkflowState{}, err
+	}
+	if err := startScenario(state.NextScenario); err != nil {
+		return AutonomousPhase3WorkflowState{}, err
+	}
+	return state, nil
+}
+
+func writeAutonomousPhase3WorkflowStateValue(repoRoot string, state AutonomousPhase3WorkflowState) error {
 	content, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("serialize autonomous Phase 3 workflow state: %w", err)
