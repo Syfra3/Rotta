@@ -172,6 +172,21 @@ func assertClaudeVelaGuardSettings(t *testing.T, settingsPath, hookPath string) 
 func TestSCN002_ReinstallCleansStaleVelaFreshnessGuardBeforeSetup(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_ReinstallCleansStaleVelaFreshnessGuardBeforeSetup
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home, projectPath, pluginPath, hookPath := setupStaleVelaFreshnessGuards(t)
+	_, err := Install(Options{
+		Target:      "both",
+		ProjectPath: projectPath,
+		InstallSpec: true,
+		SetupVela:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStaleVelaFreshnessGuardsReinstalled(t, home, pluginPath, hookPath)
+}
+
+func setupStaleVelaFreshnessGuards(t *testing.T) (string, string, string, string) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
@@ -199,17 +214,11 @@ done
 mkdir -p "$project/.vela"
 printf 'fresh graph' > "$project/.vela/graph.db"
 `)
+	return home, projectPath, pluginPath, hookPath
+}
 
-	_, err := Install(Options{
-		Target:      "both",
-		ProjectPath: projectPath,
-		InstallSpec: true,
-		SetupVela:   true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func assertStaleVelaFreshnessGuardsReinstalled(t *testing.T, home, pluginPath, hookPath string) {
+	t.Helper()
 	assertFileContains(t, pluginPath, "RottaVelaFreshnessGuard")
 	assertFileContains(t, hookPath, "Rotta Vela freshness guard")
 	assertFileDoesNotContain(t, pluginPath, "stale opencode guard")
