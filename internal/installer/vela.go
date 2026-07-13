@@ -69,7 +69,7 @@ func unavailableVelaMCPResult(opts Options, home string) *VelaResult {
 		}
 		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": {
 			Status: MCPStatusDegraded, Reason: "command availability",
-			Remediation: "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
+			Remediation:     "Install Vela or add the vela command to Rotta's PATH, then rerun Rotta.",
 			RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
 		}}
 	}
