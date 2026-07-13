@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0](https://github.com/Syfra3/Rotta/compare/v1.6.2...v1.7.0) (2026-07-13)
+
+
+### Features
+
+* **workflow:** add MCP fallbacks and autonomous TDD checkpoints ([e05917a](https://github.com/Syfra3/Rotta/commit/e05917ab37d8be963381d63a279b12560d1bd18c))
+
+## [1.6.2](https://github.com/Syfra3/Rotta/compare/v1.6.1...v1.6.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* **installer:** use OpenCode local MCP schema ([faab148](https://github.com/Syfra3/Rotta/commit/faab14899d9559bd953e917b2914fb8a7b8abb68))
+* **installer:** use OpenCode local MCP schema ([7728f0c](https://github.com/Syfra3/Rotta/commit/7728f0cb0d110dbfb8b5b84c47cbcd7e359fdca8))
+
 ## [1.6.1](https://github.com/Syfra3/Rotta/compare/v1.6.0...v1.6.1) (2026-07-06)
 
 

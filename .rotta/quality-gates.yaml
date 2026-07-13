@@ -1,16 +1,23 @@
-# Rotta - Quality Gates
+# Rotta — Quality Gates
 # Thresholds are read by Review Mode.
 # Override per-project or per-risk-level.
 
 defaults:
   changed_line_coverage: 0.90
-  critical_path_branch_coverage: 0.95
+  critical_path_statement_coverage: 0.95
   mutation_score: 0.80
   surviving_critical_mutations: 0
   cyclomatic_complexity_max: 10
   circular_dependencies: 0
   forbidden_import_violations: 0
   unauthorized_files_changed: 0
+
+# Critical-path statement coverage is measured from a reproducible Go coverage
+# profile for each named function. Mutation testing remains the decision-strength gate.
+critical_path_functions:
+  - CheckpointApprovedScenario
+  - ContinueFromAutonomousScenarioCheckpoint
+  - CompleteAutonomousPhase3Boundary
 
 # Override thresholds for high-risk domains
 critical_domains:
@@ -24,9 +31,16 @@ critical_domains:
     mutation_score: 0.95
     changed_line_coverage: 0.98
 
-# Mutation testing scope
+# Mutation testing uses go-mutesting once for each changed, non-exempt Go package.
+# The runner writes "The mutation score is <score>", which Review Mode parses.
 mutation_testing:
   scope: changed_modules    # "changed_modules" | "full" | "none"
+  runner_command: go-mutesting
+  changed_module_target: ./<changed-module>
+  target_semantics: "Run once from the repository root for each changed Go package; do not use ./... for this gate."
+  score_pattern: 'The mutation score is ([0-9]+(?:\.[0-9]+)?)'
+  score_threshold: 0.80
+  critical_survivors_max: 0
   full_suite_in_ci: true    # run full mutation in nightly CI
   exempt_patterns:
     - "**/*_generated.go"
@@ -39,7 +53,7 @@ severity:
     - scenario_traceability
     - tests_passing
     - changed_line_coverage
-    - critical_path_branch_coverage
+    - critical_path_statement_coverage
     - mutation_score
     - surviving_critical_mutations
     - circular_dependencies
