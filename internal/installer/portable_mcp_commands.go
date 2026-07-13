@@ -10,12 +10,6 @@ import (
 // serializeManagedMCPCommand replaces a command emitted by a Rotta-managed
 // setup flow with the portable executable name Rotta owns for that server.
 func serializeManagedMCPCommand(path, server, command string) error {
-	return serializeRecoveredManagedMCPCommand(path, server, command)
-}
-
-// serializeRecoveredManagedMCPCommand serializes a proven managed MCP entry
-// using its canonical portable executable command.
-func serializeRecoveredManagedMCPCommand(path, server, command string) error {
 	_, err := normalizeManagedMCPCommand(path, server, command)
 	return err
 }
