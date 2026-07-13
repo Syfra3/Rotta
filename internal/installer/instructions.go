@@ -126,6 +126,13 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 - Launch an exploration subagent for structural questions only after the exact Vela workflow fails or text/app caller verification is required. Before launching that subagent, state the specific Vela insufficiency or gap, such as empty symbol and file results, ambiguous/truncated graph data, stale/missing graph after refresh, or required source verification.
 - Final answers must report Vela confidence and gaps when graph results are ambiguous, empty, stale, missing, truncated, or when optional ranking metrics are unavailable. Mention file-level fallback, graph-call budget use, and subagent justification when used.
 - Vela is advisory only: do not let Vela control Rotta phase decisions, approvals, or review outcomes.
+
+### Vela Degradation Fallback
+
+- Treat missing graph tools or an unavailable Vela, when Vela times out, permission is denied, or stale, unusable, or failed graph data as a visible Vela-degraded state.
+- Do not invoke a replacement graph MCP. For the affected structural question, perform no more than five focused source/code exploration actions against concrete files, symbols, callers, or configuration.
+- Report source-derived evidence, state that Vela graph proof was unavailable, and identify any remaining gap; do not claim graph proof that source exploration cannot establish.
+- Vela degradation does not change the canonical phase order, approval gates, or quality gates.
 `, surface)
 }
 

@@ -895,6 +895,49 @@ func TestSCN219_GeneratedHostRulesPreserveWorkflowGatesDuringAncoraFallback(t *t
 	}
 }
 
+func TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration(t *testing.T) {
+	// REQ-012, REQ-014 → SCN-220 → TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration
+	// Scenario: Use bounded source exploration when Vela cannot provide graph evidence
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupVela:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		got := string(data)
+		assertContainsAll(t, got, []string{
+			"Vela Degradation Fallback",
+			"missing graph tools", "times out", "permission is denied", "stale, unusable, or failed graph data",
+			"visible Vela-degraded state", "Do not invoke a replacement graph MCP",
+			"no more than five focused source/code exploration actions",
+			"source-derived evidence", "Vela graph proof was unavailable", "remaining gap",
+			"phase order", "approval gates", "quality gates",
+		})
+	}
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure
