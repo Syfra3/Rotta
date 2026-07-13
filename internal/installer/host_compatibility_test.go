@@ -118,27 +118,28 @@ func TestSCN203_RejectUnsupportedHostBeforeMutation(t *testing.T) {
 func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing.T) {
 	// REQ-003, REQ-008 → SCN-204 → TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow
 	// Scenario: Generate host-specific instructions from the canonical Rotta workflow
+	home, options := setupCanonicalWorkflowInstall(t)
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCanonicalWorkflowInstructions(t, result, home)
+}
+
+func setupCanonicalWorkflowInstall(t *testing.T) (string, Options) {
+	t.Helper()
 	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
 	binDir := filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	writeHostCompatibilityFakeAncora(t, filepath.Join(binDir, "ancora"))
 	writeHostCompatibilityFakeVela(t, filepath.Join(binDir, "vela"))
+	return home, Options{Target: "all", ProjectPath: filepath.Join(home, "project"), InstallSpec: true, InstallImpl: true, InstallReview: true, SetupAncora: true, SetupVela: true}
+}
 
-	result, err := Install(Options{
-		Target:        "all",
-		ProjectPath:   projectPath,
-		InstallSpec:   true,
-		InstallImpl:   true,
-		InstallReview: true,
-		SetupAncora:   true,
-		SetupVela:     true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func assertCanonicalWorkflowInstructions(t *testing.T, result *Result, home string) {
+	t.Helper()
 	hostInstructionFiles := map[string]string{
 		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
 		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
@@ -206,69 +207,33 @@ func TestSCN205_DiscloseAdaptedPrimitiveSupportForCodex(t *testing.T) {
 func TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts(t *testing.T) {
 	// REQ-004, REQ-010 → SCN-206 → TestSCN206_ConfigureSelectedMCPServersAcrossSelectedHosts
 	// Scenario: Configure selected MCP servers across selected hosts
-	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
-	binDir := filepath.Join(home, "bin")
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
-	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
-	writeTestFile(t, filepath.Join(home, ".claude", "mcp", "user.json"), []byte(`{"command":"keep"}`))
-	writeTestFile(t, filepath.Join(home, ".codex", "config.toml"), []byte("model = \"gpt-5\"\n"))
-	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
-printf 'ancora %s\n' "$*" >> "$HOME/setup.log"
-if [ "$1" = setup ] && [ "$2" = claude-code ]; then
-  mkdir -p "$HOME/.claude/mcp"
-  printf '{"type":"stdio","command":"ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json"
-fi
-if [ "$1" = setup ] && [ "$2" = opencode ]; then
-  mkdir -p "$HOME/.config/opencode"
-  printf '{"mcp":{"ancora":{"type":"stdio","command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
-fi
-`)
-	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
-printf 'vela %s\n' "$*" >> "$HOME/setup.log"
-project=""
-agent=""
-claude_dir=""
-opencode_dir=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --project) shift; project="$1" ;;
-    --agent) shift; agent="$1" ;;
-    --claude-dir) shift; claude_dir="$1" ;;
-    --opencode-dir) shift; opencode_dir="$1" ;;
-  esac
-  shift
-done
-mkdir -p "$project/.vela"
-printf 'fresh graph' > "$project/.vela/graph.db"
-if [ "$agent" = claude ]; then
-  mkdir -p "$claude_dir"
-  printf '{"type":"stdio","command":"vela","args":["mcp"]}' > "$claude_dir/vela-mcp.json"
-fi
-if [ "$agent" = opencode ]; then
-  mkdir -p "$opencode_dir"
-  printf '{"mcp":{"vela":{"type":"stdio","command":"vela","args":["mcp"]}}}' > "$opencode_dir/opencode-vela.json"
-fi
-`)
-	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
-
-	result, err := Install(Options{
-		Target:        "all",
-		ProjectPath:   projectPath,
-		InstallSpec:   true,
-		InstallImpl:   true,
-		InstallReview: true,
-		SetupAncora:   true,
-		SetupVela:     true,
-		SetupContext7: true,
-	})
+	home, opencodeConfig, options := setupSelectedMCPHostInstall(t)
+	result, err := Install(options)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	assertSelectedMCPHostArtifacts(t, result, home, opencodeConfig, options.ProjectPath)
+}
+
+func setupSelectedMCPHostInstall(t *testing.T) (string, string, Options) {
+	t.Helper()
+	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	writeTestFile(t, opencodeConfig, []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".claude", "mcp", "user.json"), []byte(`{"command":"keep"}`))
+	writeTestFile(t, filepath.Join(home, ".codex", "config.toml"), []byte("model = \"gpt-5\"\n"))
+	writeLoggingAncora(t, filepath.Join(binDir, "ancora"))
+	writeLoggingVela(t, filepath.Join(binDir, "vela"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+	return home, opencodeConfig, Options{Target: "all", ProjectPath: filepath.Join(home, "project"), InstallSpec: true, InstallImpl: true, InstallReview: true, SetupAncora: true, SetupVela: true, SetupContext7: true}
+}
+
+func assertSelectedMCPHostArtifacts(t *testing.T, result *Result, home, opencodeConfig, projectPath string) {
+	t.Helper()
 	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "ancora.json"), "ancora")
 	assertFileContains(t, filepath.Join(home, ".claude", "vela-mcp.json"), "vela")
 	assertContext7ClaudeEntry(t, filepath.Join(home, ".claude", "mcp", "context7.json"))

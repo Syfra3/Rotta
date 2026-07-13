@@ -89,10 +89,19 @@ func assertBackupManifest(t *testing.T, backupDir, home, projectPath string) {
 func TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home, projectPath := setupStaleSettingsInstall(t)
+	result, err := Install(Options{Target: "both", ProjectPath: projectPath, InstallSpec: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStaleSettingsReplaced(t, result, home, projectPath)
+}
+
+func setupStaleSettingsInstall(t *testing.T) (string, string) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
-
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"rotta-spec":{"description":"stale","mode":"subagent","prompt":"old"},"rotta-impl":{"description":"remove me"},"user-agent":{"description":"keep me"}},"theme":"user-theme"}`))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-impl", "SKILL.md"), []byte("stale impl skill\n"))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "user-skill", "SKILL.md"), []byte("keep user skill\n"))
@@ -100,19 +109,14 @@ func TestSCN002_SuccessfulInstallCleansPreviousSettingsBeforeFreshInstall(t *tes
 	writeTestFile(t, filepath.Join(home, ".claude", "skills", "user-skill", "SKILL.md"), []byte("keep claude user skill\n"))
 	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions":{"allow":["mcp__clean_workflow__implementation_mode","user-permission"]},"theme":"dark"}`))
 	writeTestFile(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), []byte("stale: true\n"))
+	return home, projectPath
+}
 
-	result, err := Install(Options{
-		Target:      "both",
-		ProjectPath: projectPath,
-		InstallSpec: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+func assertStaleSettingsReplaced(t *testing.T, result *Result, home, projectPath string) {
+	t.Helper()
 	if result.BackupDir == "" {
 		t.Fatal("expected install to preserve backup-first behavior")
 	}
-
 	opencodeConfig := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
 	agents := opencodeConfig["agent"].(map[string]interface{})
 	if _, ok := agents["user-agent"]; !ok {
@@ -241,60 +245,39 @@ func assertRottaOpenCodeAgents(t *testing.T, agents map[string]interface{}) {
 func TestSCN002_SelectedIntegrationCleanupRunsBeforeOptionalSetup(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_SelectedIntegrationCleanupRunsBeforeOptionalSetup
 	// Scenario: Successful install cleans previous rotta settings before fresh install
+	home, projectPath := setupSelectedIntegrationCleanup(t)
+	_, err := Install(Options{Target: "both", ProjectPath: projectPath, InstallSpec: true, SetupAncora: true, SetupVela: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertSelectedIntegrationCleanup(t, home, projectPath)
+}
+
+func setupSelectedIntegrationCleanup(t *testing.T) (string, string) {
+	t.Helper()
 	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
-	binDir := filepath.Join(home, "bin")
+	projectPath, binDir := filepath.Join(home, "project"), filepath.Join(home, "bin")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeStaleIntegrationArtifacts(t, home, projectPath)
+	writeExecutable(t, filepath.Join(binDir, "ancora"), "#!/bin/sh\nif [ \"$1\" = setup ]; then if [ -e \"$HOME/.claude/mcp/ancora.json\" ] && grep -q stale \"$HOME/.claude/mcp/ancora.json\"; then exit 17; fi; mkdir -p \"$HOME/.claude/mcp\"; printf '{\"fresh\":true}' > \"$HOME/.claude/mcp/ancora.json\"; fi\n")
+	writeExecutable(t, filepath.Join(binDir, "vela"), "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = --project ]; then shift; project=\"$1\"; fi; shift; done\nif [ -z \"$project\" ]; then exit 18; fi\nif [ -e \"$project/.vela/graph.db\" ] || [ -e \"$HOME/.claude/vela-mcp.json\" ] || [ -e \"$HOME/.claude/vela-instructions.md\" ] || [ -e \"$HOME/.config/opencode/instructions.md\" ]; then exit 19; fi\nmkdir -p \"$project/.vela\"; printf 'fresh graph' > \"$project/.vela/graph.db\"\n")
+	return home, projectPath
+}
 
+func writeStaleIntegrationArtifacts(t *testing.T, home, projectPath string) {
+	t.Helper()
 	writeTestFile(t, filepath.Join(projectPath, ".vela", "graph.db"), []byte("stale graph"))
 	writeTestFile(t, filepath.Join(home, ".claude", "vela-mcp.json"), []byte(`{"stale":true}`))
 	writeTestFile(t, filepath.Join(home, ".claude", "vela-instructions.md"), []byte("stale vela instructions"))
 	writeTestFile(t, filepath.Join(home, ".claude", "mcp", "ancora.json"), []byte(`{"stale":true}`))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "instructions.md"), []byte("stale opencode instructions"))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"theme":"user-theme"}`))
+}
 
-	writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
-if [ "$1" = setup ]; then
-if [ -e "$HOME/.claude/mcp/ancora.json" ] && grep -q stale "$HOME/.claude/mcp/ancora.json"; then
-    echo "stale ancora config was not cleaned before setup" >&2
-    exit 17
-  fi
-  mkdir -p "$HOME/.claude/mcp"
-  printf '{"fresh":true}' > "$HOME/.claude/mcp/ancora.json"
-fi
-`)
-	writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --project ]; then
-    shift
-    project="$1"
-  fi
-  shift
-done
-if [ -z "$project" ]; then
-  echo "missing project" >&2
-  exit 18
-fi
-if [ -e "$project/.vela/graph.db" ] || [ -e "$HOME/.claude/vela-mcp.json" ] || [ -e "$HOME/.claude/vela-instructions.md" ] || [ -e "$HOME/.config/opencode/instructions.md" ]; then
-  echo "stale vela artifacts were not cleaned before setup" >&2
-  exit 19
-fi
-mkdir -p "$project/.vela"
-printf 'fresh graph' > "$project/.vela/graph.db"
-`)
-
-	_, err := Install(Options{
-		Target:      "both",
-		ProjectPath: projectPath,
-		InstallSpec: true,
-		SetupAncora: true,
-		SetupVela:   true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func assertSelectedIntegrationCleanup(t *testing.T, home, projectPath string) {
+	t.Helper()
 	assertFileContains(t, filepath.Join(projectPath, ".vela", "graph.db"), "fresh graph")
 	assertFileContains(t, filepath.Join(home, ".claude", "mcp", "ancora.json"), "fresh")
 	assertPathMissing(t, filepath.Join(home, ".claude", "vela-mcp.json"))
@@ -306,67 +289,45 @@ func TestSCN002_OpenCodeAncoraAndVelaInstallSeparateMCPServers(t *testing.T) {
 	// REQ-004 → SCN-002 → TestSCN002_OpenCodeAncoraAndVelaInstallSeparateMCPServers
 	// Scenario: Successful install configures selected optional integrations for OpenCode.
 	for _, target := range []string{"opencode", "both"} {
-		t.Run(target, func(t *testing.T) {
-			home := t.TempDir()
-			projectPath := filepath.Join(home, "project")
-			binDir := filepath.Join(home, "bin")
-			logPath := filepath.Join(home, "setup.log")
-			t.Setenv("HOME", home)
-			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-			writeExecutable(t, filepath.Join(binDir, "ancora"), `#!/bin/sh
-printf 'ancora %s\n' "$*" >> "$HOME/setup.log"
-if [ "$1" = setup ] && [ "$2" = opencode ]; then
-  mkdir -p "$HOME/.config/opencode"
-  printf '{"mcp":{"ancora":{"type":"local","enabled":true}}}' > "$HOME/.config/opencode/opencode.jsonc"
-fi
-`)
-			writeExecutable(t, filepath.Join(binDir, "vela"), `#!/bin/sh
-printf 'vela %s\n' "$*" >> "$HOME/setup.log"
-project=""
-agent=""
-opencode_dir=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --project) shift; project="$1" ;;
-    --agent) shift; agent="$1" ;;
-    --opencode-dir) shift; opencode_dir="$1" ;;
-  esac
-  shift
-done
-mkdir -p "$project/.vela"
-printf 'fresh graph' > "$project/.vela/graph.db"
-if [ "$agent" = opencode ]; then
-  mkdir -p "$opencode_dir"
-  printf '{"mcp":{"vela":{"type":"local","enabled":true}}}' > "$opencode_dir/opencode.json"
-fi
-`)
-
-			_, err := Install(Options{
-				Target:      target,
-				ProjectPath: projectPath,
-				InstallSpec: true,
-				SetupAncora: true,
-				SetupVela:   true,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			opencodeJSONC := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"))
-			opencodeJSON := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
-			assertMCPEntryExists(t, opencodeJSONC, "ancora")
-			assertMCPEntryExists(t, opencodeJSON, "vela")
-			if _, ok := opencodeJSONC["mcp"].(map[string]interface{})["vela"]; ok {
-				t.Fatalf("expected Ancora config not to contain direct Vela MCP, got %#v", opencodeJSONC)
-			}
-			if _, ok := opencodeJSON["mcp"].(map[string]interface{})["ancora"]; ok {
-				t.Fatalf("expected Vela config not to contain Ancora MCP, got %#v", opencodeJSON)
-			}
-			assertFileContains(t, logPath, "ancora setup opencode")
-			assertFileContains(t, logPath, "vela install --project "+projectPath+" --agent opencode")
-		})
+		t.Run(target, testSeparateOpenCodeMCPServers(target))
 	}
+}
+
+func testSeparateOpenCodeMCPServers(target string) func(*testing.T) {
+	return func(t *testing.T) {
+		home, projectPath := setupSeparateOpenCodeMCPServers(t)
+		if _, err := Install(Options{Target: target, ProjectPath: projectPath, InstallSpec: true, SetupAncora: true, SetupVela: true}); err != nil {
+			t.Fatal(err)
+		}
+		assertSeparateOpenCodeMCPServers(t, home, projectPath)
+	}
+}
+
+func setupSeparateOpenCodeMCPServers(t *testing.T) (string, string) {
+	t.Helper()
+	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeExecutable(t, filepath.Join(binDir, "ancora"), "#!/bin/sh\nprintf 'ancora %s\\n' \"$*\" >> \"$HOME/setup.log\"\nif [ \"$1\" = setup ] && [ \"$2\" = opencode ]; then mkdir -p \"$HOME/.config/opencode\"; printf '{\"mcp\":{\"ancora\":{\"type\":\"local\",\"enabled\":true}}}' > \"$HOME/.config/opencode/opencode.jsonc\"; fi\n")
+	writeExecutable(t, filepath.Join(binDir, "vela"), "#!/bin/sh\nprintf 'vela %s\\n' \"$*\" >> \"$HOME/setup.log\"\nwhile [ \"$#\" -gt 0 ]; do case \"$1\" in --project) shift; project=\"$1\" ;; --agent) shift; agent=\"$1\" ;; --opencode-dir) shift; opencode_dir=\"$1\" ;; esac; shift; done\nmkdir -p \"$project/.vela\"; printf 'fresh graph' > \"$project/.vela/graph.db\"\nif [ \"$agent\" = opencode ]; then mkdir -p \"$opencode_dir\"; printf '{\"mcp\":{\"vela\":{\"type\":\"local\",\"enabled\":true}}}' > \"$opencode_dir/opencode.json\"; fi\n")
+	return home, filepath.Join(home, "project")
+}
+
+func assertSeparateOpenCodeMCPServers(t *testing.T, home, projectPath string) {
+	t.Helper()
+	jsonc := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"))
+	json := readJSONFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"))
+	assertMCPEntryExists(t, jsonc, "ancora")
+	assertMCPEntryExists(t, json, "vela")
+	if _, ok := jsonc["mcp"].(map[string]interface{})["vela"]; ok {
+		t.Fatalf("expected Ancora config not to contain direct Vela MCP, got %#v", jsonc)
+	}
+	if _, ok := json["mcp"].(map[string]interface{})["ancora"]; ok {
+		t.Fatalf("expected Vela config not to contain Ancora MCP, got %#v", json)
+	}
+	assertFileContains(t, filepath.Join(home, "setup.log"), "ancora setup opencode")
+	assertFileContains(t, filepath.Join(home, "setup.log"), "vela install --project "+projectPath+" --agent opencode")
 }
 
 func TestSCN002_VelaSetupUpgradesExistingHomebrewInstallBeforeAgentInstall(t *testing.T) {
