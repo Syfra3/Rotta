@@ -395,12 +395,12 @@ func assertContext7OpenCodeEntry(t *testing.T, path string) {
 	config := readJSONFile(t, path)
 	mcp := config["mcp"].(map[string]interface{})
 	entry := mcp["context7"].(map[string]interface{})
-	if entry["command"] != "npx" || entry["type"] != "stdio" {
+	if entry["type"] != "local" || entry["enabled"] != true {
 		t.Fatalf("unexpected Context7 OpenCode entry: %#v", entry)
 	}
-	args := entry["args"].([]interface{})
-	if len(args) != 2 || args[0] != "-y" || args[1] != "@upstash/context7-mcp" {
-		t.Fatalf("unexpected Context7 OpenCode args: %#v", args)
+	command := entry["command"].([]interface{})
+	if len(command) != 3 || command[0] != "npx" || command[1] != "-y" || command[2] != "@upstash/context7-mcp" {
+		t.Fatalf("unexpected Context7 OpenCode command: %#v", command)
 	}
 	if _, exists := mcp["user-server"]; !exists && strings.Contains(readFileString(t, path), "user-server") {
 		t.Fatalf("expected unrelated MCP entries preserved, got %#v", mcp)
