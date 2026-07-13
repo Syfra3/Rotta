@@ -938,6 +938,49 @@ func TestSCN220_GeneratedHostRulesBoundVelaDegradedSourceExploration(t *testing.
 	}
 }
 
+func TestSCN221_GeneratedHostRulesDescribeContext7Degradation(t *testing.T) {
+	// REQ-013, REQ-014 → SCN-221 → TestSCN221_GeneratedHostRulesDescribeContext7Degradation
+	// Scenario: Continue without inventing library details when Context7 fails
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	_, err := Install(Options{
+		Target:        "all",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"Context7 Degradation Fallback",
+			"missing or unavailable Context7 tools", "times out", "permission is denied",
+			"command, initialization, or documentation-query failure",
+			"visible Context7-degraded state", "continues without a documentation lookup",
+			"does not present unverified library or API details as fact",
+			"assumptions and verification needs", "project or user-provided evidence",
+			"phase order", "approval", "TDD", "review", "quality-gate", "source-of-truth",
+		})
+	}
+}
+
 func TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered(t *testing.T) {
 	// REQ-007, REQ-009 → SCN-214 → TestSCN214_HostCompatibilityRecoveryBranchesRemainCovered
 	// Scenario: Recover safely from a partial multi-host install failure

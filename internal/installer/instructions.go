@@ -32,6 +32,8 @@ func integrationInstructions(opts Options) string {
 	b.WriteString("\n")
 	b.WriteString(velaInstructions(opts.SetupVela, opts.SetupAncora))
 	b.WriteString("\n")
+	b.WriteString(context7Instructions(opts.SetupContext7))
+	b.WriteString("\n")
 	b.WriteString(explorationEnrichmentInstructions(opts.SetupVela))
 	return b.String()
 }
@@ -134,6 +136,19 @@ func velaInstructions(enabled, ancoraEnabled bool) string {
 - Report source-derived evidence, state that Vela graph proof was unavailable, and identify any remaining gap; do not claim graph proof that source exploration cannot establish.
 - Vela degradation does not change the canonical phase order, approval gates, or quality gates.
 `, surface)
+}
+
+func context7Instructions(enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	return `### Context7 Degradation Fallback
+
+- Treat missing or unavailable Context7 tools, when Context7 times out, permission is denied, or there is a command, initialization, or documentation-query failure as a visible Context7-degraded state.
+- The applicable workflow action continues without a documentation lookup and does not present unverified library or API details as fact.
+- Identify assumptions and verification needs using only available project or user-provided evidence; ask for or defer verification when documentation is needed for a safe claim.
+- Context7 degradation does not change phase order, approval, TDD, review, quality-gate, or source-of-truth requirements.
+`
 }
 
 func explorationEnrichmentInstructions(velaEnabled bool) string {
