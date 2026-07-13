@@ -63,6 +63,14 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 }
 
 func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointRequest) (ScenarioCheckpointRecord, error) {
+	untracked, err := untrackedNonIgnoredPaths(repoRoot)
+	if err != nil {
+		return ScenarioCheckpointRecord{}, err
+	}
+	if len(untracked) > 0 {
+		return ScenarioCheckpointRecord{}, fmt.Errorf("unexpected untracked change before checkpointing: %s", untracked[0])
+	}
+
 	changed, err := trackedChangedPaths(repoRoot)
 	if err != nil {
 		return ScenarioCheckpointRecord{}, err
@@ -96,6 +104,16 @@ func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointReque
 		return ScenarioCheckpointRecord{}, err
 	}
 	return record, nil
+}
+
+func untrackedNonIgnoredPaths(repoRoot string) ([]string, error) {
+	status := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	status.Dir = repoRoot
+	output, err := status.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("inspect untracked scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.Fields(string(output)), nil
 }
 
 func trackedChangedPaths(repoRoot string) ([]string, error) {
