@@ -1,0 +1,312 @@
+package installer
+
+const openCodeVelaFreshnessGuardPluginSource = `import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve, sep } from "node:path";
+
+const REFRESH_DEBOUNCE_MS = 60_000;
+const scheduledRefreshes = new Map();
+
+const GRAPH_QUERY_TOOLS = new Set([
+  "vela_explore",
+  "vela_lookup",
+  "vela_dependencies",
+  "vela_reverse_dependencies",
+  "vela_impact",
+  "vela_path",
+  "vela_explain",
+  "vela_architecture",
+  "vela_query_graph",
+  "vela_federated_search",
+  "vela_get_node",
+  "vela_get_neighbors",
+  "vela_graph_stats",
+  "vela_shortest_path",
+]);
+
+function normalizeToolName(toolName) {
+  if (!toolName) return "";
+  if (toolName.startsWith("mcp__vela__")) {
+    const suffix = toolName.slice("mcp__vela__".length);
+    return suffix.startsWith("vela_") ? suffix : "vela_" + suffix;
+  }
+  if (toolName.startsWith("mcp__ancora__ancora_vela_")) return toolName.slice("mcp__ancora__".length);
+  if (toolName.startsWith("mcp__ancora__vela_")) return toolName.slice("mcp__ancora__".length);
+  return toolName;
+}
+
+function isVelaGraphQueryTool(toolName) {
+  toolName = normalizeToolName(String(toolName || ""));
+  if (!toolName) return false;
+  if (toolName.includes("status")) return false; // Do not recursively guard vela_status.
+  if (toolName === "vela_update" || toolName === "vela_build" || toolName === "vela_install" || toolName === "vela_extract") return false;
+  return GRAPH_QUERY_TOOLS.has(toolName) || toolName.startsWith("ancora_vela_");
+}
+
+function candidateDirectory(input, output, context) {
+  return input?.cwd || input?.directory || input?.session?.cwd || input?.session?.directory ||
+    output?.args?.cwd || output?.args?.directory || context.directory || context.worktree || process.cwd();
+}
+
+function normalizeDir(dir) {
+  return resolve(String(dir || ""));
+}
+
+function isSameOrChild(candidate, root) {
+  return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+function registeredRepoRoots(registry) {
+  const workspaces = Array.isArray(registry) ? registry : registry?.workspaces;
+  if (Array.isArray(workspaces)) {
+    return workspaces.map((workspace) => workspace?.repo_root || workspace?.repoRoot || workspace?.path).filter(Boolean);
+  }
+  if (registry && typeof registry === "object") {
+    return Object.values(registry).map((workspace) => workspace?.repo_root || workspace?.repoRoot || workspace?.path).filter(Boolean);
+  }
+  return [];
+}
+
+function resolveWorkspace(input, output, context) {
+  const candidate = normalizeDir(candidateDirectory(input, output, context));
+  const homeRoot = normalizeDir(homedir());
+  let registry;
+  try {
+    registry = JSON.parse(readFileSync(resolve(homeRoot, ".vela/registry.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  const matches = registeredRepoRoots(registry)
+    .map(normalizeDir)
+    .filter((repoRoot) => repoRoot && repoRoot !== homeRoot && isSameOrChild(candidate, repoRoot))
+    .sort((a, b) => b.length - a.length);
+  return matches[0] || null;
+}
+
+function scheduleVelaGraphRefresh(workspace, reason) {
+  if (!workspace) return;
+  const now = Date.now();
+  const previous = scheduledRefreshes.get(workspace) || 0;
+  if (now - previous < REFRESH_DEBOUNCE_MS) {
+    return;
+  }
+  scheduledRefreshes.set(workspace, now);
+
+  try {
+    const child = spawn("sh", ["-c", "vela update \"$1\" >/dev/null 2>&1 || vela build \"$1\" >/dev/null 2>&1", "sh", workspace], {
+      cwd: workspace,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", (error) => {
+      console.error("Rotta Vela refresh not scheduled for " + workspace + ": " + (error?.message || error));
+    });
+    child.unref();
+    console.error("Rotta Vela refresh scheduled in background for " + workspace + " before " + reason + ".");
+  } catch (error) {
+    console.error("Rotta Vela refresh not scheduled for " + workspace + ": " + (error?.message || error));
+  }
+}
+
+export const RottaVelaFreshnessGuard = async ({ directory, worktree }) => {
+  const context = { directory, worktree };
+
+  return {
+    "tool.execute.before": async (input, output) => {
+      const toolName = input?.tool || input?.toolName || output?.tool || output?.name || "";
+      if (!isVelaGraphQueryTool(toolName)) return;
+      scheduleVelaGraphRefresh(resolveWorkspace(input, output, context), "graph query " + toolName);
+    },
+  };
+};
+`
+
+const claudeVelaFreshnessGuardScriptSource = `#!/usr/bin/env bash
+# Rotta Vela freshness guard. Installed by Rotta; rerun rotta install to update it.
+set -u
+
+hook_input="$(cat || true)"
+tool_name=""
+cwd_from_input=""
+
+if command -v python3 >/dev/null 2>&1; then
+  mapfile -t parsed_hook_input < <(HOOK_INPUT_JSON="$hook_input" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("HOOK_INPUT_JSON", "")
+try:
+    data = json.loads(raw) if raw else {}
+except Exception:
+    data = {}
+
+def nested(obj, *keys):
+    cur = obj
+    for key in keys:
+        if not isinstance(cur, dict):
+            return ""
+        cur = cur.get(key)
+    return cur if isinstance(cur, str) else ""
+
+tool = (
+    nested(data, "tool_name")
+    or nested(data, "tool")
+    or nested(data, "tool", "name")
+    or nested(data, "toolName")
+)
+cwd = (
+    nested(data, "cwd")
+    or nested(data, "project_dir")
+    or nested(data, "workspace_dir")
+    or nested(data, "session", "cwd")
+    or nested(data, "session", "directory")
+    or nested(data, "tool_input", "cwd")
+)
+print(tool)
+print(cwd)
+PY
+)
+  tool_name="${parsed_hook_input[0]:-}"
+  cwd_from_input="${parsed_hook_input[1]:-}"
+fi
+
+normalize_tool_name() {
+  local tool="$1"
+  case "$tool" in
+    mcp__vela__*)
+      local suffix="${tool#mcp__vela__}"
+      case "$suffix" in
+        vela_*) printf '%s' "$suffix" ;;
+        *) printf 'vela_%s' "$suffix" ;;
+      esac
+      ;;
+    mcp__ancora__ancora_vela_*) printf '%s' "${tool#mcp__ancora__}" ;;
+    mcp__ancora__vela_*) printf '%s' "${tool#mcp__ancora__}" ;;
+    *) printf '%s' "$tool" ;;
+  esac
+}
+
+isVelaGraphQueryTool() {
+  local tool
+  tool="$(normalize_tool_name "$1")"
+  # Do not recursively guard vela_status; it is the freshness/readiness check itself.
+  case "$tool" in
+    *status*) return 1 ;;
+    vela_update|vela_build|vela_install|vela_extract) return 1 ;;
+    vela_explore|vela_lookup|vela_dependencies|vela_reverse_dependencies|vela_impact|vela_path|vela_explain|vela_architecture|vela_query_graph|vela_federated_search|vela_get_node|vela_get_neighbors|vela_graph_stats|vela_shortest_path) return 0 ;;
+    ancora_vela_*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -z "$tool_name" ] || ! isVelaGraphQueryTool "$tool_name"; then
+  exit 0
+fi
+
+project_dir="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$project_dir" ]; then
+  project_dir="$cwd_from_input"
+fi
+if [ -z "$project_dir" ]; then
+  project_dir="$(pwd)"
+fi
+
+workspace=""
+if command -v python3 >/dev/null 2>&1; then
+  workspace="$(CANDIDATE_DIR="$project_dir" python3 - <<'PY'
+import json
+import os
+
+home = os.path.abspath(os.path.expanduser(os.environ.get("HOME", "")))
+candidate = os.path.abspath(os.environ.get("CANDIDATE_DIR", "") or os.getcwd())
+registry_path = os.path.join(home, ".vela", "registry.json")
+
+try:
+    with open(registry_path, "r", encoding="utf-8") as handle:
+        registry = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+def repo_roots(data):
+    if isinstance(data, list):
+        values = data
+    elif isinstance(data, dict) and isinstance(data.get("workspaces"), list):
+        values = data["workspaces"]
+    elif isinstance(data, dict):
+        values = list(data.values())
+    else:
+        values = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        root = item.get("repo_root") or item.get("repoRoot") or item.get("path")
+        if isinstance(root, str) and root:
+            yield os.path.abspath(os.path.expanduser(root))
+
+def is_same_or_child(path, root):
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+matches = [root for root in repo_roots(registry) if root != home and is_same_or_child(candidate, root)]
+if matches:
+    print(max(matches, key=len))
+PY
+)"
+fi
+
+if [ -z "$workspace" ]; then
+  exit 0
+fi
+
+if ! command -v vela >/dev/null 2>&1; then
+  echo "Rotta Vela refresh not scheduled: vela binary not found. Install Vela, then rerun rotta install." >&2
+  exit 0
+fi
+
+schedule_refresh() {
+  local workspace="$1"
+  local tool_name="$2"
+  local cache_root
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    cache_root="$XDG_CACHE_HOME/rotta-vela-freshness"
+  else
+    cache_root="${TMPDIR:-/tmp}/rotta-vela-freshness"
+  fi
+  local key
+  if command -v sha256sum >/dev/null 2>&1; then
+    key="$(printf '%s' "$workspace" | sha256sum | cut -d ' ' -f 1)"
+  else
+    key="$(printf '%s' "$workspace" | tr '/ :' '___')"
+  fi
+  local stamp="$cache_root/$key.stamp"
+  local lock="$cache_root/$key.lock"
+  mkdir -p "$cache_root" || return 0
+
+  if [ -f "$stamp" ]; then
+    local now
+    local modified
+    now="$(date +%s)"
+    modified="$(stat -c %Y "$stamp" 2>/dev/null || date -r "$stamp" +%s 2>/dev/null || printf 0)"
+    if [ $((now - modified)) -lt 60 ]; then
+      return 0
+    fi
+  fi
+  if ! ( set -C; : > "$lock" ) 2>/dev/null; then
+    return 0
+  fi
+  : > "$stamp"
+
+  (
+    trap 'rm -f "$lock"' EXIT
+    vela update "$workspace" >/dev/null 2>&1 || vela build "$workspace" >/dev/null 2>&1
+  ) </dev/null >/dev/null 2>&1 &
+
+  echo "Rotta Vela refresh scheduled in background for $workspace before graph query $tool_name." >&2
+}
+
+schedule_refresh "$workspace" "$tool_name"
+exit 0
+`

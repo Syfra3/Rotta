@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -176,34 +177,12 @@ func PlanCleanTreeContractActions(repoRoot string, scope ContractScope) ([]Contr
 func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) WorkflowArtifactLifecycleClassification {
 	classification := WorkflowArtifactLifecycleClassification{Path: input.Path, ReviewCandidate: true}
 	if isLocalGeneratedGraphOrCachePath(input.Path) {
-		classification.Kind = WorkflowArtifactLocalGeneratedCache
-		classification.ReviewCandidate = input.IntentionallyTrackedGeneratedArtifact && input.ProjectArtifactDecision
-		classification.RequiresProjectArtifactDecision = input.IntentionallyTrackedGeneratedArtifact && !input.ProjectArtifactDecision
-		return classification
+		return localGeneratedArtifactClassification(classification, input)
 	}
 	if isSensitiveWorkflowArtifact(input) {
-		classification.Kind = WorkflowArtifactRejectedSensitive
-		classification.ReviewCandidate = false
-		classification.RequiresSanitizedReplacement = true
-		return classification
+		return sensitiveArtifactClassification(classification)
 	}
-	retirementReason := strings.TrimSpace(input.RetirementReason)
-	if input.Retired {
-		classification.Kind = WorkflowArtifactRetired
-		classification.ArchiveCandidate = retirementReason != ""
-		classification.ArchiveReason = retirementReason
-		return classification
-	}
-	if input.Superseded {
-		classification.Kind = WorkflowArtifactSuperseded
-		classification.ArchiveCandidate = retirementReason != ""
-		classification.ArchiveReason = retirementReason
-		return classification
-	}
-	if input.ProcessOnly {
-		classification.Kind = WorkflowArtifactProcessOnly
-		classification.ArchiveCandidate = retirementReason != ""
-		classification.ArchiveReason = retirementReason
+	if classification, classified := classifyArtifactRetirement(classification, input); classified {
 		return classification
 	}
 	if strings.HasPrefix(filepath.ToSlash(input.Path), "features/") && strings.HasSuffix(input.Path, ".feature") && input.Approved {
@@ -211,6 +190,44 @@ func ClassifyWorkflowArtifactLifecycle(input WorkflowArtifactLifecycleInput) Wor
 		classification.ArchiveCandidate = false
 	}
 	return classification
+}
+
+func localGeneratedArtifactClassification(classification WorkflowArtifactLifecycleClassification, input WorkflowArtifactLifecycleInput) WorkflowArtifactLifecycleClassification {
+	classification.Kind = WorkflowArtifactLocalGeneratedCache
+	classification.ReviewCandidate = input.IntentionallyTrackedGeneratedArtifact && input.ProjectArtifactDecision
+	classification.RequiresProjectArtifactDecision = input.IntentionallyTrackedGeneratedArtifact && !input.ProjectArtifactDecision
+	return classification
+}
+
+func sensitiveArtifactClassification(classification WorkflowArtifactLifecycleClassification) WorkflowArtifactLifecycleClassification {
+	classification.Kind = WorkflowArtifactRejectedSensitive
+	classification.ReviewCandidate = false
+	classification.RequiresSanitizedReplacement = true
+	return classification
+}
+
+func classifyArtifactRetirement(classification WorkflowArtifactLifecycleClassification, input WorkflowArtifactLifecycleInput) (WorkflowArtifactLifecycleClassification, bool) {
+	kind, retired := artifactRetirementKind(input)
+	if !retired {
+		return classification, false
+	}
+	classification.Kind = kind
+	classification.ArchiveReason = strings.TrimSpace(input.RetirementReason)
+	classification.ArchiveCandidate = classification.ArchiveReason != ""
+	return classification, true
+}
+
+func artifactRetirementKind(input WorkflowArtifactLifecycleInput) (WorkflowArtifactLifecycleKind, bool) {
+	if input.Retired {
+		return WorkflowArtifactRetired, true
+	}
+	if input.Superseded {
+		return WorkflowArtifactSuperseded, true
+	}
+	if input.ProcessOnly {
+		return WorkflowArtifactProcessOnly, true
+	}
+	return "", false
 }
 
 func isSensitiveWorkflowArtifact(input WorkflowArtifactLifecycleInput) bool {
@@ -363,7 +380,7 @@ func isLocalGeneratedGraphOrCachePath(path string) bool {
 }
 
 func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
-	content, err := os.ReadFile(filepath.Join(repoRoot, "specs", ".implementation-complete"))
+	content, err := readRepositoryFile(repoRoot, "specs/.implementation-complete")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]bool{}, nil
@@ -384,48 +401,7 @@ func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
 func approvedFeaturePathForScenario(repoRoot, scenarioID string) (string, error) {
 	featuresRoot := filepath.Join(repoRoot, "features")
 	var found string
-	err := filepath.WalkDir(featuresRoot, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".feature" {
-			return nil
-		}
-
-		featurePath, err := filepath.Rel(repoRoot, path)
-		if err != nil {
-			return fmt.Errorf("make feature path relative %s: %w", path, err)
-		}
-		featurePath = filepath.ToSlash(featurePath)
-		approved, err := scopedApprovalContains(repoRoot, ContractScope{
-			SpecPath:    specPathForFeature(featurePath),
-			FeaturePath: featurePath,
-			ScenarioID:  scenarioID,
-		})
-		if err != nil {
-			return err
-		}
-		if !approved {
-			return nil
-		}
-
-		file, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("open feature file %s: %w", featurePath, err)
-		}
-		defer file.Close()
-		scenarios, err := ParseFeatureScenarioTags(featurePath, file)
-		if err != nil {
-			return err
-		}
-		for _, scenario := range scenarios {
-			if scenario.ScenarioID == scenarioID {
-				found = featurePath
-				return errStopFeatureSearch
-			}
-		}
-		return nil
-	})
+	err := filepath.WalkDir(featuresRoot, approvedFeatureFinder(repoRoot, scenarioID, &found))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -438,24 +414,75 @@ func approvedFeaturePathForScenario(repoRoot, scenarioID string) (string, error)
 	return "", nil
 }
 
+func approvedFeatureFinder(repoRoot, scenarioID string, found *string) fs.WalkDirFunc {
+	return func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() || filepath.Ext(path) != ".feature" {
+			return walkErr
+		}
+		featurePath, err := relativeFeaturePath(repoRoot, path)
+		if err != nil {
+			return err
+		}
+		matches, err := approvedFeatureContainsScenario(repoRoot, featurePath, scenarioID)
+		if err != nil || !matches {
+			return err
+		}
+		*found = featurePath
+		return errStopFeatureSearch
+	}
+}
+
+func relativeFeaturePath(repoRoot, path string) (string, error) {
+	featurePath, err := filepath.Rel(repoRoot, path)
+	if err != nil {
+		return "", fmt.Errorf("make feature path relative %s: %w", path, err)
+	}
+	return filepath.ToSlash(featurePath), nil
+}
+
+func approvedFeatureContainsScenario(repoRoot, featurePath, scenarioID string) (bool, error) {
+	approved, err := scopedApprovalContains(repoRoot, ContractScope{SpecPath: specPathForFeature(featurePath), FeaturePath: featurePath, ScenarioID: scenarioID})
+	if err != nil || !approved {
+		return false, err
+	}
+	file, closeFile, err := openRepositoryFile(repoRoot, featurePath)
+	if err != nil {
+		return false, fmt.Errorf("open feature file %s: %w", featurePath, err)
+	}
+	defer closeFile()
+	scenarios, err := ParseFeatureScenarioTags(featurePath, file)
+	if err != nil {
+		return false, err
+	}
+	for _, scenario := range scenarios {
+		if scenario.ScenarioID == scenarioID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func gitTracksPath(repoRoot, path string) (bool, error) {
-	cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	cmd := exec.Command("git", "ls-files")
 	cmd.Dir = repoRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
 		return false, fmt.Errorf("check tracked path %s: %w: %s", path, err, output)
 	}
-	return true, nil
+	wanted := filepath.ToSlash(filepath.Clean(path))
+	for _, tracked := range strings.Fields(string(output)) {
+		if filepath.ToSlash(tracked) == wanted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func writeWorkflowArtifact(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create workflow artifact parent %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write workflow artifact %s: %w", path, err)
 	}
 	return nil

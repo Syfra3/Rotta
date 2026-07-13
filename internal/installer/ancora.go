@@ -21,44 +21,52 @@ type AncoraResult struct {
 //
 // Installation source: https://github.com/Syfra3/ancora
 func SetupAncora(opts Options, home string) (*AncoraResult, error) {
-	result := &AncoraResult{}
-
-	binPath, err := detectAncoraBin()
+	binPath, installed, err := resolveAncoraBin(opts)
 	if err != nil {
-		if installErr := installAncora(opts); installErr != nil {
-			return nil, fmt.Errorf(
-				"ancora not found and installation failed: %w\n\n"+
-					"Install manually:\n"+
-					"  brew tap Syfra3/tap && brew install ancora\n"+
-					"  # or\n"+
-					"  curl -sSL https://raw.githubusercontent.com/Syfra3/ancora/main/scripts/install-ancora.sh | bash\n\n"+
-					"Then run: ancora setup claude-code  # or opencode",
-				installErr,
-			)
-		}
-		result.Installed = true
-		binPath, _ = detectAncoraBin()
-		if binPath == "" {
-			binPath = "/opt/homebrew/bin/ancora"
-		}
+		return nil, err
 	}
-	result.BinPath = binPath
-
-	// Delegate all configuration to `ancora setup` — it handles MCP config,
-	// plugin files, permissions, and hooks for each target.
-	if opts.Target == "claude-code" || opts.Target == "both" || opts.Target == "all" {
-		if err := runAncoraSetup(opts, binPath, "claude-code"); err != nil {
-			return nil, fmt.Errorf("ancora setup claude-code: %w", err)
-		}
+	result := &AncoraResult{BinPath: binPath, Installed: installed}
+	if err := configureAncoraHosts(opts, binPath); err != nil {
+		return nil, err
 	}
-
-	if opts.Target == "opencode" || opts.Target == "both" || opts.Target == "all" {
-		if err := runAncoraSetup(opts, binPath, "opencode"); err != nil {
-			return nil, fmt.Errorf("ancora setup opencode: %w", err)
-		}
-	}
-
 	return result, nil
+}
+
+func resolveAncoraBin(opts Options) (string, bool, error) {
+	binPath, err := detectAncoraBin()
+	if err == nil {
+		return binPath, false, nil
+	}
+	if err := installAncora(opts); err != nil {
+		return "", false, fmt.Errorf("ancora not found and installation failed: %w\n\nInstall manually:\n  brew tap Syfra3/tap && brew install ancora\n  # or\n  curl -sSL https://raw.githubusercontent.com/Syfra3/ancora/main/scripts/install-ancora.sh | bash\n\nThen run: ancora setup claude-code  # or opencode", err)
+	}
+	binPath, _ = detectAncoraBin()
+	if binPath == "" {
+		binPath = "/opt/homebrew/bin/ancora"
+	}
+	return binPath, true, nil
+}
+
+func configureAncoraHosts(opts Options, binPath string) error {
+	for _, host := range ancoraSetupHosts(opts.Target) {
+		if err := runAncoraSetup(opts, binPath, host); err != nil {
+			return fmt.Errorf("ancora setup %s: %w", host, err)
+		}
+	}
+	return nil
+}
+
+func ancoraSetupHosts(target string) []string {
+	if target == "claude-code" {
+		return []string{"claude-code"}
+	}
+	if target == "opencode" {
+		return []string{"opencode"}
+	}
+	if target == "both" || target == "all" {
+		return []string{"claude-code", "opencode"}
+	}
+	return nil
 }
 
 // detectAncoraBin finds the ancora binary via PATH or common install locations.
@@ -71,7 +79,7 @@ func detectAncoraBin() (string, error) {
 		"/usr/local/bin/ancora",
 		fmt.Sprintf("%s/.local/bin/ancora", os.Getenv("HOME")),
 	} {
-		if _, err := os.Stat(candidate); err == nil {
+		if exists, err := fileExistsWithinParent(candidate); err == nil && exists {
 			return candidate, nil
 		}
 	}
@@ -111,19 +119,19 @@ func installAncoraViaBrew(opts Options, brew string) error {
 // installAncoraViaScript installs via the official bash install script.
 // Source: https://github.com/Syfra3/ancora/blob/main/scripts/install-ancora.sh
 func installAncoraViaScript(opts Options) error {
-	curl, err := exec.LookPath("curl")
+	_, err := exec.LookPath("curl")
 	if err != nil {
 		return fmt.Errorf("neither brew nor curl is available")
 	}
-	bash, err := exec.LookPath("bash")
+	_, err = exec.LookPath("bash")
 	if err != nil {
 		return fmt.Errorf("bash not found")
 	}
 
 	// curl -sSL <url> | bash
-	curlCmd := exec.Command(curl, "-sSL",
+	curlCmd := exec.Command("curl", "-sSL",
 		"https://raw.githubusercontent.com/Syfra3/ancora/main/scripts/install-ancora.sh")
-	bashCmd := exec.Command(bash)
+	bashCmd := exec.Command("bash")
 
 	curlOut, err := curlCmd.Output()
 	if err != nil {
@@ -138,8 +146,12 @@ func installAncoraViaScript(opts Options) error {
 
 // runAncoraSetup runs `ancora setup <agent>` which configures MCP, plugins,
 // and permissions for the given target (claude-code or opencode).
-func runAncoraSetup(opts Options, binPath, agent string) error {
-	cmd := exec.Command(binPath, "setup", agent)
+func runAncoraSetup(opts Options, _ string, agent string) error {
+	if agent != "claude-code" && agent != "opencode" {
+		return fmt.Errorf("unsupported Ancora setup target %q", agent)
+	}
+	cmd := exec.Command("ancora")
+	cmd.Args = []string{"ancora", "setup", agent}
 	configureCommandIO(cmd, opts)
 	return cmd.Run()
 }

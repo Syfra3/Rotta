@@ -10,39 +10,31 @@ import (
 var _ = tea.Quit // suppress unused import
 
 func (m Model) View() string {
-	switch m.Screen {
-	case ScreenWelcome:
-		return m.viewWelcome()
-	case ScreenTargetSelect:
-		return m.viewTargetSelect()
-	case ScreenProjectPath:
-		return m.viewProjectPath()
-	case ScreenModeSelect:
-		return m.viewModeSelect()
-	case ScreenQualityGates:
-		return m.viewQualityGates()
-	case ScreenAncora:
-		return m.viewAncora()
-	case ScreenVela:
-		return m.viewVela()
-	case ScreenContext7:
-		return m.viewContext7()
-	case ScreenConfirm:
-		return m.viewConfirm()
-	case ScreenInstalling:
-		return m.viewInstalling()
-	case ScreenSuccess:
-		return m.viewSuccess()
-	case ScreenError:
-		return m.viewError()
-	case ScreenRecoveryList:
-		return m.viewRecoveryList()
-	case ScreenRecoveryPreview:
-		return m.viewRecoveryPreview()
-	case ScreenRecoveryConfirm:
-		return m.viewRecoveryConfirm()
+	view, ok := m.screenViews()[m.Screen]
+	if !ok {
+		return ""
 	}
-	return ""
+	return view()
+}
+
+func (m Model) screenViews() map[Screen]func() string {
+	return map[Screen]func() string{
+		ScreenWelcome:         m.viewWelcome,
+		ScreenTargetSelect:    m.viewTargetSelect,
+		ScreenProjectPath:     m.viewProjectPath,
+		ScreenModeSelect:      m.viewModeSelect,
+		ScreenQualityGates:    m.viewQualityGates,
+		ScreenAncora:          m.viewAncora,
+		ScreenVela:            m.viewVela,
+		ScreenContext7:        m.viewContext7,
+		ScreenConfirm:         m.viewConfirm,
+		ScreenInstalling:      m.viewInstalling,
+		ScreenSuccess:         m.viewSuccess,
+		ScreenError:           m.viewError,
+		ScreenRecoveryList:    m.viewRecoveryList,
+		ScreenRecoveryPreview: m.viewRecoveryPreview,
+		ScreenRecoveryConfirm: m.viewRecoveryConfirm,
+	}
 }
 
 func (m Model) viewWelcome() string {
@@ -277,49 +269,6 @@ func (m Model) viewAncora() string {
 	return appStyle.Render(b.String())
 }
 
-func (m Model) viewVela() string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("Vela — Optional Graph Intelligence") + "\n\n")
-
-	b.WriteString(sectionStyle.Render("What Vela does") + "\n")
-	b.WriteString(menuItemStyle.Render("  Extracts local code graphs for structural, dependency, and impact questions") + "\n")
-	b.WriteString(menuItemStyle.Render("  Provides vela_* graph tools when graph data exists and is fresh") + "\n")
-	b.WriteString(menuItemStyle.Render("  Installs a freshness guard that schedules non-blocking refresh before graph queries") + "\n")
-	b.WriteString(menuItemStyle.Render("  Enriches workflow exploration with facts, provenance, confidence, and source") + "\n\n")
-
-	b.WriteString(sectionStyle.Render("Workflow boundary") + "\n")
-	b.WriteString(menuItemStyle.Render("  Rotta still controls phases, gates, and delegation") + "\n")
-	b.WriteString(menuItemStyle.Render("  Vela is advisory graph intelligence, not the workflow controller") + "\n")
-	if m.SetupAncora {
-		b.WriteString(menuItemStyle.Render("  Ancora remains the primary MCP surface; Vela graph tools are exposed through Ancora when available") + "\n\n")
-	} else {
-		b.WriteString(menuItemStyle.Render("  Vela is configured as a standalone MCP graph server") + "\n\n")
-	}
-
-	b.WriteString(sectionStyle.Render("Freshness guard") + "\n")
-	b.WriteString(menuItemStyle.Render("  OpenCode plugin: schedules background refresh before Vela graph tools") + "\n")
-	b.WriteString(menuItemStyle.Render("  Claude Code hook: schedules background refresh before Vela graph tools") + "\n")
-	b.WriteString(menuItemStyle.Render("  The cached graph may be used while refresh runs; run vela update/build manually for foreground refresh") + "\n\n")
-
-	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("If Vela is missing, the installer tries Homebrew. If unavailable, install Vela from source and rerun setup.") + "\n\n")
-
-	options := []struct{ label, desc string }{
-		{"Install + configure Vela", "Install binary if needed, initialize the project graph, and install graph freshness guard/MCP"},
-		{"Skip", "Do not set up Vela — agents will use normal code exploration only"},
-	}
-	for i, opt := range options {
-		if m.VelaCursor == i {
-			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
-			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
-		} else {
-			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
-		}
-	}
-
-	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
-	return appStyle.Render(b.String())
-}
-
 func (m Model) viewContext7() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Context7 — Optional Library/API Documentation MCP") + "\n\n")
@@ -390,123 +339,6 @@ func (m Model) viewQualityGates() string {
 	return appStyle.Render(b.String())
 }
 
-func (m Model) viewConfirm() string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("Confirm Installation") + "\n\n")
-
-	b.WriteString(sectionStyle.Render("Summary") + "\n")
-	b.WriteString(labelStyle.Render("Target:") + " " + valueStyle.Render(m.Target) + "\n")
-	b.WriteString(labelStyle.Render("Project path:") + " " + valueStyle.Render(m.ProjectPath) + "\n")
-
-	var modes []string
-	labels := []string{"Spec", "Implementation", "Review"}
-	for i, sel := range m.SelectedModes {
-		if sel {
-			modes = append(modes, labels[i])
-		}
-	}
-	b.WriteString(labelStyle.Render("Modes:") + " " + valueStyle.Render(strings.Join(modes, ", ")) + "\n")
-
-	gates := "defaults"
-	if !m.UseDefaults {
-		gates = "review later"
-	}
-	b.WriteString(labelStyle.Render("Quality gates:") + " " + valueStyle.Render(gates) + "\n")
-
-	ancora := "yes (install + configure)"
-	if !m.SetupAncora {
-		ancora = "skip"
-	}
-	b.WriteString(labelStyle.Render("Ancora memory:") + " " + valueStyle.Render(ancora) + "\n")
-
-	vela := "yes (install + configure)"
-	if !m.SetupVela {
-		vela = "skip"
-	}
-	b.WriteString(labelStyle.Render("Vela graph:") + " " + valueStyle.Render(vela) + "\n\n")
-
-	context7 := "yes (install + configure)"
-	if !m.SetupContext7 {
-		context7 = "skip"
-	}
-	b.WriteString(labelStyle.Render("Context7 docs:") + " " + valueStyle.Render(context7) + "\n\n")
-
-	b.WriteString(sectionStyle.Render("Files to create") + "\n")
-	if m.Target == "claude-code" || m.Target == "both" {
-		if m.SelectedModes[0] {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/skills/rotta/spec-mode/SKILL.md") + "\n")
-		}
-		if m.SelectedModes[1] {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/skills/rotta/implementation-mode/SKILL.md") + "\n")
-		}
-		if m.SelectedModes[2] {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/skills/rotta/review-mode/SKILL.md") + "\n")
-		}
-	}
-	if m.Target == "opencode" || m.Target == "both" {
-		b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (agent entries)") + "\n")
-		b.WriteString(menuItemStyle.Render("  ~/.config/opencode/skills/rotta-orchestrator/SKILL.md") + "\n")
-		if m.SelectedModes[0] {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/skills/rotta-spec/SKILL.md") + "\n")
-		}
-		if m.SelectedModes[1] {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/skills/rotta-impl/SKILL.md") + "\n")
-		}
-		if m.SelectedModes[2] {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/skills/rotta-review/SKILL.md") + "\n")
-		}
-	}
-	if m.Target == "codex" {
-		b.WriteString(menuItemStyle.Render("  ~/.codex/AGENTS.md  (Codex instructions)") + "\n")
-	}
-	b.WriteString(menuItemStyle.Render("  .rotta/state-machine.yaml") + "\n")
-	b.WriteString(menuItemStyle.Render("  .rotta/quality-gates.yaml") + "\n")
-	if m.SetupAncora {
-		if m.Target == "claude-code" || m.Target == "both" {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/mcp/ancora.json") + "\n")
-			b.WriteString(menuItemStyle.Render("  ~/.claude/settings.json  (permissions.allow)") + "\n")
-		}
-		if m.Target == "opencode" || m.Target == "both" {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.jsonc  (mcp.ancora)") + "\n")
-		}
-	}
-	if m.SetupVela {
-		b.WriteString(menuItemStyle.Render("  <project>/.vela/graph.db  (initialized, not extracted)") + "\n")
-		b.WriteString(menuItemStyle.Render("  graph freshness guard  (non-blocking refresh before Vela graph queries)") + "\n")
-		if m.Target == "claude-code" || m.Target == "both" {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/hooks/rotta-vela-freshness-guard.sh") + "\n")
-			b.WriteString(menuItemStyle.Render("  ~/.claude/settings.json  (PreToolUse hook)") + "\n")
-		}
-		if m.Target == "opencode" || m.Target == "both" {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/plugin/rotta-vela-freshness-guard.js") + "\n")
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (plugin entry)") + "\n")
-		}
-		if !m.SetupAncora && (m.Target == "claude-code" || m.Target == "both") {
-			b.WriteString(menuItemStyle.Render("  ~/.claude/vela-mcp.json") + "\n")
-		}
-		if m.Target == "opencode" || m.Target == "both" {
-			b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (mcp.vela)") + "\n")
-		}
-	}
-	if m.SetupContext7 {
-		b.WriteString(menuItemStyle.Render("  ~/.claude/mcp/context7.json  (mcp.context7)") + "\n")
-		b.WriteString(menuItemStyle.Render("  ~/.config/opencode/opencode.json  (mcp.context7)") + "\n")
-	}
-	b.WriteString("\n")
-
-	choices := []string{"Cancel", "Install"}
-	for i, ch := range choices {
-		if m.ConfirmCursor == i {
-			b.WriteString(menuSelectedStyle.Render("▸ "+ch) + "\n")
-		} else {
-			b.WriteString(menuItemStyle.Render("  "+ch) + "\n")
-		}
-	}
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
-	return appStyle.Render(b.String())
-}
-
 func (m Model) viewInstalling() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Installing...") + "\n\n")
@@ -525,6 +357,7 @@ func (m Model) viewSuccess() string {
 			b.WriteString(progressDoneStyle.Render("  ✓ ") + valueStyle.Render(f) + "\n")
 		}
 		b.WriteString("\n")
+		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
 	}
 
 	b.WriteString(sectionStyle.Render("Next steps") + "\n")
@@ -541,6 +374,9 @@ func (m Model) viewError() string {
 	var b strings.Builder
 	b.WriteString(errorStyle.Render("✗ Installation Failed") + "\n\n")
 	b.WriteString(valueStyle.Render(m.InstallError) + "\n\n")
+	if m.InstallResult != nil {
+		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
+	}
 	b.WriteString(helpStyle.Render("Press Enter or q to exit"))
 	return appStyle.Render(b.String())
 }

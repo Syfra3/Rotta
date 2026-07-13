@@ -88,18 +88,12 @@ var disabledOpenCodeDefaultAgentKeys = []string{"build", "plan"}
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
-	var files []string
-
 	skillsBase := filepath.Join(home, ".config", "opencode", "skills")
 	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
-
-	// Read current opencode.json (or start fresh if it doesn't exist)
 	config, err := readOpenCodeConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
-
-	// Ensure top-level "agent" key exists
 	agentMap, _ := config["agent"].(map[string]interface{})
 	if agentMap == nil {
 		agentMap = map[string]interface{}{}
@@ -107,56 +101,68 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	removeLegacyOpenCodeAgents(config, agentMap)
 	disableOpenCodeDefaultAgents(agentMap)
 
-	for _, a := range rottaAgents {
-		if !a.modeFlag(opts) {
-			continue
-		}
-
-		// Write skill file
-		skillDir := filepath.Join(skillsBase, a.skillName)
-		if err := os.MkdirAll(skillDir, 0o755); err != nil {
-			return nil, fmt.Errorf("cannot create skill dir %s: %w", skillDir, err)
-		}
-		data, err := readRenderedAsset(a.assetPath, opts)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read embedded %s: %w", a.assetPath, err)
-		}
-		skillFile := filepath.Join(skillDir, "SKILL.md")
-		if err := os.WriteFile(skillFile, data, 0o644); err != nil {
-			return nil, fmt.Errorf("cannot write %s: %w", skillFile, err)
-		}
-		files = append(files, skillFile)
-
-		// Build agent JSON entry
-		toolMap := map[string]interface{}{}
-		for k, v := range a.tools {
-			toolMap[k] = v
-		}
-
-		entry := map[string]interface{}{
-			"description": a.description,
-			"mode":        a.mode,
-			"prompt":      a.prompt,
-			"tools":       toolMap,
-		}
-		if a.hidden {
-			entry["hidden"] = true
-		}
-
-		// Only add if not already present (don't overwrite a user-customised entry)
-		if _, exists := agentMap[a.key]; !exists {
-			agentMap[a.key] = entry
-		}
+	files, err := installOpenCodeAgents(opts, skillsBase, agentMap)
+	if err != nil {
+		return nil, err
 	}
-
 	config["agent"] = agentMap
-
 	if err := writeOpenCodeConfig(configPath, config); err != nil {
 		return nil, err
 	}
 	files = append(files, configPath)
 
 	return files, nil
+}
+
+func installOpenCodeAgents(opts Options, skillsBase string, agentMap map[string]interface{}) ([]string, error) {
+	var files []string
+	for _, agent := range rottaAgents {
+		if !agent.modeFlag(opts) {
+			continue
+		}
+		skillFile, err := writeOpenCodeSkill(opts, skillsBase, agent)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, skillFile)
+		if _, exists := agentMap[agent.key]; !exists {
+			agentMap[agent.key] = openCodeAgentEntry(agent)
+		}
+	}
+	return files, nil
+}
+
+func writeOpenCodeSkill(opts Options, skillsBase string, agent agentEntry) (string, error) {
+	skillDir := filepath.Join(skillsBase, agent.skillName)
+	if err := os.MkdirAll(skillDir, 0o750); err != nil {
+		return "", fmt.Errorf("cannot create skill dir %s: %w", skillDir, err)
+	}
+	data, err := readRenderedAsset(agent.assetPath, opts)
+	if err != nil {
+		return "", fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
+	}
+	skillFile := filepath.Join(skillDir, "SKILL.md")
+	if err := writePrivateFile(skillFile, data, 0o600); err != nil {
+		return "", fmt.Errorf("cannot write %s: %w", skillFile, err)
+	}
+	return skillFile, nil
+}
+
+func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
+	tools := map[string]interface{}{}
+	for key, value := range agent.tools {
+		tools[key] = value
+	}
+	entry := map[string]interface{}{
+		"description": agent.description,
+		"mode":        agent.mode,
+		"prompt":      agent.prompt,
+		"tools":       tools,
+	}
+	if agent.hidden {
+		entry["hidden"] = true
+	}
+	return entry
 }
 
 func disableOpenCodeDefaultAgents(agentMap map[string]interface{}) {
@@ -214,7 +220,7 @@ func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[stri
 
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 	config := map[string]interface{}{}
-	data, err := os.ReadFile(path)
+	data, err := readPrivateFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return config, nil
@@ -228,12 +234,12 @@ func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 }
 
 func writeOpenCodeConfig(path string, config map[string]interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("cannot create config dir: %w", err)
 	}
 	out, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal opencode.json: %w", err)
 	}
-	return os.WriteFile(path, out, 0o644)
+	return writePrivateFile(path, out, 0o600)
 }
