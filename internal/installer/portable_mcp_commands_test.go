@@ -140,6 +140,33 @@ printf '{"plugin":["file://%s"],"mcp":{"vela":{"command":"/home/linuxbrew/.linux
 	}
 }
 
+// REQ-016, REQ-019 → SCN-226 → TestSCN226_ReinstallPreservesAmbiguousMCPEntry
+func TestSCN226_ReinstallPreservesAmbiguousMCPEntry(t *testing.T) {
+	// Scenario: Preserve an ambiguous MCP entry rather than rewriting user configuration
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	project := filepath.Join(home, "project")
+	configPath := filepath.Join(home, ".claude", "vela-mcp.json")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+	writeExecutable(t, filepath.Join(bin, "vela"), `#!/bin/sh
+mkdir -p "$HOME/.claude"
+printf '{"command":"/usr/local/bin/vela","args":["serve","--private"]}' > "$HOME/.claude/vela-mcp.json"
+`)
+
+	result, err := SetupVela(Options{Target: "claude-code"}, home, project)
+	if err != nil {
+		t.Fatalf("reinstall Vela: %v", err)
+	}
+	if got := serializedMCPCommand(t, mustReadFile(t, configPath), ""); got != "/usr/local/bin/vela" {
+		t.Fatalf("expected ambiguous command to remain unchanged, got %q", got)
+	}
+	skipped := result.SkippedAmbiguousMCPEntries
+	if len(skipped) != 1 || skipped[0] != configPath {
+		t.Fatalf("expected ambiguous entry %q to be reported as skipped, got %#v", configPath, result)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)

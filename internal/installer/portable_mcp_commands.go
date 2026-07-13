@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // serializeManagedMCPCommand replaces a command emitted by a Rotta-managed
@@ -16,35 +17,65 @@ func serializeManagedMCPCommand(path, server, command string) error {
 // normalizeManagedMCPCommand replaces a stale command and reports whether its
 // managed MCP command field changed.
 func normalizeManagedMCPCommand(path, server, command string) (bool, error) {
+	changed, _, err := normalizeProvenManagedMCPCommand(path, server, command)
+	return changed, err
+}
+
+// normalizeProvenManagedMCPCommand changes an entry only when its expected
+// Rotta-managed MCP shape proves ownership. It also reports an absolute or
+// slash-containing command that was deliberately left untouched.
+func normalizeProvenManagedMCPCommand(path, server, command string) (changed, ambiguous bool, err error) {
 	data, err := readPrivateFile(path)
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
-		return false, fmt.Errorf("parse managed MCP config: %w", err)
+		return false, false, fmt.Errorf("parse managed MCP config: %w", err)
 	}
 	entry := config
 	if server != "" {
 		mcp, _ := config["mcp"].(map[string]interface{})
 		entry, _ = mcp[server].(map[string]interface{})
 	}
-	if entry == nil || !replaceManagedMCPCommand(entry, command) {
-		return false, nil
+	if entry == nil {
+		return false, false, nil
+	}
+	if !isProvenManagedMCPEntry(entry) {
+		return false, hasSlashMCPCommand(entry), nil
+	}
+	if !replaceManagedMCPCommand(entry, command) {
+		return false, false, nil
 	}
 
 	data, err = json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return false, fmt.Errorf("marshal managed MCP config: %w", err)
+		return false, false, fmt.Errorf("marshal managed MCP config: %w", err)
 	}
 	if err := writePrivateFile(path, data, 0o600); err != nil {
-		return false, err
+		return false, false, err
 	}
-	return true, nil
+	return true, false, nil
+}
+
+func isProvenManagedMCPEntry(entry map[string]interface{}) bool {
+	args, ok := entry["args"].([]interface{})
+	return ok && len(args) == 1 && args[0] == "mcp"
+}
+
+func hasSlashMCPCommand(entry map[string]interface{}) bool {
+	switch command := entry["command"].(type) {
+	case string:
+		return strings.Contains(command, "/")
+	case []interface{}:
+		return len(command) > 0 && command[0] != nil && strings.Contains(fmt.Sprint(command[0]), "/")
+	default:
+		return false
+	}
 }
 
 func replaceManagedMCPCommand(entry map[string]interface{}, command string) bool {
