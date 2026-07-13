@@ -56,58 +56,46 @@ func TestSCN015_FeatureScenarioParserKeepsStableIDsWhenScenarioOrderChanges(t *t
 func TestSCN015_TestTraceValidatorRequiresScenarioIDAndFeatureIdentity(t *testing.T) {
 	// REQ-013 → REQ-019 → SCN-015 → TestSCN015_TestTraceValidatorRequiresScenarioIDAndFeatureIdentity
 	// Scenario: Tests reference stable scenario IDs from feature files
-	scenarios := []FeatureScenario{
-		{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", RequirementIDs: []string{"REQ-013", "REQ-019"}, Name: "Tests reference stable scenario IDs from feature files"},
-		{FeaturePath: "features/other_contract.feature", ScenarioID: "SCN-015", RequirementIDs: []string{"REQ-999"}, Name: "Another local SCN-015"},
-	}
+	scenarios := traceValidationScenarios()
+	assertTraceValidationInputErrors(t, scenarios)
+	assertTraceValidationAcceptsQualifiedTraces(t, scenarios)
+	assertTraceValidationRejectsUnknownFeature(t, scenarios)
+}
 
-	missingScenarioID := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
-		FeaturePath: "features/workflow_artifact_lifecycle.feature",
-		TestName:    "TestTraceValidatorRejectsUnstableNames",
-	})
+func traceValidationScenarios() []FeatureScenario {
+	return []FeatureScenario{{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", RequirementIDs: []string{"REQ-013", "REQ-019"}, Name: "Tests reference stable scenario IDs from feature files"}, {FeaturePath: "features/other_contract.feature", ScenarioID: "SCN-015", RequirementIDs: []string{"REQ-999"}, Name: "Another local SCN-015"}}
+}
+
+func assertTraceValidationInputErrors(t *testing.T, scenarios []FeatureScenario) {
+	t.Helper()
+	missingScenarioID := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{FeaturePath: "features/workflow_artifact_lifecycle.feature", TestName: "TestTraceValidatorRejectsUnstableNames"})
 	if missingScenarioID == nil || !strings.Contains(missingScenarioID.Error(), "SCN-015") {
 		t.Fatalf("expected missing scenario ID error, got %v", missingScenarioID)
 	}
-
-	missingFeatureIdentity := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
-		ScenarioID: "SCN-015",
-		TestName:   "TestSCN015_TraceIncludesStableScenarioIDOnly",
-	})
+	missingFeatureIdentity := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{ScenarioID: "SCN-015", TestName: "TestSCN015_TraceIncludesStableScenarioIDOnly"})
 	if missingFeatureIdentity == nil || !strings.Contains(missingFeatureIdentity.Error(), "feature identity") {
 		t.Fatalf("expected missing feature identity error, got %v", missingFeatureIdentity)
 	}
+}
 
-	if err := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
-		FeaturePath: "features/workflow_artifact_lifecycle.feature",
-		ScenarioID:  "SCN-015",
-		TestName:    "TestSCN015_TraceIncludesFeatureIdentityInMetadata",
-		Metadata: map[string]string{
-			"scenario": "features/workflow_artifact_lifecycle.feature#SCN-015",
-		},
-	}); err != nil {
+func assertTraceValidationAcceptsQualifiedTraces(t *testing.T, scenarios []FeatureScenario) {
+	t.Helper()
+	metadata := TestScenarioTrace{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", TestName: "TestSCN015_TraceIncludesFeatureIdentityInMetadata", Metadata: map[string]string{"scenario": "features/workflow_artifact_lifecycle.feature#SCN-015"}}
+	if err := ValidateTestScenarioTrace(scenarios, metadata); err != nil {
 		t.Fatalf("expected metadata trace to validate: %v", err)
 	}
-
-	if err := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
-		FeaturePath: "features/workflow_artifact_lifecycle.feature",
-		ScenarioID:  "SCN-015",
-		SubtestNames: []string{
-			"features/workflow_artifact_lifecycle.feature#SCN-015 Tests reference stable scenario IDs from feature files",
-		},
-	}); err != nil {
+	subtest := TestScenarioTrace{FeaturePath: "features/workflow_artifact_lifecycle.feature", ScenarioID: "SCN-015", SubtestNames: []string{"features/workflow_artifact_lifecycle.feature#SCN-015 Tests reference stable scenario IDs from feature files"}}
+	if err := ValidateTestScenarioTrace(scenarios, subtest); err != nil {
 		t.Fatalf("expected feature-qualified subtest trace to validate: %v", err)
 	}
+}
 
-	unknownFeatureIdentity := ValidateTestScenarioTrace(scenarios, TestScenarioTrace{
-		FeaturePath: "features/missing_contract.feature",
-		ScenarioID:  "SCN-015",
-		TestName:    "TestSCN015_UnknownFeatureIdentityIsNotAccepted",
-		Metadata: map[string]string{
-			"scenario": "features/workflow_artifact_lifecycle.feature#SCN-015",
-		},
-	})
-	if unknownFeatureIdentity == nil || !strings.Contains(unknownFeatureIdentity.Error(), "approved feature scenario") {
-		t.Fatalf("expected unknown feature identity to be rejected, got %v", unknownFeatureIdentity)
+func assertTraceValidationRejectsUnknownFeature(t *testing.T, scenarios []FeatureScenario) {
+	t.Helper()
+	trace := TestScenarioTrace{FeaturePath: "features/missing_contract.feature", ScenarioID: "SCN-015", TestName: "TestSCN015_UnknownFeatureIdentityIsNotAccepted", Metadata: map[string]string{"scenario": "features/workflow_artifact_lifecycle.feature#SCN-015"}}
+	err := ValidateTestScenarioTrace(scenarios, trace)
+	if err == nil || !strings.Contains(err.Error(), "approved feature scenario") {
+		t.Fatalf("expected unknown feature identity to be rejected, got %v", err)
 	}
 }
 
