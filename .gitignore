@@ -13,6 +13,8 @@ openspec/
 .rotta/cache/
 .rotta/tdd-log.md
 reports/
+# go-mutesting writes this per-run report at the repository root.
+report.json
 specs/.approved
 specs/.implementation-complete
 specs/approvals/
