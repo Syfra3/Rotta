@@ -34,6 +34,15 @@ def apply_checkout_diff(root, worktree):
         applied = subprocess.run(["git", "apply", "--whitespace=nowarn"], cwd=worktree, text=True, input=patch.stdout, capture_output=True, check=False)
         if applied.returncode:
             raise RuntimeError(applied.stderr)
+    untracked = command(root, "git", "ls-files", "--others", "--exclude-standard")
+    if untracked.returncode:
+        raise RuntimeError(untracked.stderr)
+    for relative in filter(None, untracked.stdout.splitlines()):
+        source = root / relative
+        destination = worktree / relative
+        if source.is_file():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
 
 
 def mutation_counts(output):
