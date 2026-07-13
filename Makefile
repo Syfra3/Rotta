@@ -1,11 +1,12 @@
 # Rotta build/test/release helpers
-.PHONY: build install run test test-ci test-verbose test-coverage test-critical-path-statement-coverage test-critical-path-branch-coverage test-changed-module-mutation fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
+.PHONY: build install run test test-ci test-verbose test-coverage test-approved-feature-coverage test-critical-path-statement-coverage test-critical-path-branch-coverage test-changed-module-mutation fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
 
 GOPATH := $(shell go env GOPATH)
 GOTESTSUM := $(GOPATH)/bin/gotestsum
 LEFTHOOK := $(GOPATH)/bin/lefthook
 GOLANGCI_LINT_VERSION ?= v2.5.0
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+APPROVED_FEATURE_BASELINE ?= b2671a8
 LDFLAGS = -s -w -X main.version=$(VERSION)
 
 BINARY = rotta
@@ -51,6 +52,10 @@ test-verbose:
 test-coverage:
 	@$(MAKE) test-ci
 	@go tool cover -html=coverage.out -o coverage.html
+
+test-approved-feature-coverage:
+	@go test ./... -coverpkg=./... -coverprofile=phase4-changed.out -count=1
+	@python3 scripts/changed_go_coverage.py --baseline $(APPROVED_FEATURE_BASELINE) --profile phase4-changed.out --minimum 90
 
 test-critical-path-statement-coverage:
 	@go test ./... -coverpkg=./... -coverprofile=critical-path.out -count=1
@@ -120,6 +125,7 @@ help:
 	@echo "  test-ci        - Run tests with race + coverage for CI"
 	@echo "  test-verbose   - Run tests verbose"
 	@echo "  test-coverage  - Generate coverage report"
+	@echo "  test-approved-feature-coverage - Measure all executable Go lines added after the approved feature contract"
 	@echo "  test-critical-path-statement-coverage - Verify named critical functions with Go statement coverage"
 	@echo "  test-critical-path-branch-coverage - Verify critical branch outcomes using temporary source instrumentation"
 	@echo "  test-changed-module-mutation - Run bounded isolated critical changed-module mutations"

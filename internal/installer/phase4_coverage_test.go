@@ -157,6 +157,9 @@ func TestSCN222_Context7SetupReportsPartialConfiguration(t *testing.T) {
 	// REQ-014 → SCN-222 → TestSCN222_Context7SetupReportsPartialConfiguration
 	// Scenario: Expose selected MCP configuration and runtime fallback states
 	home := t.TempDir()
+	binDir := filepath.Join(home, "bin")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeContext7StrictFakeNPX(t, filepath.Join(binDir, "npx"), true, []string{"resolve-library-id", "query-docs"})
 	if err := os.WriteFile(filepath.Join(home, ".config"), []byte("blocked"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -166,6 +169,9 @@ func TestSCN222_Context7SetupReportsPartialConfiguration(t *testing.T) {
 	}
 	if result.Context7.OpenCode.OK || result.Context7.FullyConfigured {
 		t.Fatalf("expected blocked OpenCode configuration to be reported as partial, got %#v", result.Context7)
+	}
+	if !result.Context7.Health.OK || result.Context7.Health.Category != Context7FailureNone {
+		t.Fatalf("expected deterministic successful health check alongside partial configuration, got %#v", result.Context7.Health)
 	}
 }
 
