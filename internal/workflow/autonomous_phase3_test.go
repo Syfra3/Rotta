@@ -344,6 +344,51 @@ func TestSCN032_SendsFinalCheckpointToReviewWithoutPublishing(t *testing.T) {
 	}
 }
 
+func TestSCN033_CheckpointsExpectedSensitiveScopeAfterOrdinaryValidation(t *testing.T) {
+	// REQ-026 → SCN-033 → TestSCN033_CheckpointsExpectedSensitiveScopeAfterOrdinaryValidation
+	// Scenario: Checkpoint an expected sensitive-scope scenario after ordinary validation passes
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "internal", "auth", "session.go"), "package auth\n")
+	mustWrite(t, filepath.Join(repo, "internal", "auth", "session_test.go"), "package auth\n")
+	runGit(t, repo, "add", ".gitignore", "internal/auth/session.go", "internal/auth/session_test.go")
+	runGit(t, repo, "commit", "-m", "test: establish sensitive scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "auth", "session.go"), "package auth\n\nfunc session() {}\n")
+	mustWrite(t, filepath.Join(repo, "internal", "auth", "session_test.go"), "package auth\n\nfunc TestSession() {}\n")
+
+	record, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-033",
+		ExpectedPaths:    []string{"internal/auth/session.go", "internal/auth/session_test.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error for expected auth paths: %v", err)
+	}
+	if record.CommitID == "" {
+		t.Fatalf("expected a local checkpoint for sensitive scenario, got %#v", record)
+	}
+	if changed := gitOutput(t, repo, "show", "--format=", "--name-only", "HEAD"); changed != "internal/auth/session.go\ninternal/auth/session_test.go" {
+		t.Fatalf("expected sensitive scenario paths in checkpoint commit, got %q", changed)
+	}
+
+	reviewStarted := false
+	decision, err := CompleteAutonomousPhase3Boundary(repo, record, func() error {
+		reviewStarted = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("CompleteAutonomousPhase3Boundary returned error: %v", err)
+	}
+	if !reviewStarted || decision.Phase != "Phase 4 review" || decision.FinalHumanApproval {
+		t.Fatalf("expected sensitive scenario to preserve the Phase 4 review gate, got %#v", decision)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
