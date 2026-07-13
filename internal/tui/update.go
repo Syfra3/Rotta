@@ -198,14 +198,7 @@ func (m Model) updateModeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ":
 		m.SelectedModes[m.ModeCursor] = !m.SelectedModes[m.ModeCursor]
 	case "enter":
-		anySelected := false
-		for _, v := range m.SelectedModes {
-			if v {
-				anySelected = true
-				break
-			}
-		}
-		if anySelected {
+		if hasSelectedModes(m.SelectedModes) {
 			m.PrevScreen = ScreenModeSelect
 			m.Screen = ScreenQualityGates
 		}
@@ -213,6 +206,15 @@ func (m Model) updateModeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenProjectPath
 	}
 	return m, nil
+}
+
+func hasSelectedModes(modes [3]bool) bool {
+	for _, selected := range modes {
+		if selected {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) updateQualityGates(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
