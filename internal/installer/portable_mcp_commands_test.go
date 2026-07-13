@@ -193,6 +193,30 @@ func TestSCN227_ReinstallReportsUnavailableManagedCommand(t *testing.T) {
 	}
 }
 
+// REQ-018 → SCN-228 → TestSCN228_OpenCodeReportsUnverifiedHostCommandResolution
+func TestSCN228_OpenCodeReportsUnverifiedHostCommandResolution(t *testing.T) {
+	// Scenario: Distinguish OpenCode PATH uncertainty from installer command availability
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin)
+	writeContext7StrictFakeNPX(t, filepath.Join(bin, "npx"), true, []string{"resolve-library-id", "query-docs"})
+
+	result, err := Install(Options{Target: "opencode", ProjectPath: filepath.Join(home, "project"), SetupContext7: true})
+	if err != nil {
+		t.Fatalf("install Context7 for OpenCode: %v", err)
+	}
+
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if got := serializedMCPCommand(t, mustReadFile(t, configPath), "context7"); got != "npx" {
+		t.Fatalf("expected OpenCode to serialize bare npx, got %q", got)
+	}
+	status := result.MCPStatuses["opencode"]["context7"]
+	if status.Status != MCPStatusDegraded || status.Reason != "portable-but-host-resolution-unverified" || !strings.Contains(status.Remediation, "OpenCode") || !strings.Contains(status.Remediation, "npx") || !strings.Contains(status.Remediation, "PATH") {
+		t.Fatalf("expected unverified OpenCode host resolution with PATH remediation, got %#v", status)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)

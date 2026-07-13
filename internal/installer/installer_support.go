@@ -72,6 +72,14 @@ func statusForCapability(status HostCapabilityStatus) MCPStatus {
 	return MCPStatusConfigured
 }
 func context7MCPCapability(host string) HostCapability {
+	if host == "opencode" {
+		return HostCapability{
+			Name:        "mcp:context7",
+			Status:      HostCapabilityStatusDegraded,
+			Reason:      "portable-but-host-resolution-unverified",
+			Remediation: "Launch OpenCode with npx available on PATH, then verify Context7 startup from OpenCode.",
+		}
+	}
 	if host == "codex" {
 		return HostCapability{Name: "mcp:context7", Status: HostCapabilityStatusDegraded, Reason: "Rotta can write Codex MCP TOML for Context7, but does not have a Codex-specific observable MCP health check.", Remediation: "Verify Context7 from Codex after install; rerun Rotta after Codex MCP health support is available."}
 	}
