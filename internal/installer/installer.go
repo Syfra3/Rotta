@@ -114,149 +114,113 @@ type HostInstallResult struct {
 	Capabilities map[string]HostCapability
 }
 
-// Install runs the full installation and returns a summary.
-func Install(opts Options) (*Result, error) {
-	if !isSupportedInstallTarget(opts.Target) {
-		return nil, fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
-	}
-
-	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
-
-	home, err := os.UserHomeDir()
+func install(opts Options) (*Result, error) {
+	result, home, projectPath, err := prepareInstall(opts)
 	if err != nil {
-		return nil, fmt.Errorf("cannot resolve home directory: %w", err)
+		return result, err
 	}
-
-	projectPath := resolveProjectPath(opts.ProjectPath, home)
-
-	backupDir, err := createInstallBackup(opts, home, projectPath)
-	if err != nil {
-		return nil, fmt.Errorf("backup failure prevented installation: %w", err)
-	}
-	result.BackupDir = backupDir
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
-		installErr := fmt.Errorf("%s host configuration: %w", installTargetLabel(opts.Target), err)
-		recordSelectedHostFailure(result, opts, installErr)
-		recordChangedFiles(result, projectPath)
-		return result, installErr
+		return failedCleanInstall(result, opts, projectPath, err)
 	}
 
-	if opts.Target == "all" {
-		if _, err := installAllHosts(opts, result, home, projectPath); err != nil {
-			recordChangedFiles(result, projectPath)
+	installResult, err := installSelectedHosts(opts, result, home, projectPath)
+	if err != nil {
+		recordChangedFiles(result, projectPath)
+		return installResult, err
+	}
+
+	if err := setupAncora(opts, result, home); err != nil {
+		return nil, err
+	}
+	if err := setupVela(opts, result, home, projectPath); err != nil {
+		return nil, err
+	}
+
+	if keepResult, err := setupContext7(opts, result, home, projectPath); err != nil {
+		if keepResult {
 			return result, err
 		}
-	} else {
-		if opts.Target == "claude-code" || opts.Target == "both" {
-			files, err := installClaudeCode(opts, home)
-			if err != nil {
-				return nil, err
-			}
-			result.Files = append(result.Files, files...)
-			result.Hosts["claude-code"] = HostInstallResult{Host: "claude-code", Status: HostInstallStatusInstalled, Files: files}
-		}
-
-		if opts.Target == "opencode" || opts.Target == "both" {
-			files, err := installOpenCode(opts, home)
-			if err != nil {
-				return nil, err
-			}
-			result.Files = append(result.Files, files...)
-			result.Hosts["opencode"] = HostInstallResult{Host: "opencode", Status: HostInstallStatusInstalled, Files: files}
-		}
-
-		if opts.Target == "codex" {
-			files, err := installCodex(opts, home)
-			if err != nil {
-				return nil, err
-			}
-			result.Files = append(result.Files, files...)
-			result.Hosts["codex"] = HostInstallResult{Host: "codex", Status: HostInstallStatusInstalled, Files: files}
-		}
-
-		files, err := installConfig(projectPath)
-		if err != nil {
-			return nil, err
-		}
-		result.Files = append(result.Files, files...)
+		return nil, err
 	}
 
-	if opts.SetupAncora {
-		ar, err := SetupAncora(opts, home)
-		if err != nil {
-			return nil, fmt.Errorf("ancora setup: %w", err)
-		}
-		result.Files = append(result.Files, ar.Files...)
-		result.AncoraInstalled = ar.Installed
-		result.AncoraBin = ar.BinPath
+	if err := setupCodexMCP(opts, result, home, projectPath); err != nil {
+		return result, err
 	}
+	finalizeInstall(result, opts, projectPath)
 
-	if opts.SetupVela {
-		vr, err := SetupVela(opts, home, projectPath)
-		if err != nil {
-			return nil, fmt.Errorf("vela setup: %w", err)
-		}
-		result.Files = append(result.Files, vr.Files...)
-		result.VelaInstalled = vr.Installed
-		result.VelaBin = vr.BinPath
+	return result, nil
+}
 
-		files, err := installVelaFreshnessGuards(opts, home)
-		if err != nil {
-			return nil, fmt.Errorf("vela freshness guard setup: %w", err)
-		}
-		result.Files = append(result.Files, files...)
+// Install runs the full installation and returns a summary.
+func Install(opts Options) (*Result, error) {
+	return install(opts)
+}
+
+func prepareInstall(opts Options) (*Result, string, string, error) {
+	if !isSupportedInstallTarget(opts.Target) {
+		return nil, "", "", fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
 	}
-
-	if opts.SetupContext7 {
-		context7Result, err := ConfigureContext7(opts, home)
-		if err != nil {
-			return nil, fmt.Errorf("context7 setup: %w", err)
-		}
-		result.Context7 = context7Result
-		result.Files = append(result.Files, context7Result.Files...)
-		if context7Result.OpenCode.OK || context7Result.ClaudeCode.OK {
-			health := CheckContext7Health(Context7ServerConfig())
-			result.Context7.Health = health
-			result.Context7.HealthRan = true
-			if health.OK && context7Result.FullyConfigured {
-				result.Context7.Status = Context7StatusConfigured
-			} else if !health.OK {
-				recordMCPHostCapabilities(result, opts)
-				recordMCPHealthFailure(result, opts, "mcp:context7", health)
-				recordMCPStatuses(result, opts)
-				recordChangedFiles(result, projectPath)
-				return result, fmt.Errorf("context7 health: %s", health.Category)
-			}
-		}
+	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("cannot resolve home directory: %w", err)
 	}
-
-	if targetsCodex(opts.Target) && (opts.SetupAncora || opts.SetupVela || opts.SetupContext7) {
-		files, err := configureCodexMCPServers(opts, home)
-		if err != nil {
-			if opts.SetupContext7 {
-				result.Context7.Codex = context7HostConfigResult{Host: "codex", OK: false, Err: err}
-			}
-			recordHostArtifactFailure(result, "codex", "Codex MCP config", opts)
-			recordCommandHostCapabilities(result, opts)
-			recordMCPHostCapabilities(result, opts)
-			recordChangedFiles(result, projectPath)
-			installErr := fmt.Errorf("codex MCP config: %w", err)
-			result.Error = installErr.Error()
-			return result, installErr
-		}
-		result.Files = append(result.Files, files...)
-		if opts.SetupContext7 {
-			result.Context7.Codex = context7HostConfigResult{Host: "codex", OK: true}
-		}
+	projectPath := resolveProjectPath(opts.ProjectPath, home)
+	backupDir, err := createInstallBackup(opts, home, projectPath)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("backup failure prevented installation: %w", err)
 	}
+	result.BackupDir = backupDir
+	return result, home, projectPath, nil
+}
+
+func failedCleanInstall(result *Result, opts Options, projectPath string, err error) (*Result, error) {
+	installErr := fmt.Errorf("%s host configuration: %w", installTargetLabel(opts.Target), err)
+	recordSelectedHostFailure(result, opts, installErr)
+	recordChangedFiles(result, projectPath)
+	return result, installErr
+}
+
+func setupAncora(opts Options, result *Result, home string) error {
+	if !opts.SetupAncora {
+		return nil
+	}
+	ar, err := SetupAncora(opts, home)
+	if err != nil {
+		return fmt.Errorf("ancora setup: %w", err)
+	}
+	result.Files = append(result.Files, ar.Files...)
+	result.AncoraInstalled = ar.Installed
+	result.AncoraBin = ar.BinPath
+	return nil
+}
+
+func setupVela(opts Options, result *Result, home, projectPath string) error {
+	if !opts.SetupVela {
+		return nil
+	}
+	vr, err := SetupVela(opts, home, projectPath)
+	if err != nil {
+		return fmt.Errorf("vela setup: %w", err)
+	}
+	result.Files = append(result.Files, vr.Files...)
+	result.VelaInstalled = vr.Installed
+	result.VelaBin = vr.BinPath
+	files, err := installVelaFreshnessGuards(opts, home)
+	if err != nil {
+		return fmt.Errorf("vela freshness guard setup: %w", err)
+	}
+	result.Files = append(result.Files, files...)
+	return nil
+}
+
+func finalizeInstall(result *Result, opts Options, projectPath string) {
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
 	recordMCPStatuses(result, opts)
 	recordChangedFiles(result, projectPath)
-
-	return result, nil
 }
 
 func recordSelectedHostFailure(result *Result, opts Options, err error) {
@@ -691,59 +655,68 @@ func cleanPreviousInstallation(opts Options, home, projectPath string) error {
 	if opts.Target == "all" {
 		return cleanSelectedIntegrationArtifacts(opts, home, projectPath)
 	}
-	if opts.Target == "opencode" || opts.Target == "both" {
-		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
-			return err
-		}
-	}
-	if opts.Target == "claude-code" || opts.Target == "both" {
-		if err := cleanPreviousClaudeCodeInstallation(home); err != nil {
-			return err
-		}
-	}
-	if opts.Target == "codex" {
-		if err := cleanPreviousCodexInstallation(home); err != nil {
-			return err
-		}
-	}
-	if err := cleanSelectedIntegrationArtifacts(opts, home, projectPath); err != nil {
+	if err := cleanSelectedHosts(opts.Target, home); err != nil {
 		return err
 	}
-	return nil
+	return cleanSelectedIntegrationArtifacts(opts, home, projectPath)
 }
 
 func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) error {
 	if opts.SetupVela {
-		paths := []string{filepath.Join(projectPath, ".vela", "graph.db")}
-		if opts.Target == "claude-code" || opts.Target == "both" {
-			if err := cleanClaudeCodeVelaFreshnessGuard(home); err != nil {
-				return err
-			}
-			paths = append(paths,
-				filepath.Join(home, ".claude", "vela-mcp.json"),
-				filepath.Join(home, ".claude", "vela-instructions.md"),
-			)
-		}
-		if opts.Target == "opencode" || opts.Target == "both" {
-			if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
-				return err
-			}
-			paths = append(paths, filepath.Join(home, ".config", "opencode", "instructions.md"))
-		}
-		for _, path := range paths {
-			if err := os.RemoveAll(path); err != nil {
-				return fmt.Errorf("cannot remove stale integration artifact %s: %w", path, err)
-			}
+		if err := cleanVelaArtifacts(opts.Target, home, projectPath); err != nil {
+			return err
 		}
 	}
-
 	if opts.SetupAncora && (opts.Target == "claude-code" || opts.Target == "both") {
-		path := filepath.Join(home, ".claude", "mcp", "ancora.json")
+		return removeIntegrationArtifacts(filepath.Join(home, ".claude", "mcp", "ancora.json"))
+	}
+	return nil
+}
+
+func cleanSelectedHosts(target, home string) error {
+	for _, host := range selectedHosts(target) {
+		if err := cleanHostInstallation(host, home); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cleanHostInstallation(host, home string) error {
+	switch host {
+	case "opencode":
+		return cleanPreviousOpenCodeInstallation(home)
+	case "claude-code":
+		return cleanPreviousClaudeCodeInstallation(home)
+	case "codex":
+		return cleanPreviousCodexInstallation(home)
+	}
+	return nil
+}
+
+func cleanVelaArtifacts(target, home, projectPath string) error {
+	paths := []string{filepath.Join(projectPath, ".vela", "graph.db")}
+	if target == "claude-code" || target == "both" {
+		if err := cleanClaudeCodeVelaFreshnessGuard(home); err != nil {
+			return err
+		}
+		paths = append(paths, filepath.Join(home, ".claude", "vela-mcp.json"), filepath.Join(home, ".claude", "vela-instructions.md"))
+	}
+	if target == "opencode" || target == "both" {
+		if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
+			return err
+		}
+		paths = append(paths, filepath.Join(home, ".config", "opencode", "instructions.md"))
+	}
+	return removeIntegrationArtifacts(paths...)
+}
+
+func removeIntegrationArtifacts(paths ...string) error {
+	for _, path := range paths {
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("cannot remove stale integration artifact %s: %w", path, err)
 		}
 	}
-
 	return nil
 }
 
