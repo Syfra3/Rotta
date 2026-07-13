@@ -252,6 +252,49 @@ func TestSCN030_DoesNotCheckpointWhenValidationFails(t *testing.T) {
 	}
 }
 
+func TestSCN031_ContinuesFromCleanSuccessfulCheckpoint(t *testing.T) {
+	// REQ-025 → SCN-031 → TestSCN031_ContinuesFromCleanSuccessfulCheckpoint
+	// Scenario: Continue automatically only from a clean successful checkpoint
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", ".gitignore", "internal/workflow/checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "internal", "workflow", "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	record, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-031",
+		ExpectedPaths:    []string{"internal/workflow/checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error: %v", err)
+	}
+
+	started := ""
+	state, err := ContinueFromAutonomousScenarioCheckpoint(repo, record, []string{"SCN-032"}, func(scenarioID string) error {
+		started = scenarioID
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ContinueFromAutonomousScenarioCheckpoint returned error: %v", err)
+	}
+	if status := gitOutput(t, repo, "status", "--short"); status != "" {
+		t.Fatalf("expected clean non-ignored worktree at checkpoint boundary, got %q", status)
+	}
+	if state.Checkpoints["SCN-031"] != record.CommitID || state.CompletedScenario != "SCN-031" || strings.Join(state.RemainingScenarios, ",") != "SCN-032" || state.NextScenario != "SCN-032" {
+		t.Fatalf("expected completed, remaining, and next scenario state, got %#v", state)
+	}
+	if started != "SCN-032" {
+		t.Fatalf("expected next approved scenario to start automatically, got %q", started)
+	}
+}
+
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
