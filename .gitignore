@@ -17,6 +17,8 @@ reports/
 critical-path-branch-coverage.json
 critical-path.out
 phase4-changed.out
+# go-mutesting writes this per-run report at the repository root.
+report.json
 specs/.approved
 specs/.implementation-complete
 specs/approvals/
