@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/Syfra3/Rotta/compare/v1.7.0...v1.8.0) (2026-07-13)
+
+
+### Features
+
+* **workflow:** add resilient MCP fallbacks ([2bc3180](https://github.com/Syfra3/Rotta/commit/2bc318002cb0daefd4c229e17427af82708725ad))
+
+
+### Code Refactoring
+
+* **test:** split Vela guard reinstall case ([f9bbced](https://github.com/Syfra3/Rotta/commit/f9bbcede9e9e2600b313ac86bc1f74c5a98fe936))
+
 ## [1.7.0](https://github.com/Syfra3/Rotta/compare/v1.6.2...v1.7.0) (2026-07-13)
 
 
