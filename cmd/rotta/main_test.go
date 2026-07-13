@@ -12,20 +12,28 @@ import (
 func TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage(t *testing.T) {
 	// REQ-005, REQ-010 → SCN-010 → TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage
 	// Scenario: CLI install path cannot skip backup during normal usage
+	projectPath, preInstallConfig, backupDir, stdout := installCLIWithBackup(t)
+	assertCLIBackup(t, backupDir, stdout, preInstallConfig)
+	assertCLIInstallRejectsSkipBackup(t, projectPath)
+	assertCLIVersionCommand(t)
+}
+
+func installCLIWithBackup(t *testing.T) (string, []byte, string, *bytes.Buffer) {
+	t.Helper()
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
-
 	preInstallConfig := []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`)
 	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), preInstallConfig)
-
 	var stdout bytes.Buffer
-	err := runCLI([]string{"install", "--target", "opencode", "--project", projectPath, "--spec"}, &stdout, &bytes.Buffer{})
-	if err != nil {
+	if err := runCLI([]string{"install", "--target", "opencode", "--project", projectPath, "--spec"}, &stdout, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
+	return projectPath, preInstallConfig, singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups")), &stdout
+}
 
-	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups"))
+func assertCLIBackup(t *testing.T, backupDir string, stdout *bytes.Buffer, preInstallConfig []byte) {
+	t.Helper()
 	manifest := readCLIBackupManifest(t, filepath.Join(backupDir, "manifest.json"))
 	if manifest["status"] != "complete" {
 		t.Fatalf("expected complete backup manifest, got %#v", manifest)
@@ -42,14 +50,21 @@ func TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage(t *testing.T) {
 		t.Fatalf("expected CLI install backup to capture config before cleanup/install, got %s", data)
 	}
 
-	err = runCLI([]string{"install", "--skip-backup", "--target", "opencode", "--project", projectPath, "--spec"}, &bytes.Buffer{}, &bytes.Buffer{})
+}
+
+func assertCLIInstallRejectsSkipBackup(t *testing.T, projectPath string) {
+	t.Helper()
+	err := runCLI([]string{"install", "--skip-backup", "--target", "opencode", "--project", projectPath, "--spec"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected CLI install to reject backup-skipping option")
 	}
 	if !strings.Contains(err.Error(), "skip-backup") {
 		t.Fatalf("expected rejected option to identify skip-backup, got %v", err)
 	}
+}
 
+func assertCLIVersionCommand(t *testing.T) {
+	t.Helper()
 	oldVersion := version
 	version = "test-version"
 	t.Cleanup(func() { version = oldVersion })

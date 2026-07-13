@@ -68,6 +68,20 @@ func TestSCN222_MCPStatusViewOrdersHostsAndCapabilitiesWithDetails(t *testing.T)
 	assertMCPStatusDetails(t, output.String())
 }
 
+func TestSCN222_MCPStatusViewAlwaysOrdersHostsDeterministically(t *testing.T) {
+	// REQ-014 → SCN-222 → TestSCN222_MCPStatusViewAlwaysOrdersHostsDeterministically
+	// Scenario: Expose selected MCP configuration and runtime fallback states
+	statuses := map[string]map[string]installer.MCPStatusResult{
+		"opencode": {"context7": degradedMCPStatus("Context7 timeout")},
+		"claude":   {"context7": degradedMCPStatus("Context7 timeout")},
+	}
+	for range 128 {
+		var output strings.Builder
+		writeMCPStatuses(&output, statuses)
+		assertOrderedMCPStatus(t, output.String(), "claude / context7", "opencode / context7")
+	}
+}
+
 func TestSCN222_HostMCPStatusViewOrdersCapabilitiesDirectly(t *testing.T) {
 	// REQ-014 → SCN-222 → TestSCN222_HostMCPStatusViewOrdersCapabilitiesDirectly
 	// Scenario: Expose selected MCP configuration and runtime fallback states
