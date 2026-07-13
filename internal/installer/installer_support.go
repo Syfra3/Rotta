@@ -26,6 +26,9 @@ func recordMCPHealthFailure(result *Result, opts Options, capabilityName string,
 }
 
 func failedMCPCapability(name string, health Context7HealthResult) HostCapability {
+	if health.Category == Context7FailureCommandUnavailable {
+		return HostCapability{Name: name, Status: HostCapabilityStatusFailed, Reason: fmt.Sprintf("host command availability: %s", health.Message), Remediation: "Add the MCP command to the host process PATH, then restart the host and rerun Rotta."}
+	}
 	return HostCapability{Name: name, Status: HostCapabilityStatusFailed, Reason: fmt.Sprintf("MCP health check failed during %s: %s", health.Category, health.Message), Remediation: "Ensure the MCP command is available, starts successfully, initializes, and exposes expected tools before rerunning Rotta."}
 }
 func exactMCPCapability(name string) HostCapability {

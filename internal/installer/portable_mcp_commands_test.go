@@ -217,6 +217,34 @@ func TestSCN228_OpenCodeReportsUnverifiedHostCommandResolution(t *testing.T) {
 	}
 }
 
+// REQ-018, REQ-019 → SCN-229 → TestSCN229_ReportsHostCommandLookupFailure
+func TestSCN229_ReportsHostCommandLookupFailure(t *testing.T) {
+	// Scenario: Report a host-side command lookup failure without masking it
+	home := t.TempDir()
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	writeTestFile(t, configPath, []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y","@upstash/context7-mcp"],"enabled":true}}}`))
+
+	result := &Result{Hosts: map[string]HostInstallResult{
+		"opencode": {Host: "opencode", Status: HostInstallStatusInstalled},
+	}}
+	recordMCPHealthFailure(result, Options{Target: "opencode", SetupContext7: true}, "mcp:context7", Context7HealthResult{
+		Category: Context7FailureCommandUnavailable,
+		Message:  "host process could not find npx on PATH",
+	})
+	recordMCPStatuses(result, Options{Target: "opencode", SetupContext7: true})
+
+	capability := result.Hosts["opencode"].Capabilities["mcp:context7"]
+	if capability.Status != HostCapabilityStatusFailed || !strings.Contains(capability.Reason, "host command availability") || !strings.Contains(capability.Remediation, "PATH") {
+		t.Fatalf("expected failed host command availability with PATH remediation, got %#v", capability)
+	}
+	if status := result.MCPStatuses["opencode"]["context7"]; status.Status != MCPStatusFailed {
+		t.Fatalf("expected host command lookup failure never to be healthy, got %#v", status)
+	}
+	if got := serializedMCPCommand(t, mustReadFile(t, configPath), "context7"); got != "npx" {
+		t.Fatalf("expected portable npx command to remain serialized, got %q", got)
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)
