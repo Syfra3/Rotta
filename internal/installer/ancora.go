@@ -71,7 +71,7 @@ func detectAncoraBin() (string, error) {
 		"/usr/local/bin/ancora",
 		fmt.Sprintf("%s/.local/bin/ancora", os.Getenv("HOME")),
 	} {
-		if _, err := os.Stat(candidate); err == nil {
+		if exists, err := fileExistsWithinParent(candidate); err == nil && exists {
 			return candidate, nil
 		}
 	}
@@ -111,19 +111,19 @@ func installAncoraViaBrew(opts Options, brew string) error {
 // installAncoraViaScript installs via the official bash install script.
 // Source: https://github.com/Syfra3/ancora/blob/main/scripts/install-ancora.sh
 func installAncoraViaScript(opts Options) error {
-	curl, err := exec.LookPath("curl")
+	_, err := exec.LookPath("curl")
 	if err != nil {
 		return fmt.Errorf("neither brew nor curl is available")
 	}
-	bash, err := exec.LookPath("bash")
+	_, err = exec.LookPath("bash")
 	if err != nil {
 		return fmt.Errorf("bash not found")
 	}
 
 	// curl -sSL <url> | bash
-	curlCmd := exec.Command(curl, "-sSL",
+	curlCmd := exec.Command("curl", "-sSL",
 		"https://raw.githubusercontent.com/Syfra3/ancora/main/scripts/install-ancora.sh")
-	bashCmd := exec.Command(bash)
+	bashCmd := exec.Command("bash")
 
 	curlOut, err := curlCmd.Output()
 	if err != nil {
@@ -138,8 +138,12 @@ func installAncoraViaScript(opts Options) error {
 
 // runAncoraSetup runs `ancora setup <agent>` which configures MCP, plugins,
 // and permissions for the given target (claude-code or opencode).
-func runAncoraSetup(opts Options, binPath, agent string) error {
-	cmd := exec.Command(binPath, "setup", agent)
+func runAncoraSetup(opts Options, _ string, agent string) error {
+	if agent != "claude-code" && agent != "opencode" {
+		return fmt.Errorf("unsupported Ancora setup target %q", agent)
+	}
+	cmd := exec.Command("ancora")
+	cmd.Args = []string{"ancora", "setup", agent}
 	configureCommandIO(cmd, opts)
 	return cmd.Run()
 }

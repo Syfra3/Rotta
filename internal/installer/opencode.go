@@ -114,7 +114,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 
 		// Write skill file
 		skillDir := filepath.Join(skillsBase, a.skillName)
-		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		if err := os.MkdirAll(skillDir, 0o750); err != nil {
 			return nil, fmt.Errorf("cannot create skill dir %s: %w", skillDir, err)
 		}
 		data, err := readRenderedAsset(a.assetPath, opts)
@@ -122,7 +122,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", a.assetPath, err)
 		}
 		skillFile := filepath.Join(skillDir, "SKILL.md")
-		if err := os.WriteFile(skillFile, data, 0o644); err != nil {
+		if err := writePrivateFile(skillFile, data, 0o600); err != nil {
 			return nil, fmt.Errorf("cannot write %s: %w", skillFile, err)
 		}
 		files = append(files, skillFile)
@@ -214,7 +214,7 @@ func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[stri
 
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 	config := map[string]interface{}{}
-	data, err := os.ReadFile(path)
+	data, err := readPrivateFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return config, nil
@@ -228,12 +228,12 @@ func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 }
 
 func writeOpenCodeConfig(path string, config map[string]interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("cannot create config dir: %w", err)
 	}
 	out, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal opencode.json: %w", err)
 	}
-	return os.WriteFile(path, out, 0o644)
+	return writePrivateFile(path, out, 0o600)
 }

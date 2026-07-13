@@ -43,10 +43,10 @@ func claudeCodeVelaFreshnessHookPath(home string) string {
 
 func installOpenCodeVelaFreshnessGuard(home string) ([]string, error) {
 	pluginPath := openCodeVelaFreshnessPluginPath(home)
-	if err := os.MkdirAll(filepath.Dir(pluginPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(pluginPath), 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create opencode plugin dir: %w", err)
 	}
-	if err := os.WriteFile(pluginPath, []byte(openCodeVelaFreshnessGuardPlugin()), 0o644); err != nil {
+	if err := writePrivateFile(pluginPath, []byte(openCodeVelaFreshnessGuardPlugin()), 0o600); err != nil {
 		return nil, fmt.Errorf("cannot write opencode Vela freshness guard: %w", err)
 	}
 
@@ -149,10 +149,10 @@ func appendUniquePluginPath(raw interface{}, pluginPath string) []interface{} {
 
 func installClaudeCodeVelaFreshnessGuard(home string) ([]string, error) {
 	hookPath := claudeCodeVelaFreshnessHookPath(home)
-	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(hookPath), 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create Claude Code hook dir: %w", err)
 	}
-	if err := os.WriteFile(hookPath, []byte(claudeVelaFreshnessGuardScript()), 0o755); err != nil {
+	if err := writePrivateFile(hookPath, []byte(claudeVelaFreshnessGuardScript()), 0o700); err != nil {
 		return nil, fmt.Errorf("cannot write Claude Code Vela freshness hook: %w", err)
 	}
 
@@ -217,7 +217,7 @@ func removeClaudeCodeVelaFreshnessHooks(settingsPath, hookPath string) error {
 
 func readClaudeSettings(path string) (map[string]interface{}, error) {
 	settings := map[string]interface{}{}
-	data, err := os.ReadFile(path)
+	data, err := readPrivateFile(path)
 	if err != nil {
 		return settings, err
 	}
@@ -231,14 +231,14 @@ func readClaudeSettings(path string) (map[string]interface{}, error) {
 }
 
 func writeClaudeSettings(path string, settings map[string]interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("cannot create Claude Code settings dir: %w", err)
 	}
 	out, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal settings.json: %w", err)
 	}
-	return os.WriteFile(path, out, 0o644)
+	return writePrivateFile(path, out, 0o600)
 }
 
 func claudeHooksMap(settings map[string]interface{}) map[string]interface{} {

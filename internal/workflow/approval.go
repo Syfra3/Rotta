@@ -35,14 +35,14 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 }
 
 func scopedApprovalContains(repoRoot string, scope ContractScope) (bool, error) {
-	file, err := os.Open(filepath.Join(repoRoot, scopedApprovalPath(scope.SpecPath)))
+	file, closeFile, err := openRepositoryFile(repoRoot, scopedApprovalPath(scope.SpecPath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	defer file.Close()
+	defer closeFile()
 
 	wantedScenario := strings.TrimSpace(scope.ScenarioID)
 	wantedReference := scope.FeaturePath + "#" + wantedScenario

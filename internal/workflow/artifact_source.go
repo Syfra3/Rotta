@@ -363,7 +363,7 @@ func isLocalGeneratedGraphOrCachePath(path string) bool {
 }
 
 func completedScenarioIDs(repoRoot string) (map[string]bool, error) {
-	content, err := os.ReadFile(filepath.Join(repoRoot, "specs", ".implementation-complete"))
+	content, err := readRepositoryFile(repoRoot, "specs/.implementation-complete")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]bool{}, nil
@@ -409,11 +409,11 @@ func approvedFeaturePathForScenario(repoRoot, scenarioID string) (string, error)
 			return nil
 		}
 
-		file, err := os.Open(path)
+		file, closeFile, err := openRepositoryFile(repoRoot, featurePath)
 		if err != nil {
 			return fmt.Errorf("open feature file %s: %w", featurePath, err)
 		}
-		defer file.Close()
+		defer closeFile()
 		scenarios, err := ParseFeatureScenarioTags(featurePath, file)
 		if err != nil {
 			return err
@@ -439,23 +439,26 @@ func approvedFeaturePathForScenario(repoRoot, scenarioID string) (string, error)
 }
 
 func gitTracksPath(repoRoot, path string) (bool, error) {
-	cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	cmd := exec.Command("git", "ls-files")
 	cmd.Dir = repoRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
 		return false, fmt.Errorf("check tracked path %s: %w: %s", path, err, output)
 	}
-	return true, nil
+	wanted := filepath.ToSlash(filepath.Clean(path))
+	for _, tracked := range strings.Fields(string(output)) {
+		if filepath.ToSlash(tracked) == wanted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func writeWorkflowArtifact(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create workflow artifact parent %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write workflow artifact %s: %w", path, err)
 	}
 	return nil

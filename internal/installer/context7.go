@@ -14,6 +14,8 @@ import (
 
 const context7ServerName = "context7"
 
+var context7CommandArgs = []string{"-y", "@upstash/context7-mcp"}
+
 var context7HealthTimeout = 5 * time.Second
 
 type Context7Status string
@@ -153,18 +155,23 @@ func writeOpenCodeContext7MCP(path string, server Context7MCPServer) error {
 }
 
 func writeClaudeContext7MCP(path string, server Context7MCPServer) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("cannot create Claude MCP dir: %w", err)
 	}
 	data, err := json.MarshalIndent(server, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal Context7 Claude MCP: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	return writePrivateFile(path, data, 0o600)
 }
 
 func CheckContext7Health(server Context7MCPServer) Context7HealthResult {
 	result := Context7HealthResult{Command: server.Command, Args: append([]string(nil), server.Args...), Transport: server.Type}
+	if server.Command != "npx" || !sameArguments(server.Args, context7CommandArgs) {
+		result.Category = Context7FailureCommandUnavailable
+		result.Message = "Context7 health checks require the managed npx @upstash/context7-mcp command"
+		return result
+	}
 	if _, err := exec.LookPath(server.Command); err != nil {
 		result.Category = Context7FailureCommandUnavailable
 		result.Message = err.Error()
@@ -173,7 +180,8 @@ func CheckContext7Health(server Context7MCPServer) Context7HealthResult {
 
 	ctx, cancel := context.WithTimeout(context.Background(), context7HealthTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
+	cmd := exec.CommandContext(ctx, "npx")
+	cmd.Args = append(cmd.Args, server.Args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		result.Category = Context7FailureStartup
@@ -234,6 +242,18 @@ func CheckContext7Health(server Context7MCPServer) Context7HealthResult {
 	result.ToolsDiscovered = true
 	result.OK = true
 	return result
+}
+
+func sameArguments(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func writeJSONRPC(stdin interface{ Write([]byte) (int, error) }, msg map[string]interface{}) error {

@@ -664,7 +664,7 @@ func resolveProjectPath(path, home string) string {
 // installConfig writes state-machine.yaml and quality-gates.yaml to <project>/.rotta/
 func installConfig(projectPath string) ([]string, error) {
 	dir := filepath.Join(projectPath, ".rotta")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create .rotta dir: %w", err)
 	}
 
@@ -679,7 +679,7 @@ func installConfig(projectPath string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", src, err)
 		}
-		if err := os.WriteFile(dst, data, 0o644); err != nil {
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
 			return nil, fmt.Errorf("cannot write %s: %w", dst, err)
 		}
 		files = append(files, dst)
@@ -766,7 +766,7 @@ func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 			continue
 		}
 		dst := filepath.Join(skillsDir, "rotta", m.name)
-		if err := os.MkdirAll(dst, 0o755); err != nil {
+		if err := os.MkdirAll(dst, 0o750); err != nil {
 			return nil, fmt.Errorf("cannot create dir %s: %w", dst, err)
 		}
 		err := fs.WalkDir(assets.FS, m.src, func(path string, d fs.DirEntry, walkErr error) error {
@@ -779,10 +779,10 @@ func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
 			}
 			rel, _ := filepath.Rel(m.src, path)
 			out := filepath.Join(dst, rel)
-			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 				return err
 			}
-			return os.WriteFile(out, data, 0o644)
+			return os.WriteFile(out, data, 0o600)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("cannot copy %s: %w", m.src, err)

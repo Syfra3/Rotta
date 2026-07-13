@@ -213,7 +213,16 @@ func runVelaInstall(opts Options, binPath, projectPath, agent, configDir string)
 }
 
 func runCommand(opts Options, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	var cmd *exec.Cmd
+	switch filepath.Base(name) {
+	case "brew":
+		cmd = exec.Command("brew")
+	case "vela":
+		cmd = exec.Command("vela")
+	default:
+		return fmt.Errorf("unsupported executable %q", name)
+	}
+	cmd.Args = append(cmd.Args, args...)
 	configureCommandIO(cmd, opts)
 	return cmd.Run()
 }

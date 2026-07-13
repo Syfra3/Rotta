@@ -10,7 +10,7 @@ import (
 // installClaudeCode copies skills and patches Claude Code settings.
 func installClaudeCode(opts Options, home string) ([]string, error) {
 	skillsDir := filepath.Join(home, ".claude", "skills")
-	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+	if err := os.MkdirAll(skillsDir, 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create ~/.claude/skills: %w", err)
 	}
 
@@ -47,7 +47,7 @@ func cleanPreviousClaudeCodeInstallation(home string) error {
 func addClaudeCodePermissions(settingsPath string, opts Options) error {
 	settings := map[string]interface{}{}
 
-	data, err := os.ReadFile(settingsPath)
+	data, err := readPrivateFile(settingsPath)
 	if err == nil {
 		if jsonErr := json.Unmarshal(data, &settings); jsonErr != nil {
 			return fmt.Errorf("cannot parse settings.json: %w", jsonErr)
@@ -84,12 +84,12 @@ func addClaudeCodePermissions(settingsPath string, opts Options) error {
 		return fmt.Errorf("cannot marshal settings.json: %w", err)
 	}
 
-	return os.WriteFile(settingsPath, out, 0o644)
+	return writePrivateFile(settingsPath, out, 0o600)
 }
 
 func cleanClaudeCodePermissions(settingsPath string) error {
 	settings := map[string]interface{}{}
-	data, err := os.ReadFile(settingsPath)
+	data, err := readPrivateFile(settingsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -128,7 +128,7 @@ func cleanClaudeCodePermissions(settingsPath string) error {
 	if err != nil {
 		return fmt.Errorf("cannot marshal settings.json: %w", err)
 	}
-	return os.WriteFile(settingsPath, out, 0o644)
+	return writePrivateFile(settingsPath, out, 0o600)
 }
 
 func selectedClaudeCodePermissions(opts Options) []string {
