@@ -163,3 +163,42 @@ func TestSCN237_ReviewCurrentSubmissionUsesOnlyManifestScenarioScope(t *testing.
 		t.Fatal("expected legacy artifacts to be reported as non-blocking warnings")
 	}
 }
+
+func TestSCN238_ArchiveTerminalCurrentSubmissionRetainsDurableContracts(t *testing.T) {
+	// REQ-035 → SCN-238 → TestSCN238_ArchiveTerminalCurrentSubmissionRetainsDurableContracts
+	// Scenario: Archive a completed submission without removing durable contracts
+	for _, status := range []string{"completed", "abandoned", "cancelled"} {
+		t.Run(status, func(t *testing.T) {
+			repo := t.TempDir()
+			const submissionID = "workflow-lifecycle-scn-238"
+			specPath := filepath.Join(repo, "specs", "workflow_lifecycle_hard_spec.md")
+			featurePath := filepath.Join(repo, "features", "workflow_lifecycle.feature")
+			mustWrite(t, specPath, "# durable hard spec\n")
+			mustWrite(t, featurePath, "@SCN-238\n")
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: "+submissionID+"\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-238\nworktree: "+repo+"\nstatus: "+status+"\n")
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: complete\ncompleted_work:\n  - SCN-238\nremaining_work:\n  []\nblocked_work:\n  []\nlast_action: committed feature changes\nsafe_resume_point: none\n")
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-238\n")
+			mustWrite(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## legacy evidence\n")
+
+			if err := ArchiveTerminalCurrentSubmission(repo, true); err != nil {
+				t.Fatalf("ArchiveTerminalCurrentSubmission returned error: %v", err)
+			}
+
+			archivePath := filepath.Join(repo, ".rotta", "archive", submissionID)
+			if _, err := os.Stat(filepath.Join(archivePath, "manifest.yaml")); err != nil {
+				t.Fatalf("archived manifest is missing: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(repo, ".rotta", "current")); !os.IsNotExist(err) {
+				t.Fatalf("current execution state still exists after archive: %v", err)
+			}
+			if _, err := LoadCurrentSubmission(repo); err == nil {
+				t.Fatal("archived submission remained in active review scope")
+			}
+			for _, contract := range []string{specPath, featurePath} {
+				if _, err := os.Stat(contract); err != nil {
+					t.Fatalf("durable contract %s was removed: %v", contract, err)
+				}
+			}
+		})
+	}
+}
