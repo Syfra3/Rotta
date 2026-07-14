@@ -134,3 +134,32 @@ func TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrSt
 		t.Fatalf("expected local resume despite unavailable Ancora, got %#v", unavailable)
 	}
 }
+
+func TestSCN237_ReviewCurrentSubmissionUsesOnlyManifestScenarioScope(t *testing.T) {
+	// REQ-034 → SCN-237 → TestSCN237_ReviewCurrentSubmissionUsesOnlyManifestScenarioScope
+	// Scenario: Review only scenarios declared by the current submission
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-237\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: workflow-lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-237\nworktree: "+repo+"\nstatus: in_progress\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-237\n")
+	mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-001\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## SCN-002\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "archive", "old", "tdd-log.md"), "## SCN-003\n")
+
+	review, err := ReviewCurrentSubmission(repo)
+	if err != nil {
+		t.Fatalf("ReviewCurrentSubmission returned error: %v", err)
+	}
+	if !review.Passed {
+		t.Fatalf("review failed from unrelated legacy evidence: %#v", review)
+	}
+	if got, want := strings.Join(review.ScenarioIDs, ","), "SCN-237"; got != want {
+		t.Fatalf("review scenario scope = %q, want %q", got, want)
+	}
+	if len(review.MissingEvidence) != 0 {
+		t.Fatalf("missing evidence = %v, want only manifest scenario evidence checked", review.MissingEvidence)
+	}
+	if len(review.Warnings) == 0 {
+		t.Fatal("expected legacy artifacts to be reported as non-blocking warnings")
+	}
+}
