@@ -95,3 +95,42 @@ func TestSCN235_LoadCurrentSubmissionRejectsUnusableActiveState(t *testing.T) {
 		})
 	}
 }
+
+func TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale(t *testing.T) {
+	// REQ-033, REQ-036 → SCN-236 → TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale
+	// Scenario: Resume an interrupted submission from local state when memory is unavailable
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_lifecycle_hard_spec.md"), "# local contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-236\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: workflow-lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-236\nworktree: "+repo+"\nstatus: interrupted\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: implementation\ncompleted_work:\n  - SCN-234\nremaining_work:\n  - SCN-236\nblocked_work:\n  - awaiting review\nlast_action: TestSCN234_InitializeCurrentSubmissionUsesExplicitContractScope\nsafe_resume_point: implement SCN-236\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-234\n")
+
+	resumed, err := ResumeCurrentSubmission(repo, &CurrentSubmissionAncoraPointer{
+		SubmissionID:   "stale-submission",
+		LocalStatePath: ".rotta/current/deleted-state.yaml",
+	})
+	if err != nil {
+		t.Fatalf("ResumeCurrentSubmission returned error: %v", err)
+	}
+	if got, want := strings.Join(resumed.CompletedWork, ","), "SCN-234"; got != want {
+		t.Fatalf("completed work = %v, want %v", got, want)
+	}
+	if got, want := strings.Join(resumed.RemainingWork, ","), "SCN-236"; got != want {
+		t.Fatalf("remaining work = %v, want %v", got, want)
+	}
+	if got, want := strings.Join(resumed.BlockedWork, ","), "awaiting review"; got != want {
+		t.Fatalf("blocked work = %v, want %v", got, want)
+	}
+	if !resumed.AncoraPointer.Stale || resumed.AncoraPointer.Repaired.SubmissionID != "workflow-lifecycle" || resumed.AncoraPointer.Repaired.LocalStatePath != ".rotta/current/state.yaml" {
+		t.Fatalf("expected stale Ancora pointer to be reported with local repair, got %#v", resumed.AncoraPointer)
+	}
+
+	unavailable, err := ResumeCurrentSubmission(repo, nil)
+	if err != nil {
+		t.Fatalf("ResumeCurrentSubmission without Ancora returned error: %v", err)
+	}
+	if !unavailable.AncoraPointer.Unavailable || unavailable.State.SafeResumePoint != "implement SCN-236" {
+		t.Fatalf("expected local resume despite unavailable Ancora, got %#v", unavailable)
+	}
+}
