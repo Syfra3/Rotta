@@ -131,6 +131,46 @@ func TestSCN235_ResumeCurrentSubmissionRejectsMalformedState(t *testing.T) {
 	}
 }
 
+// REQ-032 → SCN-235 → TestSCN235_RejectsIncompleteCurrentDocuments
+func TestSCN235_RejectsIncompleteCurrentDocuments(t *testing.T) {
+	// Scenario: Reject malformed or missing active submission state
+	for _, testCase := range []struct {
+		name     string
+		manifest string
+		state    string
+		resume   bool
+	}{
+		{
+			name:     "manifest missing required fields",
+			manifest: "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-235\nworktree: /worktree\nstatus: \n",
+		},
+		{
+			name:     "state missing required fields",
+			manifest: "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-235\nworktree: /worktree\nstatus: in_progress\n",
+			state:    "phase: \ncompleted_work:\n  []\nremaining_work:\n  []\nblocked_work:\n  []\nlast_action: \nsafe_resume_point: \n",
+			resume:   true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := t.TempDir()
+			mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-235\n")
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), testCase.manifest)
+			if testCase.resume {
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), testCase.state)
+				_, err := ResumeCurrentSubmission(repo, nil)
+				if err == nil || !strings.Contains(err.Error(), "current submission state cannot be safely used") {
+					t.Fatalf("ResumeCurrentSubmission error = %v, want unusable current-state error", err)
+				}
+				return
+			}
+			_, err := LoadCurrentSubmission(repo)
+			if err == nil || !strings.Contains(err.Error(), "current submission state cannot be safely used") {
+				t.Fatalf("LoadCurrentSubmission error = %v, want unusable current-state error", err)
+			}
+		})
+	}
+}
+
 func TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale(t *testing.T) {
 	// REQ-033, REQ-036 → SCN-236 → TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale
 	// Scenario: Resume an interrupted submission from local state when memory is unavailable
@@ -167,6 +207,46 @@ func TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrSt
 	}
 	if !unavailable.AncoraPointer.Unavailable || unavailable.State.SafeResumePoint != "implement SCN-236" {
 		t.Fatalf("expected local resume despite unavailable Ancora, got %#v", unavailable)
+	}
+}
+
+// REQ-033, REQ-036 → SCN-236 → TestSCN236_ResumeDetectsEveryStalePointerField
+func TestSCN236_ResumeDetectsEveryStalePointerField(t *testing.T) {
+	// Scenario: Resume an interrupted submission from local state when memory is unavailable
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-236\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-236\nworktree: "+repo+"\nstatus: in_progress\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: implementation\ncompleted_work:\n  - SCN-234\nremaining_work:\n  - SCN-236\nblocked_work:\n  - review\nlast_action: implement SCN-236\nsafe_resume_point: review\n")
+
+	resumed, err := ResumeCurrentSubmission(repo, nil)
+	if err != nil {
+		t.Fatalf("ResumeCurrentSubmission returned error: %v", err)
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*CurrentSubmissionAncoraPointer)
+	}{
+		{"submission ID", func(pointer *CurrentSubmissionAncoraPointer) { pointer.SubmissionID = "other" }},
+		{"phase", func(pointer *CurrentSubmissionAncoraPointer) { pointer.Phase = "review" }},
+		{"status", func(pointer *CurrentSubmissionAncoraPointer) { pointer.Status = "completed" }},
+		{"completed work", func(pointer *CurrentSubmissionAncoraPointer) { pointer.CompletedWork = []string{"other"} }},
+		{"remaining work", func(pointer *CurrentSubmissionAncoraPointer) { pointer.RemainingWork = []string{"other"} }},
+		{"blocked work", func(pointer *CurrentSubmissionAncoraPointer) { pointer.BlockedWork = []string{"other"} }},
+		{"last action", func(pointer *CurrentSubmissionAncoraPointer) { pointer.LastAction = "other" }},
+		{"state path", func(pointer *CurrentSubmissionAncoraPointer) { pointer.LocalStatePath = "other" }},
+		{"evidence paths", func(pointer *CurrentSubmissionAncoraPointer) { pointer.EvidencePaths = []string{"other"} }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			pointer := resumed.AncoraPointer.Repaired
+			change.apply(&pointer)
+			stale, err := ResumeCurrentSubmission(repo, &pointer)
+			if err != nil {
+				t.Fatalf("ResumeCurrentSubmission returned error: %v", err)
+			}
+			if !stale.AncoraPointer.Stale {
+				t.Fatal("expected changed compact pointer field to be reported stale")
+			}
+		})
 	}
 }
 
@@ -313,6 +393,30 @@ func TestSCN239_CleansExpiredArchivesAndRejectsTraversal(t *testing.T) {
 	}
 	if err := RemoveArchivedSubmission(repo, "../specs"); err == nil || !strings.Contains(err.Error(), "invalid submission archive ID") {
 		t.Fatalf("traversal archive removal error = %v, want invalid-ID error", err)
+	}
+}
+
+// REQ-035 → SCN-239 → TestSCN239_CleanupSkipsNonArchiveFiles
+func TestSCN239_CleanupSkipsNonArchiveFiles(t *testing.T) {
+	// Scenario: Retain and manually clean archived execution state
+	repo := t.TempDir()
+	archiveRoot := filepath.Join(repo, ".rotta", "archive")
+	metadataPath := filepath.Join(archiveRoot, "README")
+	mustWrite(t, metadataPath, "archive metadata\n")
+	now := time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(metadataPath, now.Add(-31*24*time.Hour), now.Add(-31*24*time.Hour)); err != nil {
+		t.Fatalf("set metadata age: %v", err)
+	}
+
+	removed, err := CleanupExpiredArchivedSubmissions(repo, now)
+	if err != nil {
+		t.Fatalf("CleanupExpiredArchivedSubmissions returned error: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("non-archive file was reported as removed: %v", removed)
+	}
+	if _, err := os.Stat(metadataPath); err != nil {
+		t.Fatalf("non-archive file was removed: %v", err)
 	}
 }
 

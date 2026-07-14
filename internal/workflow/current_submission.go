@@ -221,7 +221,7 @@ func CleanupExpiredArchivedSubmissions(repoRoot string, now time.Time) ([]string
 	var removed []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
-
+			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
