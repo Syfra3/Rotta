@@ -30,6 +30,9 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 	} else if status != "" {
 		return NewImplementationSubmission{}, fmt.Errorf("initiating worktree has non-ignored changes")
 	}
+	if _, err := gitSubmissionOutput(repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD"); err != nil {
+		return NewImplementationSubmission{}, fmt.Errorf("validate initiating worktree HEAD: detached HEAD: %w", err)
+	}
 
 	baseBranch := request.IntegrationBranch
 	if baseBranch == "" {
