@@ -218,6 +218,79 @@ func TestSCN244_PrepareNewImplementationSubmissionRejectsCollidingSiblingWorktre
 	}
 }
 
+// REQ-039 → SCN-245 → TestSCN245_PrepareNewImplementationSubmissionRejectsWorktreeOwnedByAnotherSubmission
+func TestSCN245_PrepareNewImplementationSubmissionRejectsWorktreeOwnedByAnotherSubmission(t *testing.T) {
+	// Scenario: Allow concurrent submissions only with independent worktree ownership
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repository")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish integration base")
+
+	alpha, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+		Slug:              "alpha",
+		IntegrationBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("prepare alpha submission: %v", err)
+	}
+	mustWrite(t, filepath.Join(alpha.WorktreePath, "alpha-only.txt"), "alpha state\n")
+	secondInitiatingWorktree := filepath.Join(parent, "repository-second")
+	runGit(t, repo, "worktree", "add", "-b", "initiator", secondInitiatingWorktree, "main")
+	betaPath := filepath.Join(parent, "repository-second-beta")
+	runGit(t, repo, "worktree", "add", "-b", "other-submission", betaPath, "main")
+	if err := os.RemoveAll(betaPath); err != nil {
+		t.Fatalf("remove stale worktree directory: %v", err)
+	}
+
+	blockedBeta, err := PrepareNewImplementationSubmission(secondInitiatingWorktree, NewImplementationSubmissionRequest{
+		Slug:              "beta",
+		IntegrationBranch: "main",
+	})
+	if err == nil || !strings.Contains(err.Error(), "worktree ownership conflict") {
+		t.Fatalf("PrepareNewImplementationSubmission error = %v, want worktree ownership conflict", err)
+	}
+	if blockedBeta != (NewImplementationSubmission{}) {
+		t.Fatalf("beta submission = %#v, want no submission using another worktree's path", blockedBeta)
+	}
+	runGit(t, repo, "worktree", "prune")
+
+	beta, err := PrepareNewImplementationSubmission(secondInitiatingWorktree, NewImplementationSubmissionRequest{
+		Slug:              "beta",
+		IntegrationBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("prepare beta submission: %v", err)
+	}
+	if alpha.FeatureBranch == beta.FeatureBranch || alpha.WorktreePath == beta.WorktreePath {
+		t.Fatalf("submissions share branch/path: alpha=%#v beta=%#v", alpha, beta)
+	}
+	if beta.WorktreePath != betaPath || beta.FeatureBranch != "feature/beta" {
+		t.Fatalf("beta submission = %#v, want feature/beta at %q", beta, betaPath)
+	}
+	if got := runGitOutput(t, alpha.WorktreePath, "branch", "--show-current"); got != "feature/alpha" {
+		t.Fatalf("alpha worktree branch = %q, want feature/alpha", got)
+	}
+	if got := runGitOutput(t, beta.WorktreePath, "branch", "--show-current"); got != "feature/beta" {
+		t.Fatalf("beta worktree branch = %q, want feature/beta", got)
+	}
+	if content, err := os.ReadFile(filepath.Join(alpha.WorktreePath, "alpha-only.txt")); err != nil || string(content) != "alpha state\n" {
+		t.Fatalf("alpha-only state changed: content=%q, err=%v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(beta.WorktreePath, "alpha-only.txt")); !os.IsNotExist(err) {
+		t.Fatalf("beta worktree received alpha state: %v", err)
+	}
+	if got := runGitOutput(t, beta.WorktreePath, "status", "--short"); got != "" {
+		t.Fatalf("beta worktree status = %q, want independent clean state", got)
+	}
+}
+
 func runGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", args...)
