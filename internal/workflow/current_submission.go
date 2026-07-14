@@ -75,6 +75,64 @@ func InitializeCurrentSubmission(repoRoot string, request CurrentSubmissionReque
 	return CurrentSubmission{ManifestPath: manifestPath, StatePath: statePath, Manifest: manifest, State: state}, nil
 }
 
+func LoadCurrentSubmission(repoRoot string) (CurrentSubmission, error) {
+	manifestPath := filepath.Join(repoRoot, ".rotta", "current", "manifest.yaml")
+	contents, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return CurrentSubmission{}, unusableCurrentSubmissionState(err)
+	}
+
+	manifest, err := parseCurrentSubmissionManifest(string(contents))
+	if err != nil {
+		return CurrentSubmission{}, unusableCurrentSubmissionState(err)
+	}
+	for _, featurePath := range manifest.FeaturePaths {
+		if _, err := os.Stat(filepath.Join(repoRoot, featurePath)); err != nil {
+			return CurrentSubmission{}, unusableCurrentSubmissionState(fmt.Errorf("feature file %q: %w", featurePath, err))
+		}
+	}
+
+	return CurrentSubmission{ManifestPath: manifestPath, StatePath: filepath.Join(repoRoot, ".rotta", "current", "state.yaml"), Manifest: manifest}, nil
+}
+
+func unusableCurrentSubmissionState(cause error) error {
+	return fmt.Errorf("current submission state cannot be safely used: %w", cause)
+}
+
+func parseCurrentSubmissionManifest(contents string) (CurrentSubmissionManifest, error) {
+	var manifest CurrentSubmissionManifest
+	var list *[]string
+	for _, line := range strings.Split(strings.TrimSuffix(contents, "\n"), "\n") {
+		if strings.HasPrefix(line, "  - ") && list != nil {
+			*list = append(*list, strings.TrimPrefix(line, "  - "))
+			continue
+		}
+
+		list = nil
+		switch {
+		case strings.HasPrefix(line, "submission_id: "):
+			manifest.SubmissionID = strings.TrimPrefix(line, "submission_id: ")
+		case strings.HasPrefix(line, "spec_path: "):
+			manifest.SpecPath = strings.TrimPrefix(line, "spec_path: ")
+		case line == "feature_paths:":
+			list = &manifest.FeaturePaths
+		case line == "scenario_ids:":
+			list = &manifest.ScenarioIDs
+		case strings.HasPrefix(line, "worktree: "):
+			manifest.Worktree = strings.TrimPrefix(line, "worktree: ")
+		case strings.HasPrefix(line, "status: "):
+			manifest.Status = strings.TrimPrefix(line, "status: ")
+		default:
+			return CurrentSubmissionManifest{}, fmt.Errorf("invalid manifest line %q", line)
+		}
+	}
+
+	if manifest.SubmissionID == "" || manifest.SpecPath == "" || len(manifest.FeaturePaths) == 0 || len(manifest.ScenarioIDs) == 0 || manifest.Worktree == "" || manifest.Status == "" {
+		return CurrentSubmissionManifest{}, fmt.Errorf("manifest is missing required fields")
+	}
+	return manifest, nil
+}
+
 func serializeCurrentSubmissionManifest(manifest CurrentSubmissionManifest) string {
 	return fmt.Sprintf("submission_id: %s\nspec_path: %s\nfeature_paths:\n%s\nscenario_ids:\n%s\nworktree: %s\nstatus: %s\n",
 		manifest.SubmissionID,

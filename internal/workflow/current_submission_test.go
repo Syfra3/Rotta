@@ -52,3 +52,46 @@ func TestSCN234_InitializeCurrentSubmissionUsesExplicitContractScope(t *testing.
 		}
 	}
 }
+
+func TestSCN235_LoadCurrentSubmissionRejectsUnusableActiveState(t *testing.T) {
+	// REQ-032 → SCN-235 → TestSCN235_LoadCurrentSubmissionRejectsUnusableActiveState
+	// Scenario: Reject malformed or missing active submission state
+	for _, testCase := range []struct {
+		name     string
+		setup    func(t *testing.T, repo string)
+		contains string
+	}{
+		{
+			name: "missing manifest",
+			setup: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-001\n")
+				mustWrite(t, filepath.Join(repo, ".rotta", "archive", "old", "manifest.yaml"), "scenario_ids:\n  - SCN-002\n")
+			},
+			contains: "current submission state cannot be safely used",
+		},
+		{
+			name: "malformed manifest",
+			setup: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "scenario_ids: SCN-235\n")
+			},
+			contains: "current submission state cannot be safely used",
+		},
+		{
+			name: "missing feature",
+			setup: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/missing.feature\nscenario_ids:\n  - SCN-235\nworktree: "+repo+"\nstatus: in_progress\n")
+			},
+			contains: "current submission state cannot be safely used",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := t.TempDir()
+			testCase.setup(t, repo)
+
+			_, err := LoadCurrentSubmission(repo)
+			if err == nil || !strings.Contains(err.Error(), testCase.contains) {
+				t.Fatalf("LoadCurrentSubmission error = %v, want unusable current-state error", err)
+			}
+		})
+	}
+}
