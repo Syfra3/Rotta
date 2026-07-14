@@ -22,6 +22,36 @@ type NewImplementationSubmission struct {
 	FeatureBranch string
 }
 
+// ValidatePhase3SubagentBoundary verifies that a returned Phase 3 subagent
+// remains in its recorded isolated feature worktree before another subagent
+// may start.
+func ValidatePhase3SubagentBoundary(submission NewImplementationSubmission, returnedWorktree string, launchNextSubagent func() error) error {
+	worktreePath, err := filepath.EvalSymlinks(submission.WorktreePath)
+	if err != nil {
+		return fmt.Errorf("feature worktree identity failure: resolve recorded worktree: %w", err)
+	}
+	returnedWorktree, err = filepath.EvalSymlinks(returnedWorktree)
+	if err != nil || returnedWorktree != worktreePath {
+		return fmt.Errorf("feature worktree identity failure: returned worktree does not match the recorded worktree")
+	}
+	repoRoot, err := gitSubmissionOutput(returnedWorktree, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return fmt.Errorf("feature worktree identity failure: resolve recorded worktree: %w", err)
+	}
+	repoRoot, err = filepath.EvalSymlinks(repoRoot)
+	if err != nil || repoRoot != worktreePath {
+		return fmt.Errorf("feature worktree identity failure: recorded worktree does not match its repository root")
+	}
+	branch, err := gitSubmissionOutput(returnedWorktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil || branch != submission.FeatureBranch {
+		return fmt.Errorf("feature branch identity failure: got %q, want %q", branch, submission.FeatureBranch)
+	}
+	if launchNextSubagent != nil {
+		return launchNextSubagent()
+	}
+	return nil
+}
+
 // PrepareNewImplementationSubmission creates the isolated worktree from which
 // Phase 2 may write a new submission's durable artifacts.
 func PrepareNewImplementationSubmission(initiatingWorktree string, request NewImplementationSubmissionRequest) (NewImplementationSubmission, error) {

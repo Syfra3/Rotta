@@ -291,6 +291,129 @@ func TestSCN245_PrepareNewImplementationSubmissionRejectsWorktreeOwnedByAnotherS
 	}
 }
 
+// REQ-040, REQ-041 → SCN-246 → TestSCN246_HaltsWhenPhase3SubagentBoundaryLosesFeatureWorktreeIdentity
+func TestSCN246_HaltsWhenPhase3SubagentBoundaryLosesFeatureWorktreeIdentity(t *testing.T) {
+	// Scenario: Halt when a Phase 3 subagent boundary loses feature-worktree identity
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repository")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish integration base")
+	runGit(t, repo, "checkout", "-b", "initiator")
+
+	submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+		Slug:              "worktree-handoff",
+		IntegrationBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("PrepareNewImplementationSubmission returned error: %v", err)
+	}
+	runGit(t, submission.WorktreePath, "checkout", "main")
+	before := runGitOutput(t, submission.WorktreePath, "rev-parse", "HEAD")
+	nextSubagentLaunched := false
+
+	err = ValidatePhase3SubagentBoundary(submission, submission.WorktreePath, func() error {
+		nextSubagentLaunched = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "feature branch identity") {
+		t.Fatalf("ValidatePhase3SubagentBoundary error = %v, want feature branch identity failure", err)
+	}
+	if nextSubagentLaunched {
+		t.Fatal("next subagent launched after feature worktree identity failure")
+	}
+	if after := runGitOutput(t, submission.WorktreePath, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("boundary validation changed HEAD from %q to %q", before, after)
+	}
+	if branch := runGitOutput(t, submission.WorktreePath, "branch", "--show-current"); branch != "main" {
+		t.Fatalf("boundary validation changed branch to %q, want main", branch)
+	}
+}
+
+// REQ-040, REQ-041 → SCN-246 → TestSCN246_HaltsForOtherDetachedOrWrongPhase3Worktree
+func TestSCN246_HaltsForOtherDetachedOrWrongPhase3Worktree(t *testing.T) {
+	// Scenario: Halt when a Phase 3 subagent boundary loses feature-worktree identity
+	for _, testCase := range []struct {
+		name     string
+		mutate   func(t *testing.T, repo string, submission NewImplementationSubmission)
+		returned func(repo string, submission NewImplementationSubmission) string
+	}{
+		{
+			name: "other branch",
+			mutate: func(t *testing.T, _ string, submission NewImplementationSubmission) {
+				runGit(t, submission.WorktreePath, "checkout", "-b", "other")
+			},
+			returned: func(_ string, submission NewImplementationSubmission) string { return submission.WorktreePath },
+		},
+		{
+			name: "detached HEAD",
+			mutate: func(t *testing.T, _ string, submission NewImplementationSubmission) {
+				runGit(t, submission.WorktreePath, "checkout", "--detach")
+			},
+			returned: func(_ string, submission NewImplementationSubmission) string { return submission.WorktreePath },
+		},
+		{
+			name:     "wrong worktree",
+			mutate:   func(t *testing.T, _ string, _ NewImplementationSubmission) {},
+			returned: func(repo string, _ NewImplementationSubmission) string { return repo },
+		},
+		{
+			name:   "missing worktree",
+			mutate: func(t *testing.T, _ string, _ NewImplementationSubmission) {},
+			returned: func(repo string, _ NewImplementationSubmission) string {
+				return filepath.Join(filepath.Dir(repo), "missing-worktree")
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo, submission := prepareSCN246Submission(t)
+			testCase.mutate(t, repo, submission)
+			nextSubagentLaunched := false
+
+			err := ValidatePhase3SubagentBoundary(submission, testCase.returned(repo, submission), func() error {
+				nextSubagentLaunched = true
+				return nil
+			})
+			if err == nil || !strings.Contains(err.Error(), "identity failure") {
+				t.Fatalf("ValidatePhase3SubagentBoundary error = %v, want identity failure", err)
+			}
+			if nextSubagentLaunched {
+				t.Fatal("next subagent launched after feature worktree identity failure")
+			}
+		})
+	}
+}
+
+func prepareSCN246Submission(t *testing.T) (string, NewImplementationSubmission) {
+	t.Helper()
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repository")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish integration base")
+	runGit(t, repo, "checkout", "-b", "initiator")
+	submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+		Slug:              "worktree-handoff",
+		IntegrationBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("PrepareNewImplementationSubmission returned error: %v", err)
+	}
+	return repo, submission
+}
+
 func runGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", args...)
