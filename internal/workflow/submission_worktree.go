@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -58,6 +59,11 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 		return NewImplementationSubmission{}, fmt.Errorf("feature branch already exists: %s", featureBranch)
 	}
 	worktreePath := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-"+request.Slug)
+	if _, err := os.Lstat(worktreePath); err == nil {
+		return NewImplementationSubmission{}, fmt.Errorf("worktree path collision: %s", worktreePath)
+	} else if !os.IsNotExist(err) {
+		return NewImplementationSubmission{}, fmt.Errorf("inspect prescribed worktree path: %w", err)
+	}
 	if _, err := gitSubmissionOutput(repoRoot, "worktree", "add", "-b", featureBranch, worktreePath, baseBranch); err != nil {
 		return NewImplementationSubmission{}, fmt.Errorf("create isolated feature worktree: %w", err)
 	}

@@ -129,6 +129,95 @@ func TestSCN243_PrepareNewImplementationSubmissionRejectsInvalidOrExistingFeatur
 	}
 }
 
+// REQ-039, REQ-044 → SCN-244 → TestSCN244_PrepareNewImplementationSubmissionRejectsCollidingSiblingWorktreePath
+func TestSCN244_PrepareNewImplementationSubmissionRejectsCollidingSiblingWorktreePath(t *testing.T) {
+	// Scenario: Reject a colliding sibling worktree path
+	for _, testCase := range []struct {
+		name    string
+		occupy  func(t *testing.T, path string)
+		inspect func(t *testing.T, path string)
+	}{
+		{
+			name: "file",
+			occupy: func(t *testing.T, path string) {
+				mustWrite(t, path, "preserve me\n")
+			},
+			inspect: func(t *testing.T, path string) {
+				content, err := os.ReadFile(path)
+				if err != nil || string(content) != "preserve me\n" {
+					t.Fatalf("colliding file was changed: content=%q, err=%v", content, err)
+				}
+			},
+		},
+		{
+			name: "directory",
+			occupy: func(t *testing.T, path string) {
+				if err := os.Mkdir(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				mustWrite(t, filepath.Join(path, "preserve.txt"), "preserve me\n")
+			},
+			inspect: func(t *testing.T, path string) {
+				content, err := os.ReadFile(filepath.Join(path, "preserve.txt"))
+				if err != nil || string(content) != "preserve me\n" {
+					t.Fatalf("colliding directory was changed: content=%q, err=%v", content, err)
+				}
+			},
+		},
+		{
+			name: "symlink",
+			occupy: func(t *testing.T, path string) {
+				target := filepath.Join(filepath.Dir(path), "preserved-target")
+				mustWrite(t, target, "preserve me\n")
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatal(err)
+				}
+			},
+			inspect: func(t *testing.T, path string) {
+				info, err := os.Lstat(path)
+				if err != nil || info.Mode()&os.ModeSymlink == 0 {
+					t.Fatalf("colliding symlink was removed or replaced: info=%v, err=%v", info, err)
+				}
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := t.TempDir()
+			repo := filepath.Join(parent, "repository")
+			if err := os.Mkdir(repo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, repo, "init", "-b", "main")
+			runGit(t, repo, "config", "user.email", "test@example.invalid")
+			runGit(t, repo, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+			runGit(t, repo, "add", "README.md")
+			runGit(t, repo, "commit", "-m", "test: establish integration base")
+
+			collidingPath := filepath.Join(parent, "repository-worktree-handoff")
+			testCase.occupy(t, collidingPath)
+
+			submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+				Slug:              "worktree-handoff",
+				IntegrationBranch: "main",
+			})
+			if err == nil || !strings.Contains(err.Error(), "worktree path collision") {
+				t.Fatalf("PrepareNewImplementationSubmission error = %v, want path collision", err)
+			}
+			if submission != (NewImplementationSubmission{}) {
+				t.Fatalf("submission = %#v, want no submission", submission)
+			}
+			testCase.inspect(t, collidingPath)
+			if got := runGitOutput(t, repo, "branch", "--list", "feature/worktree-handoff"); got != "" {
+				t.Fatalf("feature branch = %q, want no worktree operation", got)
+			}
+			if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+				t.Fatalf("initiating worktree status = %q, want no Phase 2 or Phase 3 artifacts", got)
+			}
+		})
+	}
+}
+
 func runGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", args...)
