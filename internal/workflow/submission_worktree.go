@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var submissionSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 type NewImplementationSubmissionRequest struct {
 	Slug              string
@@ -33,6 +36,9 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 	if _, err := gitSubmissionOutput(repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD"); err != nil {
 		return NewImplementationSubmission{}, fmt.Errorf("validate initiating worktree HEAD: detached HEAD: %w", err)
 	}
+	if !submissionSlugPattern.MatchString(request.Slug) {
+		return NewImplementationSubmission{}, fmt.Errorf("invalid submission slug %q", request.Slug)
+	}
 
 	baseBranch := request.IntegrationBranch
 	if baseBranch == "" {
@@ -46,6 +52,11 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 	}
 
 	featureBranch := "feature/" + request.Slug
+	if branches, err := gitSubmissionOutput(repoRoot, "branch", "--list", "--format=%(refname:short)", featureBranch); err != nil {
+		return NewImplementationSubmission{}, fmt.Errorf("check feature branch availability %q: %w", featureBranch, err)
+	} else if branches != "" {
+		return NewImplementationSubmission{}, fmt.Errorf("feature branch already exists: %s", featureBranch)
+	}
 	worktreePath := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-"+request.Slug)
 	if _, err := gitSubmissionOutput(repoRoot, "worktree", "add", "-b", featureBranch, worktreePath, baseBranch); err != nil {
 		return NewImplementationSubmission{}, fmt.Errorf("create isolated feature worktree: %w", err)

@@ -80,6 +80,55 @@ func TestSCN242_PrepareNewImplementationSubmissionRejectsDetachedHEAD(t *testing
 	}
 }
 
+// REQ-038, REQ-044 → SCN-243 → TestSCN243_PrepareNewImplementationSubmissionRejectsInvalidOrExistingFeatureBranch
+func TestSCN243_PrepareNewImplementationSubmissionRejectsInvalidOrExistingFeatureBranch(t *testing.T) {
+	// Scenario: Reject an invalid or unavailable feature branch
+	for _, testCase := range []struct {
+		name           string
+		slug           string
+		existingBranch bool
+		wantError      string
+	}{
+		{name: "uppercase and whitespace", slug: "Feature Name", wantError: "invalid submission slug"},
+		{name: "path traversal", slug: "../escape", wantError: "invalid submission slug"},
+		{name: "existing feature branch", slug: "release-fix", existingBranch: true, wantError: "feature branch already exists"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := t.TempDir()
+			repo := filepath.Join(parent, "repository")
+			if err := os.Mkdir(repo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, repo, "init", "-b", "main")
+			runGit(t, repo, "config", "user.email", "test@example.invalid")
+			runGit(t, repo, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+			runGit(t, repo, "add", "README.md")
+			runGit(t, repo, "commit", "-m", "test: establish integration base")
+			if testCase.existingBranch {
+				runGit(t, repo, "branch", "feature/"+testCase.slug)
+			}
+
+			submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+				Slug:              testCase.slug,
+				IntegrationBranch: "main",
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("PrepareNewImplementationSubmission error = %v, want %q", err, testCase.wantError)
+			}
+			if submission != (NewImplementationSubmission{}) {
+				t.Fatalf("submission = %#v, want no created or reused feature branch", submission)
+			}
+			if got := runGitOutput(t, repo, "branch", "--show-current"); got != "main" {
+				t.Fatalf("initiating branch = %q, want main", got)
+			}
+			if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+				t.Fatalf("initiating worktree status = %q, want no submission artifacts or code", got)
+			}
+		})
+	}
+}
+
 func runGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", args...)
