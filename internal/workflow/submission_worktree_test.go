@@ -135,6 +135,35 @@ func TestSCN249_ReportsManualCommandFailureWithoutMutatingSubmission(t *testing.
 	}
 }
 
+// REQ-042, REQ-043 → SCN-250 → TestSCN250_ReportsRemoteResolutionRequiredWithoutPublicationCommands
+func TestSCN250_ReportsRemoteResolutionRequiredWithoutPublicationCommands(t *testing.T) {
+	// Scenario: Block guessed PR publication when no GitHub remote is unambiguous
+	repo := prepareSCN248Repository(t)
+	runGit(t, repo, "remote", "add", "upstream", "git@github.com:example/upstream.git")
+
+	handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "main",
+			FeatureBranch: "feature/worktree-handoff",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+	}
+	if !strings.Contains(handoff, "remote selection requires user resolution") {
+		t.Fatalf("handoff did not require remote resolution:\n%s", handoff)
+	}
+	for _, forbidden := range []string{"git push", "gh pr create", "github.com"} {
+		if strings.Contains(handoff, forbidden) {
+			t.Fatalf("handoff guessed a publication action %q:\n%s", forbidden, handoff)
+		}
+	}
+	if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+		t.Fatalf("manual handoff changed the worktree: %q", got)
+	}
+}
+
 func prepareSCN248Repository(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

@@ -21,7 +21,7 @@ func PresentManualGitHubPRHandoff(request ManualGitHubPRHandoffRequest) (string,
 	}
 	remote, webURL, err := resolveGitHubPushRemote(request.Submission.WorktreePath)
 	if err != nil {
-		return "", err
+		return "Phase 4 passed. GitHub remote selection requires user resolution; no push or pull-request command was generated.\n", nil
 	}
 
 	var handoff strings.Builder
