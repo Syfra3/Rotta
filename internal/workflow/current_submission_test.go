@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSCN234_InitializeCurrentSubmissionUsesExplicitContractScope(t *testing.T) {
@@ -200,5 +201,45 @@ func TestSCN238_ArchiveTerminalCurrentSubmissionRetainsDurableContracts(t *testi
 				}
 			}
 		})
+	}
+}
+
+func TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive(t *testing.T) {
+	// REQ-035 → SCN-239 → TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive
+	// Scenario: Retain and manually clean archived execution state
+	repo := t.TempDir()
+	const submissionID = "workflow-lifecycle-scn-239"
+	archivePath := filepath.Join(repo, ".rotta", "archive", submissionID)
+	mustWrite(t, filepath.Join(archivePath, "manifest.yaml"), "submission_id: "+submissionID+"\n")
+	specPath := filepath.Join(repo, "specs", "workflow_lifecycle_hard_spec.md")
+	featurePath := filepath.Join(repo, "features", "workflow_lifecycle.feature")
+	mustWrite(t, specPath, "# durable hard spec\n")
+	mustWrite(t, featurePath, "@SCN-239\n")
+
+	now := time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(archivePath, now.Add(-29*24*time.Hour), now.Add(-29*24*time.Hour)); err != nil {
+		t.Fatalf("set archive age: %v", err)
+	}
+	removed, err := CleanupExpiredArchivedSubmissions(repo, now)
+	if err != nil {
+		t.Fatalf("CleanupExpiredArchivedSubmissions returned error: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("recent archive was automatically removed: %v", removed)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("recent archive was not retained: %v", err)
+	}
+
+	if err := RemoveArchivedSubmission(repo, submissionID); err != nil {
+		t.Fatalf("RemoveArchivedSubmission returned error: %v", err)
+	}
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Fatalf("requested archive still exists after manual cleanup: %v", err)
+	}
+	for _, contract := range []string{specPath, featurePath} {
+		if _, err := os.Stat(contract); err != nil {
+			t.Fatalf("durable contract %s was removed: %v", contract, err)
+		}
 	}
 }

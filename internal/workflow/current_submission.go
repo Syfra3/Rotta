@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const currentSubmissionStatusInProgress = "in_progress"
+
+const defaultArchiveRetentionPeriod = 30 * 24 * time.Hour
 
 type CurrentSubmissionRequest struct {
 	ID           string
@@ -189,6 +192,51 @@ func ArchiveTerminalCurrentSubmission(repoRoot string, featureChangesCommitted b
 
 func isTerminalCurrentSubmissionStatus(status string) bool {
 	return status == "completed" || status == "abandoned" || status == "cancelled"
+}
+
+// CleanupExpiredArchivedSubmissions removes only archive directories whose
+// local execution state has reached the default 30-day retention limit.
+func CleanupExpiredArchivedSubmissions(repoRoot string, now time.Time) ([]string, error) {
+	archiveRoot := filepath.Join(repoRoot, ".rotta", "archive")
+	entries, err := os.ReadDir(archiveRoot)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read submission archives: %w", err)
+	}
+
+	var removed []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, fmt.Errorf("inspect submission archive %q: %w", entry.Name(), err)
+		}
+		if now.Sub(info.ModTime()) < defaultArchiveRetentionPeriod {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(archiveRoot, entry.Name())); err != nil {
+			return nil, fmt.Errorf("remove expired submission archive %q: %w", entry.Name(), err)
+		}
+		removed = append(removed, entry.Name())
+	}
+	return removed, nil
+}
+
+// RemoveArchivedSubmission explicitly removes one local execution archive.
+// Archive IDs are constrained to direct children so cleanup cannot reach
+// durable repository contracts.
+func RemoveArchivedSubmission(repoRoot, submissionID string) error {
+	if submissionID == "" || filepath.Base(submissionID) != submissionID || submissionID == "." {
+		return fmt.Errorf("invalid submission archive ID %q", submissionID)
+	}
+	if err := os.RemoveAll(filepath.Join(repoRoot, ".rotta", "archive", submissionID)); err != nil {
+		return fmt.Errorf("remove submission archive %q: %w", submissionID, err)
+	}
+	return nil
 }
 
 func unusableCurrentSubmissionState(cause error) error {
