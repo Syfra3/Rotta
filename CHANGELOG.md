@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/Syfra3/Rotta/compare/v1.8.0...v1.8.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* handle initial requests before welcome ([7b91d71](https://github.com/Syfra3/Rotta/commit/7b91d7165cba14dbad01fa0afdef1486c4087a71))
+* handle initial requests before welcome ([feacd4b](https://github.com/Syfra3/Rotta/commit/feacd4b037950eede1811ab4c928b14afd0cf12a))
+
 ## [1.8.0](https://github.com/Syfra3/Rotta/compare/v1.7.0...v1.8.0) (2026-07-14)
 
 
