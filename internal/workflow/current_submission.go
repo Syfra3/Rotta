@@ -161,6 +161,36 @@ func ResumeCurrentSubmission(repoRoot string, pointer *CurrentSubmissionAncoraPo
 	}, nil
 }
 
+// ArchiveTerminalCurrentSubmission moves only the local execution directory
+// after the submission reaches a terminal status and its feature changes are
+// safely committed. Durable contracts remain at their manifest paths.
+func ArchiveTerminalCurrentSubmission(repoRoot string, featureChangesCommitted bool) error {
+	if !featureChangesCommitted {
+		return fmt.Errorf("cannot archive current submission before feature changes are safely committed")
+	}
+
+	submission, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return err
+	}
+	if !isTerminalCurrentSubmissionStatus(submission.Manifest.Status) {
+		return fmt.Errorf("cannot archive non-terminal current submission status %q", submission.Manifest.Status)
+	}
+
+	archiveDirectory := filepath.Join(repoRoot, ".rotta", "archive")
+	if err := os.MkdirAll(archiveDirectory, 0o700); err != nil {
+		return fmt.Errorf("create current submission archive directory: %w", err)
+	}
+	if err := os.Rename(filepath.Join(repoRoot, ".rotta", "current"), filepath.Join(archiveDirectory, submission.Manifest.SubmissionID)); err != nil {
+		return fmt.Errorf("archive current submission: %w", err)
+	}
+	return nil
+}
+
+func isTerminalCurrentSubmissionStatus(status string) bool {
+	return status == "completed" || status == "abandoned" || status == "cancelled"
+}
+
 func unusableCurrentSubmissionState(cause error) error {
 	return fmt.Errorf("current submission state cannot be safely used: %w", cause)
 }
