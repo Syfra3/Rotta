@@ -148,6 +148,131 @@ func TestSCN027_CheckpointsValidatedScenarioInOneLocalCommit(t *testing.T) {
 	}
 }
 
+// REQ-040, REQ-041 → SCN-247 → TestSCN247_RejectsScenarioCheckpointOnProtectedBranch
+func TestSCN247_RejectsScenarioCheckpointOnProtectedBranch(t *testing.T) {
+	// Scenario: Commit a validated scenario only on the recorded feature branch
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish scenario baseline")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-247",
+		ExpectedPaths:    []string{"checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "integration",
+			FeatureBranch: "main",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "protected branch") {
+		t.Fatalf("CheckpointApprovedScenario error = %v, want protected branch rejection", err)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "1" {
+		t.Fatalf("expected no scenario commit, got %s commits", commits)
+	}
+}
+
+// REQ-040, REQ-041 → SCN-247 → TestSCN247_CheckpointsOnlyFromRecordedFeatureWorktree
+func TestSCN247_CheckpointsOnlyFromRecordedFeatureWorktree(t *testing.T) {
+	// Scenario: Commit a validated scenario only on the recorded feature branch
+	repo, submission := prepareSCN246Submission(t)
+	mustWrite(t, filepath.Join(submission.WorktreePath, "README.md"), "feature change\n")
+
+	record, err := CheckpointApprovedScenario(submission.WorktreePath, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-247",
+		ExpectedPaths:    []string{"README.md"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+		Submission:       submission,
+	})
+	if err != nil {
+		t.Fatalf("CheckpointApprovedScenario returned error: %v", err)
+	}
+	if record.CommitID == "" {
+		t.Fatalf("expected a local scenario checkpoint, got %#v", record)
+	}
+	if branch := gitOutput(t, submission.WorktreePath, "branch", "--show-current"); branch != submission.FeatureBranch {
+		t.Fatalf("checkpoint branch = %q, want %q", branch, submission.FeatureBranch)
+	}
+	if commits := gitOutput(t, repo, "rev-list", "--count", "main"); commits != "1" {
+		t.Fatalf("base branch received scenario checkpoint: %s commits", commits)
+	}
+}
+
+// REQ-040, REQ-041 → SCN-247 → TestSCN247_RejectsIncompleteFeatureWorktreeRecord
+func TestSCN247_RejectsIncompleteFeatureWorktreeRecord(t *testing.T) {
+	// Scenario: Commit a validated scenario only on the recorded feature branch
+	_, submission := prepareSCN246Submission(t)
+	mustWrite(t, filepath.Join(submission.WorktreePath, "README.md"), "feature change\n")
+	submission.BaseBranch = ""
+
+	_, err := CheckpointApprovedScenario(submission.WorktreePath, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-247",
+		ExpectedPaths:    []string{"README.md"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+		Submission:       submission,
+	})
+	if err == nil || !strings.Contains(err.Error(), "recorded isolated feature worktree") {
+		t.Fatalf("CheckpointApprovedScenario error = %v, want incomplete record rejection", err)
+	}
+	if commits := gitOutput(t, submission.WorktreePath, "rev-list", "--count", "HEAD"); commits != "1" {
+		t.Fatalf("expected no scenario commit, got %s commits", commits)
+	}
+}
+
+// REQ-040, REQ-041 → SCN-247 → TestSCN247_RejectsBaseAndDetachedCheckpointBranches
+func TestSCN247_RejectsBaseAndDetachedCheckpointBranches(t *testing.T) {
+	// Scenario: Commit a validated scenario only on the recorded feature branch
+	for _, testCase := range []struct {
+		name   string
+		mutate func(t *testing.T, submission NewImplementationSubmission)
+	}{
+		{
+			name: "base branch",
+			mutate: func(t *testing.T, submission NewImplementationSubmission) {
+				runGit(t, submission.WorktreePath, "checkout", submission.BaseBranch)
+			},
+		},
+		{
+			name: "detached HEAD",
+			mutate: func(t *testing.T, submission NewImplementationSubmission) {
+				runGit(t, submission.WorktreePath, "checkout", "--detach")
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, submission := prepareSCN246Submission(t)
+			testCase.mutate(t, submission)
+
+			_, err := CheckpointApprovedScenario(submission.WorktreePath, ScenarioCheckpointRequest{
+				ScenarioID:       "SCN-247",
+				ExpectedPaths:    []string{"README.md"},
+				TDDComplete:      true,
+				TestsPassed:      true,
+				ValidationPassed: true,
+				Submission:       submission,
+			})
+			if err == nil {
+				t.Fatal("expected checkpoint rejection")
+			}
+			if commits := gitOutput(t, submission.WorktreePath, "rev-list", "--count", "HEAD"); commits != "1" {
+				t.Fatalf("expected no scenario commit, got %s commits", commits)
+			}
+		})
+	}
+}
+
 func TestSCN028_HaltsForUnexpectedTrackedChange(t *testing.T) {
 	// REQ-024 → SCN-028 → TestSCN028_HaltsForUnexpectedTrackedChange
 	// Scenario: Halt for an unexpected tracked change before checkpointing
