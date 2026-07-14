@@ -118,6 +118,51 @@ func TestSCN248_PresentsManualGitHubPRHandoff(t *testing.T) {
 	}
 }
 
+// REQ-042, REQ-043 → SCN-248 → TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms
+func TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms(t *testing.T) {
+	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
+	for _, test := range []struct {
+		name       string
+		remoteURL  string
+		wantWebURL string
+	}{
+		{
+			name:       "SSH URL",
+			remoteURL:  "ssh://git@github.com/example/repository.git",
+			wantWebURL: "https://github.com/example/repository/compare/feature/worktree-handoff",
+		},
+		{
+			name:       "HTTPS URL",
+			remoteURL:  "https://github.com/example/repository.git",
+			wantWebURL: "https://github.com/example/repository/compare/feature/worktree-handoff",
+		},
+		{
+			name:       "HTTP URL",
+			remoteURL:  "http://github.com/example/repository.git",
+			wantWebURL: "https://github.com/example/repository/compare/feature/worktree-handoff",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := prepareSCN248Repository(t)
+			runGit(t, repo, "remote", "set-url", "origin", test.remoteURL)
+
+			handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+				Submission: NewImplementationSubmission{
+					WorktreePath:  repo,
+					BaseBranch:    "main",
+					FeatureBranch: "feature/worktree-handoff",
+				},
+			})
+			if err != nil {
+				t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+			}
+			if !strings.Contains(handoff, test.wantWebURL) {
+				t.Fatalf("handoff missing GitHub web UI URL %q:\n%s", test.wantWebURL, handoff)
+			}
+		})
+	}
+}
+
 // REQ-042, REQ-043 → SCN-248 → TestSCN248_RejectsUnsafeManualHandoffCommands
 func TestSCN248_RejectsUnsafeManualHandoffCommands(t *testing.T) {
 	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
