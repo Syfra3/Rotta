@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var scenarioIDPattern = regexp.MustCompile(`^SCN-[0-9]{3}$`)
 
 type AutonomousPhase3WorktreeRequest struct {
 	Scope        ContractScope
@@ -134,7 +137,11 @@ func validateScenarioCheckpointEvidence(request ScenarioCheckpointRequest) error
 }
 
 func stageScenarioChanges(repoRoot string, paths []string) error {
-	add := exec.Command("git", append([]string{"add", "--"}, paths...)...)
+	if err := validateScenarioPaths(paths); err != nil {
+		return err
+	}
+	add := exec.Command("git", "add", "--")
+	add.Args = append(add.Args, paths...)
 	add.Dir = repoRoot
 	if output, err := add.CombinedOutput(); err != nil {
 		return fmt.Errorf("stage scenario changes: %w: %s", err, strings.TrimSpace(string(output)))
@@ -143,7 +150,11 @@ func stageScenarioChanges(repoRoot string, paths []string) error {
 }
 
 func createScenarioCheckpointCommit(repoRoot, scenarioID string) (string, error) {
-	commit := exec.Command("git", "commit", "-m", "checkpoint: "+scenarioID)
+	if !scenarioIDPattern.MatchString(scenarioID) {
+		return "", fmt.Errorf("invalid scenario ID %q", scenarioID)
+	}
+	commit := exec.Command("git", "commit", "-m")
+	commit.Args = append(commit.Args, "checkpoint: "+scenarioID)
 	commit.Dir = repoRoot
 	if output, err := commit.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("create scenario checkpoint: %w: %s", err, strings.TrimSpace(string(output)))
@@ -188,6 +199,19 @@ func containsPath(paths []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func validateScenarioPaths(paths []string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("invalid scenario path set: no paths provided")
+	}
+	for _, path := range paths {
+		clean := filepath.Clean(filepath.FromSlash(path))
+		if path == "" || filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("invalid scenario path %q", path)
+		}
+	}
+	return nil
 }
 
 func writeAutonomousPhase3WorkflowState(repoRoot string, record ScenarioCheckpointRecord) error {
@@ -252,17 +276,21 @@ func writeAutonomousPhase3WorkflowStateValue(repoRoot string, state AutonomousPh
 		return fmt.Errorf("serialize autonomous Phase 3 workflow state: %w", err)
 	}
 	path := filepath.Join(repoRoot, ".rotta", "autonomous-phase3-state.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create autonomous Phase 3 workflow state directory: %w", err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		return fmt.Errorf("write autonomous Phase 3 workflow state: %w", err)
 	}
 	return nil
 }
 
 func PrepareAutonomousPhase3Worktree(repoRoot string, request AutonomousPhase3WorktreeRequest) (AutonomousPhase3WorktreePreparation, error) {
-	command := exec.Command("git", "worktree", "add", "-b", request.Branch, request.WorktreePath, "HEAD")
+	if err := validateWorktreeRequest(request); err != nil {
+		return AutonomousPhase3WorktreePreparation{}, err
+	}
+	command := exec.Command("git", "worktree", "add", "-b")
+	command.Args = append(command.Args, request.Branch, request.WorktreePath, "HEAD")
 	command.Dir = repoRoot
 	if output, err := command.CombinedOutput(); err != nil {
 		return AutonomousPhase3WorktreePreparation{}, fmt.Errorf("create isolated Phase 3 worktree: %w: %s", err, strings.TrimSpace(string(output)))
@@ -285,4 +313,31 @@ func PrepareAutonomousPhase3Worktree(repoRoot string, request AutonomousPhase3Wo
 	}
 
 	return AutonomousPhase3WorktreePreparation{Branch: request.Branch, WorktreePath: request.WorktreePath}, nil
+}
+
+func validateWorktreeRequest(request AutonomousPhase3WorktreeRequest) error {
+	if !isSafeGitBranchName(request.Branch) {
+		return fmt.Errorf("invalid Phase 3 worktree branch %q", request.Branch)
+	}
+	if request.WorktreePath == "" || !filepath.IsAbs(request.WorktreePath) {
+		return fmt.Errorf("invalid Phase 3 worktree path %q", request.WorktreePath)
+	}
+	return nil
+}
+
+func isSafeGitBranchName(branch string) bool {
+	if branch == "" || strings.HasPrefix(branch, "-") || strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, ".lock") || strings.Contains(branch, "..") || strings.Contains(branch, "@{") {
+		return false
+	}
+	for _, character := range branch {
+		if character <= ' ' || character == '~' || character == '^' || character == ':' || character == '?' || character == '*' || character == '[' || character == '\\' || character == 0x7f {
+			return false
+		}
+	}
+	for _, component := range strings.Split(branch, "/") {
+		if component == "" || component == "." || component == ".." {
+			return false
+		}
+	}
+	return true
 }

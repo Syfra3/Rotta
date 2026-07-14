@@ -829,6 +829,53 @@ func TestSCN025_PreparationStopsForCreateAndBoundaryStatusFailures(t *testing.T)
 	})
 }
 
+func TestSCN025_RejectsUnsafeWorktreeInputs(t *testing.T) {
+	// REQ-021 → SCN-025 → TestSCN025_RejectsUnsafeWorktreeInputs
+	// Scenario: Start autonomous Phase 3 in a new clean isolated feature worktree
+	_, err := PrepareAutonomousPhase3Worktree(t.TempDir(), AutonomousPhase3WorktreeRequest{
+		Branch:       "-malicious-branch",
+		WorktreePath: filepath.Join(t.TempDir(), "phase3"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid Phase 3 worktree branch") {
+		t.Fatalf("expected unsafe branch to be rejected before invoking git, got %v", err)
+	}
+}
+
+func TestSCN027_RejectsUnsafeCheckpointInputs(t *testing.T) {
+	// REQ-022 → REQ-023 → SCN-027 → TestSCN027_RejectsUnsafeCheckpointInputs
+	// Scenario: Checkpoint one approved scenario after strict TDD and objective validation pass
+	if err := stageScenarioChanges(t.TempDir(), []string{"../outside"}); err == nil || !strings.Contains(err.Error(), "invalid scenario path") {
+		t.Fatalf("expected unsafe scenario path to be rejected before invoking git, got %v", err)
+	}
+	if _, err := createScenarioCheckpointCommit(t.TempDir(), "SCN-027\ninjected"); err == nil || !strings.Contains(err.Error(), "invalid scenario ID") {
+		t.Fatalf("expected unsafe scenario ID to be rejected before invoking git, got %v", err)
+	}
+}
+
+func TestSCN027_WritesPrivateWorkflowState(t *testing.T) {
+	// REQ-022 → REQ-023 → SCN-027 → TestSCN027_WritesPrivateWorkflowState
+	// Scenario: Checkpoint one approved scenario after strict TDD and objective validation pass
+	repo := t.TempDir()
+	if err := writeAutonomousPhase3WorkflowState(repo, ScenarioCheckpointRecord{ScenarioID: "SCN-027", CommitID: "abc123"}); err != nil {
+		t.Fatalf("writeAutonomousPhase3WorkflowState returned error: %v", err)
+	}
+
+	directory, err := os.Stat(filepath.Join(repo, ".rotta"))
+	if err != nil {
+		t.Fatalf("stat workflow state directory: %v", err)
+	}
+	if directory.Mode().Perm() != 0o750 {
+		t.Fatalf("expected private workflow state directory mode 0750, got %04o", directory.Mode().Perm())
+	}
+	stateFile, err := os.Stat(filepath.Join(repo, ".rotta", "autonomous-phase3-state.json"))
+	if err != nil {
+		t.Fatalf("stat workflow state file: %v", err)
+	}
+	if stateFile.Mode().Perm() != 0o600 {
+		t.Fatalf("expected private workflow state file mode 0600, got %04o", stateFile.Mode().Perm())
+	}
+}
+
 func checkpointTestRepository(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
