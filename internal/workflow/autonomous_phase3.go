@@ -40,6 +40,7 @@ type ScenarioCheckpointRequest struct {
 	TDDComplete      bool
 	TestsPassed      bool
 	ValidationPassed bool
+	Submission       NewImplementationSubmission
 }
 
 type ScenarioCheckpointRecord struct {
@@ -89,6 +90,9 @@ func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointReque
 	if err := validateScenarioCheckpointEvidence(request); err != nil {
 		return ScenarioCheckpointRecord{}, err
 	}
+	if err := validateScenarioCheckpointBranch(repoRoot, request.Submission); err != nil {
+		return ScenarioCheckpointRecord{}, err
+	}
 
 	untracked, err := untrackedNonIgnoredPaths(repoRoot)
 	if err != nil {
@@ -121,6 +125,40 @@ func CheckpointApprovedScenario(repoRoot string, request ScenarioCheckpointReque
 		return ScenarioCheckpointRecord{}, err
 	}
 	return record, nil
+}
+
+func validateScenarioCheckpointBranch(repoRoot string, submission NewImplementationSubmission) error {
+	if submission.WorktreePath == "" && submission.BaseBranch == "" && submission.FeatureBranch == "" {
+		return nil
+	}
+	if submission.WorktreePath == "" || submission.BaseBranch == "" || submission.FeatureBranch == "" {
+		return fmt.Errorf("scenario checkpoint requires a complete recorded isolated feature worktree")
+	}
+	recordedWorktree, err := filepath.EvalSymlinks(submission.WorktreePath)
+	if err != nil {
+		return fmt.Errorf("scenario checkpoint requires the recorded isolated feature worktree: %w", err)
+	}
+	checkpointWorktree, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil || checkpointWorktree != recordedWorktree {
+		return fmt.Errorf("scenario checkpoint requires the recorded isolated feature worktree")
+	}
+	branch, err := gitSubmissionOutput(repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return fmt.Errorf("scenario checkpoint requires an attached feature branch: detached HEAD")
+	}
+	if branch != submission.FeatureBranch {
+		return fmt.Errorf("scenario checkpoint branch %q does not match recorded feature branch %q", branch, submission.FeatureBranch)
+	}
+	if branch == "main" || branch == "master" || branch == "develop" || strings.HasPrefix(branch, "release/") || strings.HasPrefix(branch, "hotfix/") {
+		return fmt.Errorf("scenario checkpoint cannot commit on protected branch %q", branch)
+	}
+	if branch == submission.BaseBranch {
+		return fmt.Errorf("scenario checkpoint cannot commit on base branch %q", branch)
+	}
+	if !strings.HasPrefix(branch, "feature/") {
+		return fmt.Errorf("scenario checkpoint requires a feature branch, got %q", branch)
+	}
+	return nil
 }
 
 func validateScenarioCheckpointEvidence(request ScenarioCheckpointRequest) error {
