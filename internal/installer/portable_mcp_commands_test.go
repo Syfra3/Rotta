@@ -70,6 +70,46 @@ esac
 	}
 }
 
+func TestSCN232_RollsBackOnlyFailingOpenCodeAgentInstallation(t *testing.T) {
+	// REQ-020 → SCN-232 → TestSCN232_RollsBackOnlyFailingOpenCodeAgentInstallation
+	// Scenario: Roll back only the failing coding agent installation
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+
+	claudeConfig := filepath.Join(home, ".claude", "mcp", "ancora.json")
+	openCodeConfig := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	openCodeHostConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+	openCodeBefore := []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`)
+	writeTestFile(t, openCodeConfig, openCodeBefore)
+	openCodeHostBefore := []byte(`{"theme":"keep"}`)
+	writeTestFile(t, openCodeHostConfig, openCodeHostBefore)
+	writeExecutable(t, filepath.Join(bin, "ancora"), `#!/bin/sh
+case "$2" in
+  claude-code) mkdir -p "$HOME/.claude/mcp"; printf '{"command":"ancora","args":["mcp"]}' > "$HOME/.claude/mcp/ancora.json" ;;
+  opencode) printf '{"mcp":{"ancora":{"command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"; exit 23 ;;
+esac
+`)
+
+	_, err := Install(Options{Target: "both", ProjectPath: filepath.Join(home, "project"), InstallSpec: true, SetupAncora: true})
+	if err == nil {
+		t.Fatal("expected OpenCode setup failure")
+	}
+	if got := mustReadFile(t, claudeConfig); string(got) != `{"command":"ancora","args":["mcp"]}` {
+		t.Fatalf("expected completed Claude Code installation to remain intact, got %s", got)
+	}
+	if got := mustReadFile(t, openCodeConfig); string(got) != string(openCodeBefore) {
+		t.Fatalf("expected complete OpenCode pre-installation configuration restored, got %s", got)
+	}
+	if got := mustReadFile(t, openCodeHostConfig); string(got) != string(openCodeHostBefore) {
+		t.Fatalf("expected every OpenCode configuration file restored, got %s", got)
+	}
+	if !strings.Contains(err.Error(), "OpenCode") || !strings.Contains(err.Error(), "rerun") {
+		t.Fatalf("expected OpenCode remediation, got %v", err)
+	}
+}
+
 // REQ-016 → SCN-224 → TestSCN224_ReinstallNormalizesManagedVelaCellarCommand
 func TestSCN224_ReinstallNormalizesManagedVelaCellarCommand(t *testing.T) {
 	// Scenario: Normalize a stale managed Homebrew MCP executable during reinstall

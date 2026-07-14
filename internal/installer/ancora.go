@@ -22,12 +22,16 @@ type AncoraResult struct {
 //
 // Installation source: https://github.com/Syfra3/ancora
 func SetupAncora(opts Options, home string) (*AncoraResult, error) {
+	return setupAncoraWithBackups(opts, home, nil)
+}
+
+func setupAncoraWithBackups(opts Options, home string, backupDirs map[string]string) (*AncoraResult, error) {
 	binPath, installed, err := resolveAncoraBin(opts)
 	if err != nil {
 		return nil, err
 	}
 	result := &AncoraResult{BinPath: binPath, Installed: installed}
-	if err := configureAncoraHosts(opts, binPath, home); err != nil {
+	if err := configureAncoraHosts(opts, binPath, home, backupDirs); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -48,16 +52,41 @@ func resolveAncoraBin(opts Options) (string, bool, error) {
 	return binPath, true, nil
 }
 
-func configureAncoraHosts(opts Options, binPath, home string) error {
+func configureAncoraHosts(opts Options, binPath, home string, backupDirs map[string]string) error {
 	for _, host := range ancoraSetupHosts(opts.Target) {
+		backupDir := backupDirs[host]
+		if backupDir == "" {
+			var err error
+			backupDir, err = createAgentBackup(opts, host, home)
+			if err != nil {
+				return fmt.Errorf("backup %s configuration before Ancora setup: %w", codingAgentName(host), err)
+			}
+		}
 		if err := runAncoraSetup(opts, binPath, host); err != nil {
-			return fmt.Errorf("ancora setup %s: %w", host, err)
+			return restoreFailedAncoraAgentSetup(host, backupDir, err)
 		}
 		if err := serializeAncoraMCPCommand(home, host); err != nil {
-			return fmt.Errorf("serialize Ancora MCP command for %s: %w", host, err)
+			return restoreFailedAncoraAgentSetup(host, backupDir, fmt.Errorf("serialize Ancora MCP command: %w", err))
 		}
 	}
 	return nil
+}
+
+func restoreFailedAncoraAgentSetup(host, backupDir string, setupErr error) error {
+	if _, err := RestoreBackup(backupDir); err != nil {
+		return fmt.Errorf("ancora setup %s: %w; %s rollback failed; restore %s manually before rerunning Rotta", host, setupErr, codingAgentName(host), backupDir)
+	}
+	return fmt.Errorf("ancora setup %s: %w; %s configuration was restored to its pre-installation state; repair the setup failure and rerun Rotta", host, setupErr, codingAgentName(host))
+}
+
+func codingAgentName(host string) string {
+	if host == "opencode" {
+		return "OpenCode"
+	}
+	if host == "claude-code" {
+		return "Claude Code"
+	}
+	return host
 }
 
 func serializeAncoraMCPCommand(home, host string) error {

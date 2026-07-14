@@ -162,6 +162,51 @@ func restoreBackedUpPath(backupDir, home, path string) error {
 }
 
 func createInstallBackup(opts Options, home, projectPath string) (string, error) {
+	return createBackup(opts, home, projectPath, backupScope(opts, home, projectPath))
+}
+
+func createAgentBackup(opts Options, host, home string) (string, error) {
+	agentOpts := opts
+	agentOpts.Target = host
+	return createBackup(agentOpts, home, resolveProjectPath(opts.ProjectPath, home), targetBackupPaths(host, home))
+}
+
+func createAgentBackups(opts Options, home, transactionBackupDir string) (map[string]string, error) {
+	backups := make(map[string]string, len(selectedHosts(opts.Target)))
+	for _, host := range selectedHosts(opts.Target) {
+		backupDir, err := createAgentBackupAt(opts, host, home, filepath.Join(transactionBackupDir, "agents", host))
+		if err != nil {
+			return nil, fmt.Errorf("backup %s configuration: %w", host, err)
+		}
+		backups[host] = backupDir
+	}
+	return backups, nil
+}
+
+func createAgentBackupAt(opts Options, host, home, backupDir string) (string, error) {
+	agentOpts := opts
+	agentOpts.Target = host
+	if err := os.MkdirAll(backupDir, 0o750); err != nil {
+		return "", err
+	}
+	manifest := newBackupManifest(agentOpts, time.Now().UTC().Format("20060102T150405Z"), resolveProjectPath(opts.ProjectPath, home))
+	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
+		return "", err
+	}
+	if err := backupInstallPaths(&manifest, backupDir, home, targetBackupPaths(host, home)); err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := writePrivateFile(filepath.Join(backupDir, "manifest.json"), data, 0o600); err != nil {
+		return "", err
+	}
+	return backupDir, nil
+}
+
+func createBackup(opts Options, home, projectPath string, paths []string) (string, error) {
 	backupDir, timestamp, err := nextBackupDir(home)
 	if err != nil {
 		return "", err
@@ -170,7 +215,7 @@ func createInstallBackup(opts Options, home, projectPath string) (string, error)
 	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
 		return "", err
 	}
-	if err := backupInstallPaths(&manifest, backupDir, home, backupScope(opts, home, projectPath)); err != nil {
+	if err := backupInstallPaths(&manifest, backupDir, home, paths); err != nil {
 		return "", err
 	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
