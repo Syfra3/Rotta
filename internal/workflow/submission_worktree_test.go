@@ -101,6 +101,40 @@ func TestSCN248_RejectsUnsafeManualHandoffCommands(t *testing.T) {
 	}
 }
 
+// REQ-042, REQ-044 → SCN-249 → TestSCN249_ReportsManualCommandFailureWithoutMutatingSubmission
+func TestSCN249_ReportsManualCommandFailureWithoutMutatingSubmission(t *testing.T) {
+	// Scenario: Preserve the feature worktree when manual PR creation fails
+	repo := prepareSCN248Repository(t)
+	submission := NewImplementationSubmission{
+		WorktreePath:  repo,
+		BaseBranch:    "main",
+		FeatureBranch: "feature/worktree-handoff",
+	}
+
+	guidance, err := ReportManualGitHubPRFailure(submission, "gh pr create: authentication required")
+	if err != nil {
+		t.Fatalf("ReportManualGitHubPRFailure returned error: %v", err)
+	}
+	for _, want := range []string{
+		"manual command failed: gh pr create: authentication required",
+		"cd \"" + repo + "\"",
+		"git status --short",
+		"git branch --show-current",
+		"feature/worktree-handoff",
+		"preserved",
+	} {
+		if !strings.Contains(guidance, want) {
+			t.Fatalf("failure guidance missing %q:\n%s", want, guidance)
+		}
+	}
+	if got := runGitOutput(t, repo, "branch", "--show-current"); got != submission.FeatureBranch {
+		t.Fatalf("manual failure guidance changed branch to %q, want %q", got, submission.FeatureBranch)
+	}
+	if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+		t.Fatalf("manual failure guidance changed the worktree: %q", got)
+	}
+}
+
 func prepareSCN248Repository(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

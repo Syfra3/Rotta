@@ -37,6 +37,15 @@ func PresentManualGitHubPRHandoff(request ManualGitHubPRHandoffRequest) (string,
 	return handoff.String(), nil
 }
 
+// ReportManualGitHubPRFailure returns inspection guidance after a user-run
+// publication command fails. It never executes a Git or GitHub command.
+func ReportManualGitHubPRFailure(submission NewImplementationSubmission, failure string) (string, error) {
+	if submission.WorktreePath == "" || !filepath.IsAbs(submission.WorktreePath) || !isSafeGitBranchName(submission.BaseBranch) || !isSafeGitBranchName(submission.FeatureBranch) {
+		return "", fmt.Errorf("manual GitHub PR failure guidance requires the recorded feature worktree and branches")
+	}
+	return fmt.Sprintf("manual command failed: %s\n\nThe isolated feature worktree and branch are preserved. Inspect them before choosing a manual remediation:\n\n  cd %q\n  git status --short\n  git branch --show-current  # expected: %s\n\nDo not retry automatically, switch publication mechanisms, merge, or modify %s.\n", failure, submission.WorktreePath, submission.FeatureBranch, submission.BaseBranch), nil
+}
+
 func resolveGitHubPushRemote(worktreePath string) (string, string, error) {
 	remotes, err := gitSubmissionOutput(worktreePath, "remote")
 	if err != nil {
