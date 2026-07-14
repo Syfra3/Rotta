@@ -27,7 +27,7 @@ func ReviewCurrentSubmission(repoRoot string) (CurrentSubmissionReview, error) {
 		ScenarioIDs: append([]string(nil), submission.Manifest.ScenarioIDs...),
 		Warnings:    legacyReviewWarnings(repoRoot),
 	}
-	evidence, _ := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "tdd-log.md"))
+	evidence, _ := readRepositoryFile(repoRoot, ".rotta/current/tdd-log.md")
 	for _, scenarioID := range review.ScenarioIDs {
 		if !strings.Contains(string(evidence), scenarioID) {
 			review.MissingEvidence = append(review.MissingEvidence, scenarioID)

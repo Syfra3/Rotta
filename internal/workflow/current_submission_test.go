@@ -97,6 +97,40 @@ func TestSCN235_LoadCurrentSubmissionRejectsUnusableActiveState(t *testing.T) {
 	}
 }
 
+// REQ-032 → SCN-235 → TestSCN235_LoadCurrentSubmissionRejectsSymlinkedContracts
+func TestSCN235_LoadCurrentSubmissionRejectsSymlinkedContracts(t *testing.T) {
+	// Scenario: Reject malformed or missing active submission state
+	repo := t.TempDir()
+	external := t.TempDir()
+	mustWrite(t, filepath.Join(external, "workflow_lifecycle.feature"), "@SCN-235\n")
+	if err := os.MkdirAll(filepath.Join(repo, "features"), 0o700); err != nil {
+		t.Fatalf("create features directory: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(external, "workflow_lifecycle.feature"), filepath.Join(repo, "features", "workflow_lifecycle.feature")); err != nil {
+		t.Fatalf("create external feature symlink: %v", err)
+	}
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-235\nworktree: "+repo+"\nstatus: in_progress\n")
+
+	_, err := LoadCurrentSubmission(repo)
+	if err == nil || !strings.Contains(err.Error(), "current submission state cannot be safely used") {
+		t.Fatalf("LoadCurrentSubmission error = %v, want rejected external contract symlink", err)
+	}
+}
+
+// REQ-032 → SCN-235 → TestSCN235_ResumeCurrentSubmissionRejectsMalformedState
+func TestSCN235_ResumeCurrentSubmissionRejectsMalformedState(t *testing.T) {
+	// Scenario: Reject malformed or missing active submission state
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-235\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-235\nworktree: "+repo+"\nstatus: in_progress\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: implementation\nunknown: value\n")
+
+	_, err := ResumeCurrentSubmission(repo, nil)
+	if err == nil || !strings.Contains(err.Error(), "current submission state cannot be safely used") {
+		t.Fatalf("ResumeCurrentSubmission error = %v, want unusable current-state error", err)
+	}
+}
+
 func TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale(t *testing.T) {
 	// REQ-033, REQ-036 → SCN-236 → TestSCN236_ResumeCurrentSubmissionUsesLocalStateWhenAncoraIsUnavailableOrStale
 	// Scenario: Resume an interrupted submission from local state when memory is unavailable
@@ -204,6 +238,24 @@ func TestSCN238_ArchiveTerminalCurrentSubmissionRetainsDurableContracts(t *testi
 	}
 }
 
+// REQ-035 → SCN-238 → TestSCN238_ArchiveTerminalCurrentSubmissionRejectsUnsafeTransitions
+func TestSCN238_ArchiveTerminalCurrentSubmissionRejectsUnsafeTransitions(t *testing.T) {
+	// Scenario: Archive a completed submission without removing durable contracts
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-238\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-238\nworktree: "+repo+"\nstatus: in_progress\n")
+
+	if err := ArchiveTerminalCurrentSubmission(repo, false); err == nil || !strings.Contains(err.Error(), "safely committed") {
+		t.Fatalf("archive without committed changes error = %v, want commit safety error", err)
+	}
+	if err := ArchiveTerminalCurrentSubmission(repo, true); err == nil || !strings.Contains(err.Error(), "non-terminal") {
+		t.Fatalf("archive in-progress submission error = %v, want terminal-status error", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current", "manifest.yaml")); err != nil {
+		t.Fatalf("unsafe archive attempt removed current state: %v", err)
+	}
+}
+
 func TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive(t *testing.T) {
 	// REQ-035 → SCN-239 → TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive
 	// Scenario: Retain and manually clean archived execution state
@@ -241,6 +293,26 @@ func TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive(t *t
 		if _, err := os.Stat(contract); err != nil {
 			t.Fatalf("durable contract %s was removed: %v", contract, err)
 		}
+	}
+}
+
+// REQ-035 → SCN-239 → TestSCN239_CleansExpiredArchivesAndRejectsTraversal
+func TestSCN239_CleansExpiredArchivesAndRejectsTraversal(t *testing.T) {
+	// Scenario: Retain and manually clean archived execution state
+	repo := t.TempDir()
+	archivePath := filepath.Join(repo, ".rotta", "archive", "expired")
+	mustWrite(t, filepath.Join(archivePath, "state.yaml"), "local execution state\n")
+	now := time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(archivePath, now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("set archive age: %v", err)
+	}
+
+	removed, err := CleanupExpiredArchivedSubmissions(repo, now)
+	if err != nil || len(removed) != 1 || removed[0] != "expired" {
+		t.Fatalf("expired archive cleanup = %v, %v; want [expired], nil", removed, err)
+	}
+	if err := RemoveArchivedSubmission(repo, "../specs"); err == nil || !strings.Contains(err.Error(), "invalid submission archive ID") {
+		t.Fatalf("traversal archive removal error = %v, want invalid-ID error", err)
 	}
 }
 

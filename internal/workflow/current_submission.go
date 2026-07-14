@@ -110,7 +110,7 @@ func InitializeCurrentSubmission(repoRoot string, request CurrentSubmissionReque
 
 func LoadCurrentSubmission(repoRoot string) (CurrentSubmission, error) {
 	manifestPath := filepath.Join(repoRoot, ".rotta", "current", "manifest.yaml")
-	contents, err := os.ReadFile(manifestPath)
+	contents, err := readRepositoryFile(repoRoot, ".rotta/current/manifest.yaml")
 	if err != nil {
 		return CurrentSubmission{}, unusableCurrentSubmissionState(err)
 	}
@@ -120,7 +120,7 @@ func LoadCurrentSubmission(repoRoot string) (CurrentSubmission, error) {
 		return CurrentSubmission{}, unusableCurrentSubmissionState(err)
 	}
 	for _, featurePath := range manifest.FeaturePaths {
-		if _, err := os.Stat(filepath.Join(repoRoot, featurePath)); err != nil {
+		if err := repositoryFileExists(repoRoot, featurePath); err != nil {
 			return CurrentSubmission{}, unusableCurrentSubmissionState(fmt.Errorf("feature file %q: %w", featurePath, err))
 		}
 	}
@@ -138,7 +138,7 @@ func ResumeCurrentSubmission(repoRoot string, pointer *CurrentSubmissionAncoraPo
 		return CurrentSubmissionResume{}, err
 	}
 
-	stateContents, err := os.ReadFile(submission.StatePath)
+	stateContents, err := readRepositoryFile(repoRoot, ".rotta/current/state.yaml")
 	if err != nil {
 		return CurrentSubmissionResume{}, unusableCurrentSubmissionState(err)
 	}
@@ -221,7 +221,7 @@ func CleanupExpiredArchivedSubmissions(repoRoot string, now time.Time) ([]string
 	var removed []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			continue
+
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -257,33 +257,18 @@ func unusableCurrentSubmissionState(cause error) error {
 
 func parseCurrentSubmissionManifest(contents string) (CurrentSubmissionManifest, error) {
 	var manifest CurrentSubmissionManifest
-	var list *[]string
-	for _, line := range strings.Split(strings.TrimSuffix(contents, "\n"), "\n") {
-		if strings.HasPrefix(line, "  - ") && list != nil {
-			*list = append(*list, strings.TrimPrefix(line, "  - "))
-			continue
-		}
-		if line == "  []" && list != nil {
-			continue
-		}
-
-		list = nil
-		switch {
-		case strings.HasPrefix(line, "submission_id: "):
-			manifest.SubmissionID = strings.TrimPrefix(line, "submission_id: ")
-		case strings.HasPrefix(line, "spec_path: "):
-			manifest.SpecPath = strings.TrimPrefix(line, "spec_path: ")
-		case line == "feature_paths:":
-			list = &manifest.FeaturePaths
-		case line == "scenario_ids:":
-			list = &manifest.ScenarioIDs
-		case strings.HasPrefix(line, "worktree: "):
-			manifest.Worktree = strings.TrimPrefix(line, "worktree: ")
-		case strings.HasPrefix(line, "status: "):
-			manifest.Status = strings.TrimPrefix(line, "status: ")
-		default:
-			return CurrentSubmissionManifest{}, fmt.Errorf("invalid manifest line %q", line)
-		}
+	if err := parseCurrentSubmissionDocument(contents,
+		map[string]*string{
+			"submission_id": &manifest.SubmissionID,
+			"spec_path":     &manifest.SpecPath,
+			"worktree":      &manifest.Worktree,
+			"status":        &manifest.Status,
+		},
+		map[string]*[]string{
+			"feature_paths:": &manifest.FeaturePaths,
+			"scenario_ids:":  &manifest.ScenarioIDs,
+		}); err != nil {
+		return CurrentSubmissionManifest{}, fmt.Errorf("invalid manifest: %w", err)
 	}
 
 	if manifest.SubmissionID == "" || manifest.SpecPath == "" || len(manifest.FeaturePaths) == 0 || len(manifest.ScenarioIDs) == 0 || manifest.Worktree == "" || manifest.Status == "" {
@@ -294,6 +279,26 @@ func parseCurrentSubmissionManifest(contents string) (CurrentSubmissionManifest,
 
 func parseCurrentSubmissionState(contents string) (CurrentSubmissionState, error) {
 	var state CurrentSubmissionState
+	if err := parseCurrentSubmissionDocument(contents,
+		map[string]*string{
+			"phase":             &state.Phase,
+			"last_action":       &state.LastAction,
+			"safe_resume_point": &state.SafeResumePoint,
+		},
+		map[string]*[]string{
+			"completed_work:": &state.CompletedWork,
+			"remaining_work:": &state.RemainingWork,
+			"blocked_work:":   &state.BlockedWork,
+		}); err != nil {
+		return CurrentSubmissionState{}, fmt.Errorf("invalid state: %w", err)
+	}
+	if state.Phase == "" || state.LastAction == "" || state.SafeResumePoint == "" {
+		return CurrentSubmissionState{}, fmt.Errorf("state is missing required fields")
+	}
+	return state, nil
+}
+
+func parseCurrentSubmissionDocument(contents string, scalarFields map[string]*string, listFields map[string]*[]string) error {
 	var list *[]string
 	for _, line := range strings.Split(strings.TrimSuffix(contents, "\n"), "\n") {
 		if strings.HasPrefix(line, "  - ") && list != nil {
@@ -305,27 +310,21 @@ func parseCurrentSubmissionState(contents string) (CurrentSubmissionState, error
 		}
 
 		list = nil
-		switch {
-		case strings.HasPrefix(line, "phase: "):
-			state.Phase = strings.TrimPrefix(line, "phase: ")
-		case line == "completed_work:":
-			list = &state.CompletedWork
-		case line == "remaining_work:":
-			list = &state.RemainingWork
-		case line == "blocked_work:":
-			list = &state.BlockedWork
-		case strings.HasPrefix(line, "last_action: "):
-			state.LastAction = strings.TrimPrefix(line, "last_action: ")
-		case strings.HasPrefix(line, "safe_resume_point: "):
-			state.SafeResumePoint = strings.TrimPrefix(line, "safe_resume_point: ")
-		default:
-			return CurrentSubmissionState{}, fmt.Errorf("invalid state line %q", line)
+		if target, ok := listFields[line]; ok {
+			list = target
+			continue
 		}
+		name, value, ok := strings.Cut(line, ": ")
+		if !ok {
+			return fmt.Errorf("invalid line %q", line)
+		}
+		target, ok := scalarFields[name]
+		if !ok {
+			return fmt.Errorf("invalid line %q", line)
+		}
+		*target = value
 	}
-	if state.Phase == "" || state.LastAction == "" || state.SafeResumePoint == "" {
-		return CurrentSubmissionState{}, fmt.Errorf("state is missing required fields")
-	}
-	return state, nil
+	return nil
 }
 
 func serializeCurrentSubmissionManifest(manifest CurrentSubmissionManifest) string {
