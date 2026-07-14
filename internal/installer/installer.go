@@ -33,6 +33,7 @@ type Result struct {
 	LifecycleArtifactsRequireCommit bool
 	Hosts                           map[string]HostInstallResult
 	BackupDir                       string
+	AgentBackupDirs                 map[string]string
 	Error                           string
 	AncoraInstalled                 bool   // true if Ancora binary was installed during this run
 	AncoraBin                       string // resolved path to the ancora binary
@@ -169,6 +170,10 @@ func prepareInstall(opts Options) (*Result, string, string, error) {
 		return nil, "", "", fmt.Errorf("backup failure prevented installation: %w", err)
 	}
 	result.BackupDir = backupDir
+	result.AgentBackupDirs, err = createAgentBackups(opts, home, backupDir)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("backup failure prevented installation: %w", err)
+	}
 	return result, home, projectPath, nil
 }
 
@@ -183,7 +188,7 @@ func setupAncora(opts Options, result *Result, home string) error {
 	if !opts.SetupAncora {
 		return nil
 	}
-	ar, err := SetupAncora(opts, home)
+	ar, err := setupAncoraWithBackups(opts, home, result.AgentBackupDirs)
 	if err != nil {
 		return fmt.Errorf("ancora setup: %w", err)
 	}
