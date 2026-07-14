@@ -2,6 +2,7 @@ package installer
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,6 +268,23 @@ func TestSCN227_SkipsNewMCPConfigurationWhenCommandUnavailable(t *testing.T) {
 	}
 }
 
+// REQ-017 → SCN-227 → TestSCN227_UnavailableCommandDoesNotTreatExistingConfigAsNew
+func TestSCN227_UnavailableCommandDoesNotTreatExistingConfigAsNew(t *testing.T) {
+	// Scenario: Skip a new MCP configuration when command installation fails
+	home := t.TempDir()
+	configPath := filepath.Join(home, ".claude", "vela-mcp.json")
+	writeTestFile(t, configPath, []byte(`{"command":"vela","args":["mcp"]}`))
+
+	result := unavailableVelaMCPResult(Options{Target: "claude-code"}, home)
+	status := result.MCPAvailability["claude-code"]["vela"]
+	if status.Status != MCPStatusDegraded {
+		t.Fatalf("expected existing configuration to be degraded rather than skipped, got %#v", status)
+	}
+	if status.Reason != "previous configuration preserved but not newly validated" {
+		t.Fatalf("expected existing configuration preservation reason, got %#v", status)
+	}
+}
+
 // REQ-017, REQ-020 → SCN-231 → TestSCN231_PreservesExistingMCPConfigurationWhenCommandUnavailable
 func TestSCN231_PreservesExistingMCPConfigurationWhenCommandUnavailable(t *testing.T) {
 	// Scenario: Preserve an existing MCP configuration when command installation fails
@@ -290,6 +308,130 @@ func TestSCN231_PreservesExistingMCPConfigurationWhenCommandUnavailable(t *testi
 	availability := result.MCPStatuses["claude-code"]["vela"]
 	if availability.Status != MCPStatusDegraded || availability.Reason != "previous configuration preserved but not newly validated" || availability.Remediation == "" {
 		t.Fatalf("expected preserved-but-unvalidated status with remediation, got %#v", availability)
+	}
+}
+
+// REQ-017, REQ-020 → SCN-231 → TestSCN231_PreservationKeepsRuntimeFallbackUnobserved
+func TestSCN231_PreservationKeepsRuntimeFallbackUnobserved(t *testing.T) {
+	// Scenario: Preserve an existing MCP configuration when command installation fails
+	status := preservedVelaMCPStatus()
+	if status.Status != MCPStatusDegraded || status.RuntimeFallback.State != MCPRuntimeFallbackNotObserved {
+		t.Fatalf("expected preservation degradation without invented runtime fallback, got %#v", status)
+	}
+	if !strings.Contains(status.Remediation, "PATH") {
+		t.Fatalf("expected command availability remediation, got %#v", status)
+	}
+}
+
+// REQ-020 → SCN-232 → TestSCN232_RecordsOnlyAgentSetupFailures
+func TestSCN232_RecordsOnlyAgentSetupFailures(t *testing.T) {
+	// Scenario: Roll back only the failing coding agent installation
+	result := &Result{Hosts: map[string]HostInstallResult{
+		"claude-code": {Host: "claude-code", Status: HostInstallStatusInstalled},
+	}}
+	recordAgentSetupFailure(result, errors.New("unrelated failure"))
+	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled || result.Error != "" {
+		t.Fatalf("expected unrelated errors not to alter completed agent status, got %#v", result)
+	}
+	setupErr := &agentSetupError{host: "opencode", err: errors.New("setup failed")}
+	if !errors.Is(setupErr, setupErr.err) {
+		t.Fatalf("expected setup error to preserve its cause")
+	}
+	if codingAgentName("claude-code") != "Claude Code" || codingAgentName("other") != "other" {
+		t.Fatal("expected agent names to preserve known labels and unknown hosts")
+	}
+}
+
+// REQ-020 → SCN-232 → TestSCN232_ReportsSerializationAndRollbackBoundaries
+func TestSCN232_ReportsSerializationAndRollbackBoundaries(t *testing.T) {
+	// Scenario: Roll back only the failing coding agent installation
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+	writeExecutable(t, filepath.Join(bin, "ancora"), `#!/bin/sh
+mkdir -p "$HOME/.claude/mcp"
+printf 'not json' > "$HOME/.claude/mcp/ancora.json"
+`)
+
+	backup, err := createAgentBackup(Options{Target: "claude-code"}, "claude-code", home)
+	if err != nil {
+		t.Fatalf("create agent backup: %v", err)
+	}
+	if err := configureAncoraHosts(Options{Target: "claude-code"}, "ancora", home, map[string]string{"claude-code": backup}); err == nil {
+		t.Fatal("expected invalid managed configuration serialization to fail")
+	}
+	if err := restoreFailedAncoraAgentSetup("claude-code", filepath.Join(home, "missing-backup"), errors.New("setup failed")); err == nil || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("expected rollback failure to remain observable, got %v", err)
+	}
+
+	blockedHome := t.TempDir()
+	writeTestFile(t, filepath.Join(blockedHome, ".rotta"), []byte("not a directory"))
+	if err := configureAncoraHosts(Options{Target: "claude-code"}, "ancora", blockedHome, nil); err == nil || !strings.Contains(err.Error(), "backup") {
+		t.Fatalf("expected backup failure before setup, got %v", err)
+	}
+}
+
+// REQ-020 → SCN-233 → TestSCN233_ReportsAgentBackupBoundaryFailures
+func TestSCN233_ReportsAgentBackupBoundaryFailures(t *testing.T) {
+	// Scenario: Roll back partial configuration changes within one coding agent
+	home := t.TempDir()
+	opts := Options{Target: "claude-code", ProjectPath: filepath.Join(home, "project")}
+
+	t.Run("transaction backup path is a file", func(t *testing.T) {
+		backupRoot := filepath.Join(home, "backup-file")
+		writeTestFile(t, backupRoot, []byte("not a directory"))
+		if _, err := createAgentBackups(opts, home, backupRoot); err == nil {
+			t.Fatal("expected transaction backup path failure")
+		}
+	})
+
+	t.Run("agent files path is a file", func(t *testing.T) {
+		backupDir := filepath.Join(home, "agent-backup")
+		writeTestFile(t, filepath.Join(backupDir, "files"), []byte("not a directory"))
+		if _, err := createAgentBackupAt(opts, "claude-code", home, backupDir); err == nil {
+			t.Fatal("expected agent backup files path failure")
+		}
+	})
+
+	t.Run("selected source path is inaccessible", func(t *testing.T) {
+		blockedHome := filepath.Join(home, "blocked-home")
+		writeTestFile(t, filepath.Join(blockedHome, ".claude"), []byte("not a directory"))
+		if _, err := createAgentBackupAt(opts, "claude-code", blockedHome, filepath.Join(home, "inaccessible-agent-backup")); err == nil {
+			t.Fatal("expected inaccessible selected source path failure")
+		}
+	})
+
+	t.Run("manifest destination is a directory", func(t *testing.T) {
+		backupDir := filepath.Join(home, "manifest-directory")
+		if err := os.MkdirAll(filepath.Join(backupDir, "manifest.json"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := createAgentBackupAt(opts, "claude-code", home, backupDir); err == nil {
+			t.Fatal("expected manifest write failure")
+		}
+	})
+}
+
+// REQ-017, REQ-020 → SCN-231 → TestSCN231_ReportsUnavailableRestoreAndManifestBoundaries
+func TestSCN231_ReportsUnavailableRestoreAndManifestBoundaries(t *testing.T) {
+	// Scenario: Preserve an existing MCP configuration when command installation fails
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "empty-bin"))
+	writeTestFile(t, filepath.Join(home, ".claude", "vela-mcp.json"), []byte(`{"command":"vela"}`))
+
+	result := &Result{BackupDir: filepath.Join(home, "missing-backup")}
+	if err := setupVela(Options{Target: "claude-code", SetupVela: true}, result, home, filepath.Join(home, "project")); err == nil || !strings.Contains(err.Error(), "restore previous Vela configuration") {
+		t.Fatalf("expected failed preservation restore to be reported, got %v", err)
+	}
+
+	availability := &VelaResult{MCPAvailability: map[string]map[string]MCPStatusResult{
+		"claude-code": {"vela": unavailableVelaMCPStatus(MCPStatusSkipped)},
+	}}
+	markBackedUpVelaConfigurations(availability, filepath.Join(home, "missing-manifest"), home)
+	if velaConfigurationNeedsRestore(availability) {
+		t.Fatalf("expected skipped availability not to request restore, got %#v", availability)
 	}
 }
 
