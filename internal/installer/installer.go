@@ -2,6 +2,7 @@
 package installer
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -129,7 +130,9 @@ func install(opts Options) (*Result, error) {
 	}
 
 	if err := setupAncora(opts, result, home); err != nil {
-		return nil, err
+		recordAgentSetupFailure(result, err)
+		recordChangedFiles(result, projectPath)
+		return result, err
 	}
 	if err := setupVela(opts, result, home, projectPath); err != nil {
 		return nil, err
@@ -288,6 +291,18 @@ func recordSelectedHostFailure(result *Result, opts Options, err error) {
 	for _, host := range selectedHosts(opts.Target) {
 		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
 	}
+	result.Error = err.Error()
+}
+
+func recordAgentSetupFailure(result *Result, err error) {
+	var setupErr *agentSetupError
+	if !errors.As(err, &setupErr) {
+		return
+	}
+	hostResult := result.Hosts[setupErr.host]
+	hostResult.Host = setupErr.host
+	hostResult.Status = HostInstallStatusFailed
+	result.Hosts[setupErr.host] = hostResult
 	result.Error = err.Error()
 }
 

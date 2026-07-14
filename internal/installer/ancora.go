@@ -16,6 +16,15 @@ type AncoraResult struct {
 	Files     []string
 }
 
+type agentSetupError struct {
+	host string
+	err  error
+}
+
+func (e *agentSetupError) Error() string { return e.err.Error() }
+
+func (e *agentSetupError) Unwrap() error { return e.err }
+
 // SetupAncora detects or installs the Ancora binary, then delegates to
 // `ancora setup <agent>` which handles all MCP config, plugin files,
 // and permissions automatically.
@@ -74,9 +83,9 @@ func configureAncoraHosts(opts Options, binPath, home string, backupDirs map[str
 
 func restoreFailedAncoraAgentSetup(host, backupDir string, setupErr error) error {
 	if _, err := RestoreBackup(backupDir); err != nil {
-		return fmt.Errorf("ancora setup %s: %w; %s rollback failed; restore %s manually before rerunning Rotta", host, setupErr, codingAgentName(host), backupDir)
+		return &agentSetupError{host: host, err: fmt.Errorf("ancora setup %s: %w; %s rollback failed; restore %s manually before rerunning Rotta", host, setupErr, codingAgentName(host), backupDir)}
 	}
-	return fmt.Errorf("ancora setup %s: %w; %s configuration was restored to its pre-installation state; repair the setup failure and rerun Rotta", host, setupErr, codingAgentName(host))
+	return &agentSetupError{host: host, err: fmt.Errorf("ancora setup %s: %w; %s configuration was restored to its pre-installation state; repair the setup failure and rerun Rotta", host, setupErr, codingAgentName(host))}
 }
 
 func codingAgentName(host string) string {

@@ -110,6 +110,44 @@ esac
 	}
 }
 
+// REQ-020 → SCN-233 → TestSCN233_RollsBackEveryPartialAgentConfigurationChange
+func TestSCN233_RollsBackEveryPartialAgentConfigurationChange(t *testing.T) {
+	// Scenario: Roll back partial configuration changes within one coding agent
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+":/bin")
+
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	instructionsPath := filepath.Join(home, ".config", "opencode", "instructions.md")
+	pluginPath := filepath.Join(home, ".config", "opencode", "plugin", "rotta-vela-freshness-guard.js")
+	before := []byte(`{"mcp":{"user-server":{"command":"keep"}},"theme":"keep"}`)
+	writeTestFile(t, configPath, before)
+	writeExecutable(t, filepath.Join(bin, "ancora"), `#!/bin/sh
+mkdir -p "$HOME/.config/opencode/plugin"
+printf '{"mcp":{"ancora":{"command":"ancora","args":["mcp"]}}}' > "$HOME/.config/opencode/opencode.jsonc"
+printf 'partial Rotta instructions\n' > "$HOME/.config/opencode/instructions.md"
+printf 'partial Rotta plugin\n' > "$HOME/.config/opencode/plugin/rotta-vela-freshness-guard.js"
+exit 23
+`)
+
+	result, err := Install(Options{Target: "opencode", ProjectPath: filepath.Join(home, "project"), SetupAncora: true})
+	if err == nil {
+		t.Fatal("expected OpenCode setup failure")
+	}
+	if got := mustReadFile(t, configPath); string(got) != string(before) {
+		t.Fatalf("expected preexisting OpenCode configuration restored, got %s", got)
+	}
+	for _, path := range []string{instructionsPath, pluginPath} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("expected newly created configuration %s removed, stat error: %v", path, statErr)
+		}
+	}
+	if result == nil || result.Hosts["opencode"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected failed OpenCode installation to be reported, got %#v", result)
+	}
+}
+
 // REQ-016 → SCN-224 → TestSCN224_ReinstallNormalizesManagedVelaCellarCommand
 func TestSCN224_ReinstallNormalizesManagedVelaCellarCommand(t *testing.T) {
 	// Scenario: Normalize a stale managed Homebrew MCP executable during reinstall
