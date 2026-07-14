@@ -64,6 +64,11 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 	} else if !os.IsNotExist(err) {
 		return NewImplementationSubmission{}, fmt.Errorf("inspect prescribed worktree path: %w", err)
 	}
+	if worktrees, err := gitSubmissionOutput(repoRoot, "worktree", "list", "--porcelain"); err != nil {
+		return NewImplementationSubmission{}, fmt.Errorf("inspect worktree ownership: %w", err)
+	} else if strings.Contains("\n"+worktrees+"\n", "\nworktree "+worktreePath+"\n") {
+		return NewImplementationSubmission{}, fmt.Errorf("worktree ownership conflict: %s", worktreePath)
+	}
 	if _, err := gitSubmissionOutput(repoRoot, "worktree", "add", "-b", featureBranch, worktreePath, baseBranch); err != nil {
 		return NewImplementationSubmission{}, fmt.Errorf("create isolated feature worktree: %w", err)
 	}
