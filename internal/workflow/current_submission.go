@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -162,6 +163,17 @@ func ResumeCurrentSubmission(repoRoot string, pointer *CurrentSubmissionAncoraPo
 		BlockedWork:       append([]string(nil), state.BlockedWork...),
 		AncoraPointer:     report,
 	}, nil
+}
+
+// RecordCurrentSubmissionAncoraState models the compact payload sent to
+// Ancora. It reads local execution state and serializes references only, so
+// unavailable memory never prevents a local lifecycle resume.
+func RecordCurrentSubmissionAncoraState(repoRoot string) ([]byte, error) {
+	resumed, err := ResumeCurrentSubmission(repoRoot, nil)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resumed.AncoraPointer.Repaired)
 }
 
 // ArchiveTerminalCurrentSubmission moves only the local execution directory

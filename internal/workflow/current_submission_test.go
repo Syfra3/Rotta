@@ -243,3 +243,30 @@ func TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive(t *t
 		}
 	}
 }
+
+func TestSCN240_RecordCurrentSubmissionAncoraStateIsCompactAndLocal(t *testing.T) {
+	// REQ-036 → SCN-240 → TestSCN240_RecordCurrentSubmissionAncoraStateIsCompactAndLocal
+	// Scenario: Save only a compact lifecycle pointer to Ancora
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "workflow_lifecycle_hard_spec.md"), "# full hard spec\n")
+	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-240\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: workflow-lifecycle-scn-240\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-240\nworktree: "+repo+"\nstatus: in_progress\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: implementation\ncompleted_work:\n  - SCN-239\nremaining_work:\n  - SCN-240\nblocked_work:\n  []\nlast_action: TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive\nsafe_resume_point: implement SCN-240\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "full TDD log must remain local\n")
+
+	payload, err := RecordCurrentSubmissionAncoraState(repo)
+	if err != nil {
+		t.Fatalf("RecordCurrentSubmissionAncoraState returned error: %v", err)
+	}
+	serialized := string(payload)
+	for _, want := range []string{"workflow-lifecycle-scn-240", "implementation", "in_progress", "SCN-239", "SCN-240", "TestSCN239_RetainsRecentArchivesAndManuallyRemovesOnlyRequestedArchive", ".rotta/current/state.yaml", ".rotta/current/tdd-log.md"} {
+		if !strings.Contains(serialized, want) {
+			t.Fatalf("compact Ancora payload missing %q: %s", want, serialized)
+		}
+	}
+	for _, forbidden := range []string{"# full hard spec", "@SCN-240\n", "full TDD log must remain local", "judge report"} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("compact Ancora payload included local artifact content %q: %s", forbidden, serialized)
+		}
+	}
+}
