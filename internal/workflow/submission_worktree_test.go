@@ -46,6 +46,40 @@ func TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree
 	}
 }
 
+// REQ-037, REQ-038 → SCN-241 → TestSCN241_PrepareNewImplementationSubmissionResolvesRepositoryDefaultIntegrationBranch
+func TestSCN241_PrepareNewImplementationSubmissionResolvesRepositoryDefaultIntegrationBranch(t *testing.T) {
+	// Scenario: Create an isolated feature worktree before Phase 2 writes a contract
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repository")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish repository default")
+	runGit(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{Slug: "repository-default"})
+	if err != nil {
+		t.Fatalf("PrepareNewImplementationSubmission returned error: %v", err)
+	}
+
+	if submission.BaseBranch != "origin/main" {
+		t.Fatalf("base branch = %q, want repository default %q", submission.BaseBranch, "origin/main")
+	}
+	if submission.FeatureBranch != "feature/repository-default" {
+		t.Fatalf("feature branch = %q, want %q", submission.FeatureBranch, "feature/repository-default")
+	}
+	wantCommit := runGitOutput(t, repo, "rev-parse", "origin/main")
+	if got := runGitOutput(t, submission.WorktreePath, "rev-parse", "HEAD"); got != wantCommit {
+		t.Fatalf("feature worktree commit = %q, want repository-default integration commit %q", got, wantCommit)
+	}
+}
+
 // REQ-042, REQ-043 → SCN-248 → TestSCN248_PresentsManualGitHubPRHandoff
 func TestSCN248_PresentsManualGitHubPRHandoff(t *testing.T) {
 	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
