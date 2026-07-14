@@ -46,6 +46,75 @@ func TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree
 	}
 }
 
+// REQ-042, REQ-043 → SCN-248 → TestSCN248_PresentsManualGitHubPRHandoff
+func TestSCN248_PresentsManualGitHubPRHandoff(t *testing.T) {
+	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
+	repo := prepareSCN248Repository(t)
+	submission := NewImplementationSubmission{
+		WorktreePath:  repo,
+		BaseBranch:    "main",
+		FeatureBranch: "feature/worktree-handoff",
+	}
+
+	handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission:     submission,
+		ReviewedPaths:  []string{"internal/workflow/submission_worktree.go"},
+		HostDisclaimer: "This host cannot delegate GitHub publication; use your own credentials.",
+	})
+	if err != nil {
+		t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		"cd \"" + repo + "\"",
+		"git status --short",
+		"git add -- \"internal/workflow/submission_worktree.go\"",
+		"git commit",
+		"git push origin feature/worktree-handoff",
+		"gh pr create --base main --head feature/worktree-handoff",
+		"https://github.com/",
+		"This host cannot delegate GitHub publication; use your own credentials.",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("handoff missing %q:\n%s", want, handoff)
+		}
+	}
+	if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+		t.Fatalf("manual handoff changed the worktree: %q", got)
+	}
+}
+
+// REQ-042, REQ-043 → SCN-248 → TestSCN248_RejectsUnsafeManualHandoffCommands
+func TestSCN248_RejectsUnsafeManualHandoffCommands(t *testing.T) {
+	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
+	repo := prepareSCN248Repository(t)
+	_, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "main; unsafe-command",
+			FeatureBranch: "feature/worktree-handoff",
+		},
+		HostDisclaimer: "This host cannot delegate GitHub publication; use your own credentials.",
+	})
+	if err == nil {
+		t.Fatal("expected unsafe base branch to be rejected before printing a command")
+	}
+}
+
+func prepareSCN248Repository(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "test: establish handoff baseline")
+	runGit(t, repo, "checkout", "-b", "feature/worktree-handoff")
+	runGit(t, repo, "remote", "add", "origin", "git@github.com:example/repository.git")
+	return repo
+}
+
 // REQ-037, REQ-044 → SCN-242 → TestSCN242_PrepareNewImplementationSubmissionRejectsDetachedHEAD
 func TestSCN242_PrepareNewImplementationSubmissionRejectsDetachedHEAD(t *testing.T) {
 	// Scenario: Reject an unsafe starting condition without falling back to the initiating worktree

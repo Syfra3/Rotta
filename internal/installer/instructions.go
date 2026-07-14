@@ -48,6 +48,8 @@ func canonicalWorkflowInstructions() string {
 - After each TDD scenario task, update the task checklist with completed, remaining, and next work; then checkpoint or clean the task diff before starting another scenario.
 - Do not let dirty worktree prompts become the scenario loop. Approved spec/feature contracts are tracked durable artifacts; generated/local artifacts are ignored or removed only when safe; ambiguous changes are escalated.
 - Phase 4 — Review: run the metrics-based review workflow. The Judge reviews evidence, not code.
+- After Phase 4 passes, provide a testable manual GitHub PR handoff: print the absolute recorded worktree path and git status --short; when reviewed outstanding changes exist, print optional reviewed-path-only git add -- <paths> and commit commands; print the resolved git push <remote> feature/<slug> command and gh pr create --base <base-branch> --head feature/<slug>; offer the GitHub web UI alternative; and disclose active-host command/delegation limits and that credentials remain user-controlled.
+- Resolve and print publication commands only when exactly one GitHub-capable push remote is unambiguous. Do not push, create a pull request, merge, or directly modify the base branch.
 - Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
 - Command invocation for hosts without slash commands: Use natural-language invocations such as ` + "`Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`" + `.
 - These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.
