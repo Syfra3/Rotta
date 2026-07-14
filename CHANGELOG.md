@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.8.0](https://github.com/Syfra3/Rotta/compare/v1.7.0...v1.8.0) (2026-07-14)
+
+
+### Features
+
+* archive terminal workflow submissions ([ebba1d8](https://github.com/Syfra3/Rotta/commit/ebba1d8a8f613c5d892cfa52904230151945d819))
+* initialize scoped workflow submissions ([cfa10f2](https://github.com/Syfra3/Rotta/commit/cfa10f2d53bc6f83bb85b7adf9a78222c08b8566))
+* isolate agent installation rollback ([9894639](https://github.com/Syfra3/Rotta/commit/9894639a835b0afee7317a5f499144df11da255f))
+* isolate concurrent submissions ([92ffdad](https://github.com/Syfra3/Rotta/commit/92ffdad405e0e55c390d94e435edc5b241afc47a))
+* isolate Rotta submissions in feature worktrees ([55e5bc7](https://github.com/Syfra3/Rotta/commit/55e5bc78fd74f2ab1ff71ff30cbbaaee113d2731))
+* prepare isolated feature worktree ([afa3f4f](https://github.com/Syfra3/Rotta/commit/afa3f4f02e7d33748a9e0e73b6f16d0e6d329506))
+* preserve ambiguous MCP entries ([dd8decd](https://github.com/Syfra3/Rotta/commit/dd8decd82e1af65a7c72e55f01a61d887f3876b7))
+* preserve failed manual pull request handoffs ([ad0e840](https://github.com/Syfra3/Rotta/commit/ad0e840e7bbdec1c623ec987b7ab1db068aab1f0))
+* preserve MCP config on Vela setup failure ([396e06f](https://github.com/Syfra3/Rotta/commit/396e06fa3fa4343b77d3793e5aaa0902c8183d14))
+* record compact workflow lifecycle state ([2d4b564](https://github.com/Syfra3/Rotta/commit/2d4b564430e352c67e040048e482a8f941d0cb0a))
+* reject unusable workflow submission state ([5eb22c7](https://github.com/Syfra3/Rotta/commit/5eb22c7b70718f5068836cf3339516ef4c5afc16))
+* render manual pull request handoff ([512f7e7](https://github.com/Syfra3/Rotta/commit/512f7e7d12f40983199ee3467b5ae2f9ce14d676))
+* report host MCP command failures ([0af5f82](https://github.com/Syfra3/Rotta/commit/0af5f82e87f7a4136020fa7a6246af38bcfaf52d))
+* report unavailable MCP commands ([3444d83](https://github.com/Syfra3/Rotta/commit/3444d837fc74e7fbe335e49e1d2ba8fbb21770ed))
+* report unverified OpenCode MCP PATH ([0902496](https://github.com/Syfra3/Rotta/commit/09024968f133c1fc7693add23bf630da3c660acd))
+* report Vela MCP normalization ([5bad0f8](https://github.com/Syfra3/Rotta/commit/5bad0f847227dfb6ee5a82228ab4453f7cf0aa4e))
+* restore partial agent configuration ([ebe7f77](https://github.com/Syfra3/Rotta/commit/ebe7f7767e327096ec417841976db66fa7a31126))
+* resume scoped workflow submissions ([cfdba62](https://github.com/Syfra3/Rotta/commit/cfdba620440dccd8e775a79c08b4efc5a9f50e29))
+* retain and clean workflow archives ([ec77974](https://github.com/Syfra3/Rotta/commit/ec77974602968ee02c012606ed887c1f4f7312e8))
+* scope workflow review to manifest ([f7f5b93](https://github.com/Syfra3/Rotta/commit/f7f5b938d989f3705214a952cde1e521a85f7edc))
+* skip unavailable new Vela MCP config ([7e89ab2](https://github.com/Syfra3/Rotta/commit/7e89ab20ae5c744b11ddb406f11e484f73867785))
+* validate feature submission branches ([aadd140](https://github.com/Syfra3/Rotta/commit/aadd140252f5e4ce073f18887878cc9642dcbdb4))
+* validate phase three worktree identity ([c63ef16](https://github.com/Syfra3/Rotta/commit/c63ef168c5ac01d171a59f769047219f8c954206))
+* **workflow:** add resilient MCP fallbacks ([2bc3180](https://github.com/Syfra3/Rotta/commit/2bc318002cb0daefd4c229e17427af82708725ad))
+
+
+### Bug Fixes
+
+* reject colliding submission worktrees ([c492cb5](https://github.com/Syfra3/Rotta/commit/c492cb5704bd4bf59320b66cadf203de06651051))
+* reject unsafe submission worktrees ([b6d114f](https://github.com/Syfra3/Rotta/commit/b6d114fb5a9f7abdac690735ae6e04de2d748e04))
+* require explicit pull request remote ([b5693e0](https://github.com/Syfra3/Rotta/commit/b5693e0a7a12bafce8821b7d89c1bcbf48071a30))
+* restrict scenario checkpoints to feature worktrees ([1377551](https://github.com/Syfra3/Rotta/commit/13775518034c7bba0d83cffdb764594ce488a8ff))
+* serialize portable MCP commands ([3817d5b](https://github.com/Syfra3/Rotta/commit/3817d5b1943e299700f2da9ab35373dacb01b643))
+* validate autonomous workflow inputs ([d251f71](https://github.com/Syfra3/Rotta/commit/d251f7156fc7d7bba57aaeb9d8009964fac3547d))
+
+
+### Documentation
+
+* approve MCP and lifecycle contracts ([667687e](https://github.com/Syfra3/Rotta/commit/667687e0b9fc63be88032ac5ed25b1596fe0953c))
+* define isolated worktree handoff ([e0a8162](https://github.com/Syfra3/Rotta/commit/e0a8162a3ba9c4ad84fbfbe5d85e0a8c3f959ee0))
+* specify portable MCP commands ([8f432b7](https://github.com/Syfra3/Rotta/commit/8f432b71c77fe3092a3b5560909a12360126d1d4))
+* specify TDD evidence recovery ([4fdb7ba](https://github.com/Syfra3/Rotta/commit/4fdb7ba219fe039bbd283838b21137070d9b1b83))
+
+
+### Code Refactoring
+
+* **test:** split Vela guard reinstall case ([f9bbced](https://github.com/Syfra3/Rotta/commit/f9bbcede9e9e2600b313ac86bc1f74c5a98fe936))
+
 ## [1.7.0](https://github.com/Syfra3/Rotta/compare/v1.6.2...v1.7.0) (2026-07-13)
 
 
