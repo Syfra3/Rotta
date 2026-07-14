@@ -212,6 +212,60 @@ func TestSCN249_ReportsManualCommandFailureWithoutMutatingSubmission(t *testing.
 	if got := runGitOutput(t, repo, "status", "--short"); got != "" {
 		t.Fatalf("manual failure guidance changed the worktree: %q", got)
 	}
+	if !strings.Contains(guidance, "Do not retry automatically, switch publication mechanisms, merge, or modify main.") {
+		t.Fatalf("failure guidance omitted the safe manual-only boundary:\n%s", guidance)
+	}
+}
+
+// REQ-042, REQ-044 → SCN-249 → TestSCN249_RejectsIncompleteFailureGuidanceSubmission
+func TestSCN249_RejectsIncompleteFailureGuidanceSubmission(t *testing.T) {
+	// Scenario: Preserve the feature worktree when manual PR creation fails
+	repo := prepareSCN248Repository(t)
+	for _, test := range []struct {
+		name       string
+		submission NewImplementationSubmission
+	}{
+		{
+			name: "relative worktree",
+			submission: NewImplementationSubmission{
+				WorktreePath:  "relative-worktree",
+				BaseBranch:    "main",
+				FeatureBranch: "feature/worktree-handoff",
+			},
+		},
+		{
+			name: "unsafe base branch",
+			submission: NewImplementationSubmission{
+				WorktreePath:  repo,
+				BaseBranch:    "main; unsafe-command",
+				FeatureBranch: "feature/worktree-handoff",
+			},
+		},
+		{
+			name: "unsafe feature branch",
+			submission: NewImplementationSubmission{
+				WorktreePath:  repo,
+				BaseBranch:    "main",
+				FeatureBranch: "feature/worktree handoff",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			guidance, err := ReportManualGitHubPRFailure(test.submission, "push failed")
+			if err == nil || guidance != "" {
+				t.Fatalf("ReportManualGitHubPRFailure = %q, %v; want empty guidance and validation error", guidance, err)
+			}
+			if !strings.Contains(err.Error(), "requires the recorded feature worktree and branches") {
+				t.Fatalf("validation error = %q, want recorded submission guidance", err)
+			}
+		})
+	}
+	if got := runGitOutput(t, repo, "branch", "--show-current"); got != "feature/worktree-handoff" {
+		t.Fatalf("validation failure changed branch to %q", got)
+	}
+	if got := runGitOutput(t, repo, "status", "--short"); got != "" {
+		t.Fatalf("validation failure changed the worktree: %q", got)
+	}
 }
 
 // REQ-042, REQ-043 → SCN-250 → TestSCN250_ReportsRemoteResolutionRequiredWithoutPublicationCommands
