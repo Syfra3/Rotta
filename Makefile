@@ -1,5 +1,5 @@
 # Rotta build/test/release helpers
-.PHONY: build install run test test-ci test-verbose test-coverage test-approved-feature-coverage test-critical-path-statement-coverage test-critical-path-branch-coverage test-changed-module-mutation fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install help
+.PHONY: build install run test test-ci test-verbose test-coverage test-approved-feature-coverage test-critical-path-statement-coverage test-critical-path-branch-coverage test-changed-module-mutation fmt fmt-check lint verify verify-ci cross clean tidy deps release release-check hooks-install reset-opencode help
 
 GOPATH := $(shell go env GOPATH)
 GOTESTSUM := $(GOPATH)/bin/gotestsum
@@ -114,6 +114,11 @@ hooks-install:
 	@go install github.com/evilmartians/lefthook@latest
 	@$(LEFTHOOK) install
 
+reset-opencode:
+	@echo "Starting global OpenCode reset-and-reinstall workflow"
+	@rm -rf "$$HOME/.config/opencode" "$$HOME/.local/share/opencode" "$$HOME/.cache/opencode"
+	@curl -fsSL https://opencode.ai/install | bash
+
 help:
 	@echo "Available targets:"
 	@echo "  build          - Build rotta"
@@ -137,3 +142,4 @@ help:
 	@echo "  clean          - Remove build artifacts"
 	@echo "  deps           - Download dependencies"
 	@echo "  hooks-install  - Install lefthook git hooks"
+	@echo "  reset-opencode - removes global OpenCode state before reinstalling OpenCode"
