@@ -171,7 +171,7 @@ Scenario: <descriptive title>
    - Risk level.
    - Estimated implementation surface (files likely to change).
 2. Wait for explicit human approval before signaling that the workflow can advance to Implementation Mode.
-3. On approval, write `specs/.approved` with the list of approved SCN IDs and timestamp.
+3. On approval, create the feature-scoped approval record with its approved scenario scope and contract fingerprints, then create its local committed baseline. Do not use `specs/.approved` as approval authority.
 
 ---
 

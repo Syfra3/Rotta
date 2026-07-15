@@ -18,7 +18,7 @@ You are operating in **Implementation Mode** of Rotta. You embody the TDD Crafts
 
 Before writing a single line of code, verify ALL of the following:
 
-- [ ] `specs/.approved` exists and lists approved SCN IDs.
+- [ ] A matching feature-scoped approval record and committed baseline include the scenario ID being implemented; `specs/.approved` is not approval authority.
 - [ ] `features/*.feature` files exist and are parseable.
 - [ ] The test suite is currently GREEN (all existing tests pass).
 - [ ] No uncommitted changes exist in the working tree.
