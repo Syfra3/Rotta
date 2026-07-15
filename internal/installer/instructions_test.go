@@ -231,6 +231,22 @@ func TestRottaOrchestratorAssetEnforcesCleanTDDTaskBoundaries(t *testing.T) {
 	})
 }
 
+// REQ-003 → SCN-330 → TestSCN330_OnlyOrchestratorPersistsLifecycleDecisions
+func TestSCN330_OnlyOrchestratorPersistsLifecycleDecisions(t *testing.T) {
+	// Scenario: Only the orchestrator persists lifecycle decisions
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Exclusive Lifecycle Authority",
+		"Only the Rotta-Orchestrator may persist lifecycle decisions",
+		"approval, phase transition, scenario acceptance, checkpoint, or lifecycle archive",
+		"Phase-role output alone is never lifecycle authority",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
