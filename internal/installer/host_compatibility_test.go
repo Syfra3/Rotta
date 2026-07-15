@@ -561,3 +561,31 @@ func TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation(t *testing.T) {
 		t.Fatalf("expected adapted command capability to document invocation path and mapping, got %#v", capability)
 	}
 }
+
+// REQ-005 → SCN-341 → TestSCN341_AdaptedHostPhaseRequestsRouteThroughOrchestrator
+func TestSCN341_AdaptedHostPhaseRequestsRouteThroughOrchestrator(t *testing.T) {
+	// Scenario: Host capability differences do not permit direct phase execution
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"every user request for specification, implementation, or review MUST first route to the Rotta-Orchestrator decision point",
+		"Natural-language command adaptation never permits direct phase execution",
+	})
+}
