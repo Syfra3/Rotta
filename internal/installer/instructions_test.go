@@ -518,6 +518,21 @@ func TestSCN347_Phase3RequiresValidApprovedCommittedAuthority(t *testing.T) {
 	})
 }
 
+// REQ-007 → SCN-348 → TestSCN348_ScenarioDelegationRequiresCleanRecordedWorktree
+func TestSCN348_ScenarioDelegationRequiresCleanRecordedWorktree(t *testing.T) {
+	// Scenario: Each scenario delegation requires a clean recorded worktree
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"recorded worktree identity matches the current worktree",
+		"tracked or non-ignored changes are present",
+		"stop non-destructively and do not delegate that scenario",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

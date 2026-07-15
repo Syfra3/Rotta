@@ -101,6 +101,8 @@ Task("rotta-spec", { draft, clarifications, project, state_ref: "specs/hard_spec
 
 Before delegating Phase 3, require approved Gherkin, a valid matching feature confirmation record, and a committed baseline; otherwise stop without delegation.
 
+Before every scenario delegation, verify the recorded worktree identity matches the current worktree and that no tracked or non-ignored changes are present. If either check fails, stop non-destructively and do not delegate that scenario.
+
 ```
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
