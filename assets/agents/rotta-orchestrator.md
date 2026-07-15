@@ -109,6 +109,8 @@ At the next scenario boundary, ignored local artifacts alone do not block a clea
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
 
+Each rotta-impl task contains exactly one already-approved scenario. After the task reports Red/Green/Refactor traceability and required evidence, it stops.
+
 **TDD task boundary rule**: every scenario task MUST start from a clean
 worktree. Before launching `rotta-impl`, verify `git status --short` is empty
 except for explicitly ignored local artifacts. If the tree is dirty, classify

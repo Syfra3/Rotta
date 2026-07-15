@@ -548,6 +548,20 @@ func TestSCN349_IgnoredLocalArtifactsDoNotBlockCleanScenarioBoundary(t *testing.
 	})
 }
 
+// REQ-007 → SCN-350 → TestSCN350_ImplementationTaskReceivesOneApprovedScenarioAndStops
+func TestSCN350_ImplementationTaskReceivesOneApprovedScenarioAndStops(t *testing.T) {
+	// Scenario: Implementation receives exactly one approved scenario and stops
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Each rotta-impl task contains exactly one already-approved scenario",
+		"After the task reports Red/Green/Refactor traceability and required evidence, it stops",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
