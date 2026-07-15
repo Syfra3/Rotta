@@ -459,6 +459,21 @@ func TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults(t *testing.T)
 	})
 }
 
+// REQ-006 → SCN-344 → TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior
+func TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior(t *testing.T) {
+	// Scenario: Configuration changes control subsequent review behavior
+	data, err := assets.FS.ReadFile("skills/review-mode/SKILL.md")
+	if err != nil {
+		t.Fatalf("read review mode asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"threshold, enabled status, severity, remediation outcome, command, or critical-function list",
+		"takes effect for the next review",
+		"without changing review code or instructions",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

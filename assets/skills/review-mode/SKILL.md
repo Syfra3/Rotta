@@ -66,6 +66,8 @@ handling are defined only by the canonical YAML.
 
 Before evaluating any gate, validate the canonical YAML. If it is missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent, stop review with a configuration error. Do not substitute embedded default gate behavior.
 
+When configuration changes a threshold, enabled status, severity, remediation outcome, command, or critical-function list, that change takes effect for the next review without changing review code or instructions.
+
 ---
 
 ## Decision Report
