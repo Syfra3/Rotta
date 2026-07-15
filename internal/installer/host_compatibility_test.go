@@ -67,6 +67,29 @@ func TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents(t *testing.T
 	}
 }
 
+// REQ-008 → SCN-353 → TestSCN353_ClaudeArtifactInstallationRequiresNoLocalExecutable
+func TestSCN353_ClaudeArtifactInstallationRequiresNoLocalExecutable(t *testing.T) {
+	// Scenario: Installing Claude artifacts does not require a local Claude executable
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+
+	result, err := Install(Options{
+		Target:        "claude-code",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatalf("install Claude artifacts without claude executable: %v", err)
+	}
+	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Claude artifacts installed without a local executable, got %#v", result.Hosts["claude-code"])
+	}
+	assertFileContains(t, filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"), "Artifact installation does not require a local Claude executable and makes no runtime compatibility verification claim.")
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
