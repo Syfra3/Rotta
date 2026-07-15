@@ -1,5 +1,8 @@
 ---
+name: rotta-spec
 description: "Rotta — Spec Partner + Gherkin Author. Converts drafts into hard specs and Gherkin contracts with adversarial pre-mortem."
+model: inherit
+user-invocable: false
 mode: subagent
 hidden: true
 color: "#B4FFDD"

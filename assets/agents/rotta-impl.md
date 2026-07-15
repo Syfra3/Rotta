@@ -1,5 +1,8 @@
 ---
+name: rotta-impl
 description: "Rotta — TDD Craftsman. Implements approved Gherkin scenarios via strict Red/Green/Refactor. Logs each cycle."
+model: inherit
+user-invocable: false
 mode: subagent
 hidden: true
 color: "#FFD4B8"
