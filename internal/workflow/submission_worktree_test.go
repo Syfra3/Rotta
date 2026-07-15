@@ -264,11 +264,13 @@ func TestSCN314_RejectsUnverifiableApprovalInputs(t *testing.T) {
 func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.T) {
 	// Scenario: Refuse implementation without a matching approved baseline
 	for _, testCase := range []struct {
-		name    string
-		prepare func(t *testing.T, repo string, state CurrentSubmissionState)
+		name       string
+		prepare    func(t *testing.T, repo string, state CurrentSubmissionState)
+		wantReason string
 	}{
 		{
-			name: "no explicit feature-scoped approval record",
+			name:       "no explicit feature-scoped approval record",
+			wantReason: "feature-scoped approval record is missing",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
 				mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-315\n")
 				if err := os.Remove(filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath))); err != nil {
@@ -277,7 +279,8 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 			},
 		},
 		{
-			name: "approval record excludes the next scenario",
+			name:       "approval record excludes the next scenario",
+			wantReason: "feature-scoped approval record excludes the next scenario",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
 				mustWrite(t, filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-316\ncontract_fingerprints:\n  specs/hard_spec.md: "+mustContractFingerprint(t, repo, "specs/hard_spec.md")+"\n  features/feature_worktree_lifecycle.feature: "+mustContractFingerprint(t, repo, "features/feature_worktree_lifecycle.feature")+"\n")
 				state.ApprovalRecordFingerprint = mustContractFingerprint(t, repo, state.ApprovalRecordPath)
@@ -285,13 +288,30 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 			},
 		},
 		{
-			name: "contract changed after its approved baseline checkpoint",
+			name:       "approval record mismatches its baseline identity",
+			wantReason: "feature-scoped approval record does not match its baseline identity",
+			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
+				mustWrite(t, filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-315\ncontract_fingerprints:\n  specs/hard_spec.md: altered\n")
+			},
+		},
+		{
+			name:       "contract changed after its approved baseline checkpoint",
+			wantReason: "approved contract has changed after its baseline checkpoint",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
 				mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-315\nchanged\n")
 			},
 		},
 		{
-			name: "approval baseline cannot be committed",
+			name:       "approval baseline cannot be committed",
+			wantReason: "approved baseline checkpoint cannot be committed or found",
+			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
+				state.BaselineCheckpoint = "not-a-commit"
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
+			},
+		},
+		{
+			name:       "approval baseline checkpoint is missing",
+			wantReason: "approved baseline checkpoint is missing",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
 				state.BaselineCheckpoint = ""
 				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
@@ -318,7 +338,7 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 			if err != nil {
 				t.Fatalf("BeginApprovedPhase3 returned error: %v", err)
 			}
-			if decision.Allowed || !strings.Contains(decision.Reason, "implementation blocked") || !strings.Contains(decision.Reason, "recovery:") {
+			if decision.Allowed || !strings.Contains(decision.Reason, "implementation blocked") || !strings.Contains(decision.Reason, testCase.wantReason) || !strings.Contains(decision.Reason, "recovery:") {
 				t.Fatalf("expected blocked decision with recovery action, got %#v", decision)
 			}
 			if delegated || checkpointed {
