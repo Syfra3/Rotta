@@ -90,6 +90,21 @@ func TestSCN353_ClaudeArtifactInstallationRequiresNoLocalExecutable(t *testing.T
 	assertFileContains(t, filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"), "Artifact installation does not require a local Claude executable and makes no runtime compatibility verification claim.")
 }
 
+// REQ-008 → SCN-354 → TestSCN354_CIRecordsClaudeVersionAndCompatibilityResult
+func TestSCN354_CIRecordsClaudeVersionAndCompatibilityResult(t *testing.T) {
+	// Scenario: CI records Claude version and compatibility verification
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"claude --version",
+		"GITHUB_STEP_SUMMARY",
+		"Claude compatibility verification: PASS",
+	})
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
