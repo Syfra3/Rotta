@@ -155,6 +155,61 @@ func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing
 	assertCanonicalWorkflowInstructions(t, result, home)
 }
 
+// REQ-050, REQ-051 → SCN-323 → TestSCN323_GeneratesLifecycleAuthorityRulesForEverySupportedHost
+func TestSCN323_GeneratesLifecycleAuthorityRulesForEverySupportedHost(t *testing.T) {
+	// Scenario: Generate the same lifecycle authority rules for every supported host
+	home, options := setupCanonicalWorkflowInstall(t)
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("%s was not installed: %#v", host, result.Hosts[host])
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"recorded pre-spec feature-worktree",
+			"feature-scoped approval record as authoritative instead of `specs/.approved`",
+			"autonomous scenario checkpoint",
+			"archive and eligible explicit cleanup lifecycle",
+			"does not create a second worktree after approval",
+		})
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-impl", "SKILL.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s implementation instructions: %v", host, err)
+		}
+		assertFileContains(t, path, "matching feature-scoped approval record and committed baseline")
+		assertNotContains(t, string(data), "`specs/.approved` exists and contains the scenario ID")
+	}
+
+	for _, path := range []string{
+		filepath.Join(home, ".claude", "skills", "rotta", "spec-mode", "SKILL.md"),
+		filepath.Join(home, ".claude", "skills", "rotta", "review-mode", "SKILL.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read Claude lifecycle instructions: %v", err)
+		}
+		assertNotContains(t, string(data), "write `specs/.approved`")
+		assertNotContains(t, string(data), "in `specs/.approved`")
+	}
+}
+
 func TestGeneratedHostInstructionsApplyProportionalWorkflowPolicy(t *testing.T) {
 	home, options := setupCanonicalWorkflowInstall(t)
 	result, err := Install(options)
