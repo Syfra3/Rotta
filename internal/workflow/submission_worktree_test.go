@@ -426,6 +426,32 @@ func TestSCN319_HaltsOnFeatureWorktreeIdentityFailure(t *testing.T) {
 	}
 }
 
+// REQ-049 → SCN-320 → TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree
+func TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree(t *testing.T) {
+	// Scenario: Archive terminal state while retaining the reviewable feature worktree
+	repo := prepareSCN317ApprovedBaseline(t)
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: feature-worktree-lifecycle\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/feature_worktree_lifecycle.feature\nscenario_ids:\n  - SCN-317\n  - SCN-318\nworktree: "+repo+"\nstatus: review_failed\n")
+
+	if err := ArchiveTerminalFeatureWorkflow(repo); err != nil {
+		t.Fatalf("ArchiveTerminalFeatureWorkflow returned error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current")); !os.IsNotExist(err) {
+		t.Fatalf("active execution state remains after terminal archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "archive", "feature-worktree-lifecycle", "manifest.yaml")); err != nil {
+		t.Fatalf("terminal execution state was not archived: %v", err)
+	}
+	if branch := runGitOutput(t, repo, "branch", "--show-current"); branch != "feature/feature-worktree-lifecycle" {
+		t.Fatalf("feature branch = %q, want retained reviewable feature branch", branch)
+	}
+	for _, path := range []string{"specs/hard_spec.md", "features/feature_worktree_lifecycle.feature", "specs/approvals/feature-worktree-lifecycle.yaml"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("retained committed contract artifact %q is missing: %v", path, err)
+		}
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
