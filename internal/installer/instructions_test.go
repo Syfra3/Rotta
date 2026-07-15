@@ -291,6 +291,30 @@ func TestSCN332_ImplementationWorkStopsAfterAssignedScenario(t *testing.T) {
 	}
 }
 
+// REQ-003 → SCN-333 → TestSCN333_ReviewWorkReturnsEvidenceWithoutAdvancingLifecycleState
+func TestSCN333_ReviewWorkReturnsEvidenceWithoutAdvancingLifecycleState(t *testing.T) {
+	// Scenario: Review work returns evidence without advancing lifecycle state
+	data, err := assets.FS.ReadFile("agents/rotta-review.md")
+	if err != nil {
+		t.Fatalf("read review asset: %v", err)
+	}
+
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"returns pass, fail, or escalation evidence",
+		"does not change approval, current-submission, lifecycle state, checkpoints, commits, or completion",
+	})
+	for _, forbidden := range []string{
+		"Saves verdict",
+		"next: feature_complete",
+		"Save the State Index",
+		"reports/judge_report.md",
+		"ancora_save:",
+	} {
+		assertNotContains(t, got, forbidden)
+	}
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
