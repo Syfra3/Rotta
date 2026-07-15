@@ -400,6 +400,73 @@ func TestSCN367_ConfirmedImmutableBaselineAuthorizesApprovedScenarioLoop(t *test
 	}
 }
 
+// REQ-001 → SCN-368 → TestSCN368_InvalidBaselineConfirmationBlocksWorkflowProgress
+func TestSCN368_InvalidBaselineConfirmationBlocksWorkflowProgress(t *testing.T) {
+	// Scenario: An invalid baseline confirmation blocks workflow progress
+	for _, test := range []struct {
+		name       string
+		baseline   func(baseline, contract string) string
+		wantReason string
+	}{
+		{
+			name:       "missing baseline",
+			baseline:   func(string, string) string { return "" },
+			wantReason: "baseline confirmation is missing",
+		},
+		{
+			name:       "self-referential baseline",
+			baseline:   func(string, string) string { return "HEAD" },
+			wantReason: "baseline confirmation is self-referential",
+		},
+		{
+			name:       "mutable baseline reference",
+			baseline:   func(baseline, contract string) string { return baseline[:12] },
+			wantReason: "baseline confirmation is mutable",
+		},
+		{
+			name:       "different committed baseline",
+			baseline:   func(baseline, contract string) string { return contract },
+			wantReason: "baseline confirmation does not identify the immutable baseline artifact commit",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			runGit(t, repo, "init")
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-368 @REQ-001\nScenario: invalid baseline confirmation\n")
+			runGit(t, repo, "add", ".")
+			runGit(t, repo, "commit", "-m", "test: approved contract")
+			contract := runGitOutput(t, repo, "rev-parse", "HEAD")
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			pending := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-368\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: pending\n  baseline_commit: pending\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), pending)
+			runGit(t, repo, "add", ".")
+			runGit(t, repo, "commit", "-m", "test: immutable approval baseline")
+			baseline := runGitOutput(t, repo, "rev-parse", "HEAD")
+			confirmation := strings.ReplaceAll(strings.ReplaceAll(pending, "status: pending", "status: confirmed"), "baseline_commit: pending", "baseline_commit: "+test.baseline(baseline, contract))
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), confirmation)
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-368"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected invalid baseline confirmation to block workflow progress")
+			}
+			if decision.Reason != test.wantReason {
+				t.Fatalf("reason = %q, want %q", decision.Reason, test.wantReason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason
