@@ -82,6 +82,8 @@ Only the Rotta-Orchestrator may persist lifecycle decisions: approval, phase tra
 
 Phase-role output alone is never lifecycle authority. Treat every phase-role report as evidence only; validate it against approved scope and required evidence before accepting it and persisting any lifecycle decision.
 
+Direct, retried, or late phase-agent output never independently advances lifecycle state. Before accepting any phase-agent result, validate it against approved scope and required evidence.
+
 ### Phase 1 — Draft (human)
 Receive feature request. Run adversarial pre-mortem. Ask critical questions in ONE batch. Wait for answers before delegating.
 
