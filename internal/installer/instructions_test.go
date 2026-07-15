@@ -375,6 +375,21 @@ func TestSCN337_ChangedOrInvalidatedReviewedSnapshotCannotComplete(t *testing.T)
 	})
 }
 
+// REQ-004 → SCN-338 → TestSCN338_ReviewEligibilityPersistenceFailurePreventsFinalApproval
+func TestSCN338_ReviewEligibilityPersistenceFailurePreventsFinalApproval(t *testing.T) {
+	// Scenario: Failure to persist review eligibility does not create final-review authority
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"If recording reviewed_commit or the final_human_review transition fails",
+		"the feature is not eligible for final approval",
+		"report the persistence failure",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
