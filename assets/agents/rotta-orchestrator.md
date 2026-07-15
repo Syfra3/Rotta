@@ -1,5 +1,7 @@
 ---
+name: rotta-orchestrator
 description: "rotta orchestrator. Contract-driven spec → TDD → review pipeline. Anti-sycophancy."
+model: inherit
 mode: primary
 color: "#A855F7"
 ---
