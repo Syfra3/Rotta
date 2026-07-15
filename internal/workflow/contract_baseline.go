@@ -1,0 +1,129 @@
+package workflow
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type ApprovedContractBaselineRequest struct {
+	Submission        NewImplementationSubmission
+	SpecPath          string
+	FeaturePath       string
+	ApprovedScenarios []string
+	ApprovedAt        time.Time
+}
+
+type ApprovedContractBaseline struct {
+	ApprovalRecordPath        string
+	ApprovalRecordFingerprint string
+	CommitID                  string
+}
+
+// CheckpointApprovedContractBaseline records explicit human approval and
+// commits exactly the approved contract and its feature-scoped record.
+func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContractBaselineRequest) (ApprovedContractBaseline, error) {
+	if request.Submission.WorktreePath != repoRoot || !strings.HasPrefix(request.Submission.FeatureBranch, "feature/") {
+		return ApprovedContractBaseline{}, fmt.Errorf("approved contract baseline requires the recorded feature worktree")
+	}
+	if branch, err := gitSubmissionOutput(repoRoot, "branch", "--show-current"); err != nil || branch != request.Submission.FeatureBranch {
+		return ApprovedContractBaseline{}, fmt.Errorf("approved contract baseline requires recorded feature branch %q", request.Submission.FeatureBranch)
+	}
+	if request.SpecPath == "" || request.FeaturePath == "" || len(request.ApprovedScenarios) == 0 {
+		return ApprovedContractBaseline{}, fmt.Errorf("approved contract baseline requires contract paths and approved scenarios")
+	}
+
+	slug := strings.TrimPrefix(request.Submission.FeatureBranch, "feature/")
+	recordPath := filepath.ToSlash(filepath.Join("specs", "approvals", slug+".yaml"))
+	contractFingerprints, err := approvedContractFingerprints(repoRoot, request.SpecPath, request.FeaturePath)
+	if err != nil {
+		return ApprovedContractBaseline{}, err
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(recordPath)), 0o755); err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("create feature-scoped approval directory: %w", err)
+	}
+	approvedAt := request.ApprovedAt.UTC()
+	if approvedAt.IsZero() {
+		approvedAt = time.Now().UTC()
+	}
+	record := serializeApprovedContractRecord(request, approvedAt, recordPath, contractFingerprints)
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(recordPath)), []byte(record), 0o644); err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("write feature-scoped approval record: %w", err)
+	}
+	recordFingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(recordPath)))
+	if err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("fingerprint feature-scoped approval record: %w", err)
+	}
+
+	paths := []string{request.SpecPath, request.FeaturePath, recordPath}
+	if _, err := gitSubmissionOutput(repoRoot, append([]string{"add", "--"}, paths...)...); err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("stage approved contract baseline: %w", err)
+	}
+	commitArgs := append([]string{"commit", "--only", "-m", "checkpoint: approved contract baseline", "--"}, paths...)
+	if _, err := gitSubmissionOutput(repoRoot, commitArgs...); err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("create approved contract baseline checkpoint: %w", err)
+	}
+	commitID, err := gitSubmissionOutput(repoRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("read approved contract baseline checkpoint: %w", err)
+	}
+	baseline := ApprovedContractBaseline{ApprovalRecordPath: recordPath, ApprovalRecordFingerprint: recordFingerprint, CommitID: commitID}
+	if err := recordCurrentSubmissionBaseline(repoRoot, baseline); err != nil {
+		return ApprovedContractBaseline{}, err
+	}
+	return baseline, nil
+}
+
+func approvedContractFingerprints(repoRoot, specPath, featurePath string) (map[string]string, error) {
+	fingerprints := make(map[string]string, 2)
+	for _, path := range []string{specPath, featurePath} {
+		fingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		if err != nil {
+			return nil, fmt.Errorf("fingerprint approved contract %q: %w", path, err)
+		}
+		fingerprints[path] = fingerprint
+	}
+	return fingerprints, nil
+}
+
+func contractFileFingerprint(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(contents)), nil
+}
+
+func serializeApprovedContractRecord(request ApprovedContractBaselineRequest, approvedAt time.Time, recordPath string, fingerprints map[string]string) string {
+	var scenarios strings.Builder
+	for _, scenario := range request.ApprovedScenarios {
+		scenarios.WriteString("  - ")
+		scenarios.WriteString(request.FeaturePath)
+		scenarios.WriteString("#")
+		scenarios.WriteString(scenario)
+		scenarios.WriteString("\n")
+	}
+	return fmt.Sprintf("format: rotta.feature-approval/v1\nstatus: approved\napproved_on: %s\nsubmission_worktree: %s\nfeature_branch: %s\nbase_branch: %s\napproval_record: %s\napproved_scenarios:\n%scontract_fingerprints:\n  %s: %s\n  %s: %s\n", approvedAt.Format(time.RFC3339), request.Submission.WorktreePath, request.Submission.FeatureBranch, request.Submission.BaseBranch, recordPath, scenarios.String(), request.SpecPath, fingerprints[request.SpecPath], request.FeaturePath, fingerprints[request.FeaturePath])
+}
+
+func recordCurrentSubmissionBaseline(repoRoot string, baseline ApprovedContractBaseline) error {
+	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
+	contents, err := os.ReadFile(statePath)
+	if err != nil {
+		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
+	}
+	state, err := parseCurrentSubmissionState(string(contents))
+	if err != nil {
+		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
+	}
+	state.BaselineCheckpoint = baseline.CommitID
+	state.ApprovalRecordPath = baseline.ApprovalRecordPath
+	state.ApprovalRecordFingerprint = baseline.ApprovalRecordFingerprint
+	if err := os.WriteFile(statePath, []byte(serializeCurrentSubmissionState(state)), 0o600); err != nil {
+		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
+	}
+	return nil
+}
