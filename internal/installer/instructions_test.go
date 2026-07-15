@@ -424,6 +424,26 @@ func TestSCN340_IllegalLaterPhaseRequestDoesNotExecuteDirectly(t *testing.T) {
 	})
 }
 
+// REQ-006 → SCN-342 → TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates
+func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
+	// Scenario: Review evaluates only the configured objective gates
+	data, err := assets.FS.ReadFile("skills/review-mode/SKILL.md")
+	if err != nil {
+		t.Fatalf("read review mode asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Review evaluates only the gates defined by `.rotta/quality-gates.yaml`",
+		"configured order",
+		"configured applicability",
+		"thresholds",
+		"commands and targets",
+		"configured parsing rules",
+		"configured severity and remediation outcome",
+		"Do not use hardcoded defaults, gate details, or legacy workflow markers",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
