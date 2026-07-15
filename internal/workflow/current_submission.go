@@ -241,7 +241,7 @@ func CleanupTerminalFeatureWorktree(repoRoot string) error {
 		return fmt.Errorf("cleanup requires the recorded feature worktree")
 	}
 	if !isCleanupEligibleFeatureWorkflowStatus(submission.Manifest.Status) {
-		return fmt.Errorf("cleanup requires a published, abandoned, or cancelled feature workflow")
+		return fmt.Errorf("cleanup is blocked: publication confirmation or explicit abandonment is required; only published, abandoned, or cancelled feature workflows are eligible")
 	}
 	if status, err := gitSubmissionOutput(actualWorktree, "status", "--short"); err != nil {
 		return fmt.Errorf("cleanup check recorded feature worktree cleanliness: %w", err)
