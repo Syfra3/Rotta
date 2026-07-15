@@ -224,6 +224,43 @@ func ArchiveTerminalFeatureWorkflow(repoRoot string) error {
 	return ArchiveTerminalCurrentSubmission(repoRoot, true)
 }
 
+// CleanupTerminalFeatureWorktree removes a clean, recorded feature worktree
+// only after an explicit cleanup request for an eligible terminal workflow.
+// Its feature branch is intentionally retained with the committed contracts.
+func CleanupTerminalFeatureWorktree(repoRoot string) error {
+	submission, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return err
+	}
+	recordedWorktree, err := filepath.EvalSymlinks(submission.Manifest.Worktree)
+	if err != nil {
+		return fmt.Errorf("cleanup resolve recorded feature worktree: %w", err)
+	}
+	actualWorktree, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil || actualWorktree != recordedWorktree {
+		return fmt.Errorf("cleanup requires the recorded feature worktree")
+	}
+	if !isCleanupEligibleFeatureWorkflowStatus(submission.Manifest.Status) {
+		return fmt.Errorf("cleanup requires a published, abandoned, or cancelled feature workflow")
+	}
+	if status, err := gitSubmissionOutput(actualWorktree, "status", "--short"); err != nil {
+		return fmt.Errorf("cleanup check recorded feature worktree cleanliness: %w", err)
+	} else if status != "" {
+		return fmt.Errorf("cleanup refuses recorded feature worktree with non-ignored changes")
+	}
+	if branch, err := gitSubmissionOutput(actualWorktree, "symbolic-ref", "--quiet", "--short", "HEAD"); err != nil || !strings.HasPrefix(branch, "feature/") {
+		return fmt.Errorf("cleanup requires the recorded attached feature branch")
+	}
+	if _, err := gitSubmissionOutput(actualWorktree, "worktree", "remove", actualWorktree); err != nil {
+		return fmt.Errorf("remove recorded feature worktree: %w", err)
+	}
+	return nil
+}
+
+func isCleanupEligibleFeatureWorkflowStatus(status string) bool {
+	return status == "published" || status == "abandoned" || status == "cancelled"
+}
+
 func isTerminalCurrentSubmissionStatus(status string) bool {
 	return status == "completed" || status == "review_failed" || status == "abandoned" || status == "cancelled"
 }

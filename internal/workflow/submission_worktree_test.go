@@ -452,6 +452,56 @@ func TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree(t *testing.
 	}
 }
 
+// REQ-049 → SCN-321 → TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup
+func TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup(t *testing.T) {
+	// Scenario: Remove a feature worktree only through eligible explicit cleanup
+	for _, terminalStatus := range []string{"published", "abandoned", "cancelled"} {
+		t.Run(terminalStatus, func(t *testing.T) {
+			initiatingWorktree := filepath.Join(t.TempDir(), "initiating")
+			if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+				t.Fatalf("create initiating worktree: %v", err)
+			}
+			runGit(t, initiatingWorktree, "init", "-b", "main")
+			runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+			runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+			mustWrite(t, filepath.Join(initiatingWorktree, ".gitignore"), ".rotta/\n")
+			runGit(t, initiatingWorktree, "add", "README.md", ".gitignore")
+			runGit(t, initiatingWorktree, "commit", "-m", "test: establish cleanup base")
+
+			submission, err := PrepareNewImplementationSubmission(initiatingWorktree, NewImplementationSubmissionRequest{Slug: "feature-worktree-lifecycle", IntegrationBranch: "main"})
+			if err != nil {
+				t.Fatalf("PrepareNewImplementationSubmission returned error: %v", err)
+			}
+			mustWrite(t, filepath.Join(submission.WorktreePath, "specs", "hard_spec.md"), "# Approved contract\n")
+			mustWrite(t, filepath.Join(submission.WorktreePath, "features", "feature_worktree_lifecycle.feature"), "@SCN-321\n")
+			runGit(t, submission.WorktreePath, "add", "specs/hard_spec.md", "features/feature_worktree_lifecycle.feature")
+			runGit(t, submission.WorktreePath, "commit", "-m", "test: retain cleanup contract")
+			if _, err := InitializeCurrentSubmission(submission.WorktreePath, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-321"}}); err != nil {
+				t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+			}
+			mustWrite(t, filepath.Join(submission.WorktreePath, ".rotta", "current", "manifest.yaml"), "submission_id: feature-worktree-lifecycle\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/feature_worktree_lifecycle.feature\nscenario_ids:\n  - SCN-321\nworktree: "+submission.WorktreePath+"\nstatus: "+terminalStatus+"\n")
+
+			if err := CleanupTerminalFeatureWorktree(submission.WorktreePath); err != nil {
+				t.Fatalf("CleanupTerminalFeatureWorktree returned error: %v", err)
+			}
+
+			if _, err := os.Stat(submission.WorktreePath); !os.IsNotExist(err) {
+				t.Fatalf("recorded feature worktree remains after explicit cleanup: %v", err)
+			}
+			if _, err := os.Stat(initiatingWorktree); err != nil {
+				t.Fatalf("initiating checkout was removed: %v", err)
+			}
+			if content := runGitOutput(t, initiatingWorktree, "show", submission.FeatureBranch+":specs/hard_spec.md"); content != "# Approved contract" {
+				t.Fatalf("durable hard spec = %q, want retained feature-branch contract", content)
+			}
+			if content := runGitOutput(t, initiatingWorktree, "show", submission.FeatureBranch+":features/feature_worktree_lifecycle.feature"); content != "@SCN-321" {
+				t.Fatalf("durable feature contract = %q, want retained feature-branch contract", content)
+			}
+		})
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
