@@ -533,6 +533,21 @@ func TestSCN348_ScenarioDelegationRequiresCleanRecordedWorktree(t *testing.T) {
 	})
 }
 
+// REQ-007 → SCN-349 → TestSCN349_IgnoredLocalArtifactsDoNotBlockCleanScenarioBoundary
+func TestSCN349_IgnoredLocalArtifactsDoNotBlockCleanScenarioBoundary(t *testing.T) {
+	// Scenario: Ignored local artifacts do not block a clean scenario boundary
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"ignored local artifacts alone do not block a clean scenario boundary",
+		"tracked and non-ignored paths are clean",
+		"may proceed with the approved scenario",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

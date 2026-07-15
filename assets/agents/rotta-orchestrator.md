@@ -103,6 +103,8 @@ Before delegating Phase 3, require approved Gherkin, a valid matching feature co
 
 Before every scenario delegation, verify the recorded worktree identity matches the current worktree and that no tracked or non-ignored changes are present. If either check fails, stop non-destructively and do not delegate that scenario.
 
+At the next scenario boundary, ignored local artifacts alone do not block a clean scenario boundary. When tracked and non-ignored paths are clean, the orchestrator may proceed with the approved scenario.
+
 ```
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
