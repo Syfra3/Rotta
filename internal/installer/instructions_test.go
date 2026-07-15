@@ -390,6 +390,26 @@ func TestSCN338_ReviewEligibilityPersistenceFailurePreventsFinalApproval(t *test
 	})
 }
 
+// REQ-005 → SCN-339 → TestSCN339_UserInvocableClaudePhaseRequestsRouteThroughOrchestrator
+func TestSCN339_UserInvocableClaudePhaseRequestsRouteThroughOrchestrator(t *testing.T) {
+	// Scenario: User-invocable Claude phase requests route through the orchestrator
+	for _, assetPath := range []string{
+		"skills/spec-mode/SKILL.md",
+		"skills/implementation-mode/SKILL.md",
+		"skills/review-mode/SKILL.md",
+	} {
+		data, err := assets.FS.ReadFile(assetPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", assetPath, err)
+		}
+
+		assertContainsAll(t, string(data), []string{
+			"MUST route the request through the Rotta-Orchestrator",
+			"evaluates workspace authority and legal phase order before phase work starts",
+		})
+	}
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
