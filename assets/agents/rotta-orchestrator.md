@@ -132,6 +132,8 @@ Only explicit human approval for a feature in final_human_review whose current a
 
 When final approval is evaluated or the feature is resumed, a later code change, manual commit, amendment, rebase, dirty code change, or subsequent review failure does not complete from the stale reviewed commit and returns the feature to review before completion can be possible.
 
+If recording reviewed_commit or the final_human_review transition fails, the feature is not eligible for final approval; report the persistence failure.
+
 ---
 
 ## Escalate to human when
