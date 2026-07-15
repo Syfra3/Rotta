@@ -61,6 +61,17 @@ If the generated integration instructions for this installation enable Ancora, f
 
 ---
 
+## Workflow Selection (MANDATORY)
+
+Apply workflow rigor proportionally to the request.
+
+- Use the direct, narrowly verified path only for simple, well-scoped, low-risk requests, such as an isolated environment value, Makefile target, or documentation change. Perform a focused impact assessment and appropriate focused verification, but bypass formal spec artifact, Gherkin approval, TDD, and review phases.
+- A Makefile change alone is not automatically low-risk; assess the request's scope and risk.
+- Use the full workflow for ambiguous, multi-component, destructive, security, auth, payments, infrastructure, secrets, migrations, public-contract, data-loss, or behaviorally significant changes.
+- When uncertain, use the full workflow. The user may request the full workflow at any time.
+
+---
+
 ## Phases
 
 ### Phase 1 — Draft (human)

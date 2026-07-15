@@ -86,16 +86,16 @@ func codexManagedMCPBlock(opts Options) string {
 func codexInstructions(opts Options) string {
 	var b strings.Builder
 	b.WriteString("# Rotta Codex Instructions\n\n")
-	b.WriteString("Rotta is installed for Codex. Follow the canonical Rotta workflow, keep workspace artifacts as the source of truth, and preserve human approval gates.\n\n")
+	b.WriteString("Rotta is installed for Codex. Follow the canonical Rotta workflow, including its proportional workflow-selection policy; keep workspace artifacts as the source of truth and preserve human approval gates for full-workflow requests.\n\n")
 	if opts.InstallSpec {
-		b.WriteString("- Spec mode: draft hard specs and Gherkin scenarios before implementation.\n")
+		b.WriteString("- Full workflow spec mode: draft hard specs and Gherkin scenarios before implementation.\n")
 	}
 	if opts.InstallImpl {
-		b.WriteString("- Implementation mode: use strict Red/Green/Refactor TDD for one approved scenario at a time.\n")
+		b.WriteString("- Full workflow implementation mode: use strict Red/Green/Refactor TDD for one approved scenario at a time.\n")
 		b.WriteString("- Each TDD scenario task must start from a clean worktree; after the scenario passes, update the task checklist and checkpoint or clean the diff before starting the next scenario.\n")
 	}
 	if opts.InstallReview {
-		b.WriteString("- Review mode: judge evidence against traceability, tests, coverage, mutation, and quality gates.\n")
+		b.WriteString("- Full workflow review mode: judge evidence against traceability, tests, coverage, mutation, and quality gates.\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(integrationInstructions(opts))
