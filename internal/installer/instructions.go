@@ -61,6 +61,7 @@ func canonicalWorkflowInstructions() string {
 - Preserve approval gates, phase order, lifecycle artifacts, and command semantics across hosts.
 - Command invocation for hosts without slash commands: Use natural-language invocations such as ` + "`Rotta init`, `Rotta new`, `Rotta continue`, `Rotta status`, `Rotta skip`, and `Rotta back`" + `.
 - These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.
+- On supported hosts that lack hidden subagents or slash commands, every user request for specification, implementation, or review MUST first route to the Rotta-Orchestrator decision point. Natural-language command adaptation never permits direct phase execution.
 - When continuing a workflow started from another supported host, read shared workspace state before acting: ` + "`specs/`" + `, ` + "`features/`" + `, and ` + "`.rotta/`" + ` artifacts.
 - Always preserve the same phase order, command semantics, and approval gates across hosts.
 - For every full workflow start or resume, apply the recorded pre-spec feature-worktree lifecycle: create or validate the recorded isolated feature worktree before specification writes, and never write submission artifacts in the initiating checkout.
