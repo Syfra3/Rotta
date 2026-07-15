@@ -270,6 +270,27 @@ func TestSCN331_SpecWorkProducesOnlyAssignedContractArtifacts(t *testing.T) {
 	}
 }
 
+// REQ-003 → SCN-332 → TestSCN332_ImplementationWorkStopsAfterAssignedScenario
+func TestSCN332_ImplementationWorkStopsAfterAssignedScenario(t *testing.T) {
+	// Scenario: Implementation work stops after its assigned scenario
+	data, err := assets.FS.ReadFile("agents/rotta-impl.md")
+	if err != nil {
+		t.Fatalf("read implementation asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"reports its evidence and changed paths",
+		"does not choose another scenario, transition lifecycle state, approve, commit, clean, or mark completion",
+	})
+	for _, forbidden := range []string{
+		"SCN-NNN COMPLETE",
+		"completed_scenarios:",
+		"ancora_save (upsert same topic_key):",
+	} {
+		assertNotContains(t, string(data), forbidden)
+	}
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
