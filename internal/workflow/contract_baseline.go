@@ -23,6 +23,86 @@ type ApprovedContractBaseline struct {
 	CommitID                  string
 }
 
+type ApprovedPhase3Request struct {
+	ScenarioID               string
+	DelegateScenario         func() error
+	CreateScenarioCheckpoint func() error
+}
+
+type ApprovedPhase3Decision struct {
+	Allowed bool
+	Reason  string
+}
+
+// BeginApprovedPhase3 proves the recorded feature-scoped approval baseline
+// before an implementation scenario can be delegated.
+func BeginApprovedPhase3(repoRoot string, request ApprovedPhase3Request) (ApprovedPhase3Decision, error) {
+	resume, err := ResumeCurrentSubmission(repoRoot, nil)
+	if err != nil {
+		return blockedApprovedPhase3("current workflow state cannot be verified"), nil
+	}
+	if request.ScenarioID == "" || !containsPath(resume.State.RemainingWork, request.ScenarioID) {
+		return blockedApprovedPhase3("the next scenario is not recorded in the approved workflow"), nil
+	}
+	state := resume.State
+	if state.BaselineCheckpoint == "" {
+		return blockedApprovedPhase3("the approved baseline checkpoint is missing"), nil
+	}
+	if _, err := gitSubmissionOutput(repoRoot, "cat-file", "-e", state.BaselineCheckpoint+"^{commit}"); err != nil {
+		return blockedApprovedPhase3("the approved baseline checkpoint cannot be committed or found"), nil
+	}
+	if state.ApprovalRecordPath == "" || state.ApprovalRecordFingerprint == "" {
+		return blockedApprovedPhase3("the feature-scoped approval record is missing"), nil
+	}
+	recordPath := filepath.Join(repoRoot, filepath.FromSlash(state.ApprovalRecordPath))
+	record, err := os.ReadFile(recordPath)
+	if err != nil {
+		return blockedApprovedPhase3("the feature-scoped approval record is missing"), nil
+	}
+	recordFingerprint, err := contractFileFingerprint(recordPath)
+	if err != nil || recordFingerprint != state.ApprovalRecordFingerprint {
+		return blockedApprovedPhase3("the feature-scoped approval record does not match its baseline identity"), nil
+	}
+	if !approvedRecordIncludesScenario(string(record), resume.Manifest.FeaturePaths[0], request.ScenarioID) {
+		return blockedApprovedPhase3("the feature-scoped approval record excludes the next scenario"), nil
+	}
+	contractPaths := approvedContractPaths(resume.Manifest)
+	for _, path := range contractPaths {
+		fingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		if err != nil || approvedRecordFingerprint(string(record), path) != fingerprint {
+			return blockedApprovedPhase3("the approved contract has changed after its baseline checkpoint"), nil
+		}
+	}
+	paths := append(contractPaths, state.ApprovalRecordPath)
+	if _, err := gitSubmissionOutput(repoRoot, append([]string{"diff", "--quiet", state.BaselineCheckpoint, "--"}, paths...)...); err != nil {
+		return blockedApprovedPhase3("the approved contract has changed after its baseline checkpoint"), nil
+	}
+	return ApprovedPhase3Decision{Allowed: true, Reason: "matching feature-scoped approved baseline recorded"}, nil
+}
+
+func approvedContractPaths(manifest CurrentSubmissionManifest) []string {
+	paths := make([]string, 0, len(manifest.FeaturePaths)+1)
+	paths = append(paths, manifest.SpecPath)
+	return append(paths, manifest.FeaturePaths...)
+}
+
+func blockedApprovedPhase3(reason string) ApprovedPhase3Decision {
+	return ApprovedPhase3Decision{Reason: "implementation blocked: " + reason + "; recovery: restore or explicitly reapprove and checkpoint the recorded feature contract before Phase 3"}
+}
+
+func approvedRecordIncludesScenario(record, featurePath, scenarioID string) bool {
+	return strings.Contains(record, "  - "+featurePath+"#"+scenarioID+"\n")
+}
+
+func approvedRecordFingerprint(record, path string) string {
+	for _, line := range strings.Split(record, "\n") {
+		if value, found := strings.CutPrefix(line, "  "+path+": "); found {
+			return value
+		}
+	}
+	return ""
+}
+
 // CheckpointApprovedContractBaseline records explicit human approval and
 // commits exactly the approved contract and its feature-scoped record.
 func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContractBaselineRequest) (ApprovedContractBaseline, error) {
