@@ -270,6 +270,52 @@ func TestSCN316_DelegatesOnlyTheRecordedApprovedScenarioWithRequiredEvidence(t *
 	}
 }
 
+// REQ-047 → SCN-317 → TestSCN317_CheckpointsAndAdvancesFromCleanSuccessfulBoundary
+func TestSCN317_CheckpointsAndAdvancesFromCleanSuccessfulBoundary(t *testing.T) {
+	// Scenario: Automatically checkpoint and advance from a clean successful scenario boundary
+	repo := prepareSCN317ApprovedBaseline(t)
+	mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() { _ = 1 }\n")
+
+	started := ""
+	state, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+		ScenarioID:       "SCN-317",
+		ExpectedPaths:    []string{"scenario.go"},
+		RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+		StartNextScenario: func(scenarioID string) error {
+			started = scenarioID
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("CompleteApprovedScenarioBoundary returned error: %v", err)
+	}
+	if state.Checkpoint == "" || strings.Join(state.CompletedWork, ",") != "SCN-317" || strings.Join(state.RemainingWork, ",") != "SCN-318" || state.NextScenario != "SCN-318" {
+		t.Fatalf("state=%#v, want evidence, checkpoint, SCN-317 completed, and SCN-318 next", state)
+	}
+	if strings.Join(state.Evidence, ",") != strings.Join(requiredApprovedScenarioEvidence, ",") {
+		t.Fatalf("state evidence=%v, want required evidence=%v", state.Evidence, requiredApprovedScenarioEvidence)
+	}
+	if started != "SCN-318" {
+		t.Fatalf("started=%q, want next approved scenario SCN-318", started)
+	}
+	persisted, err := ResumeCurrentSubmission(repo, nil)
+	if err != nil {
+		t.Fatalf("ResumeCurrentSubmission returned error: %v", err)
+	}
+	if persisted.State.Checkpoint != state.Checkpoint || persisted.State.NextScenario != "SCN-318" || strings.Join(persisted.State.Evidence, ",") != strings.Join(requiredApprovedScenarioEvidence, ",") {
+		t.Fatalf("persisted state=%#v, want recorded evidence, checkpoint, and next scenario", persisted.State)
+	}
+	if status := runGitOutput(t, repo, "status", "--short"); status != "" {
+		t.Fatalf("checkpoint boundary has non-ignored changes: %q", status)
+	}
+	if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "3" {
+		t.Fatalf("checkpoint commits=%s, want exactly one local scenario checkpoint", commits)
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
@@ -283,6 +329,26 @@ func prepareSCN316ApprovedBaseline(t *testing.T) string {
 		t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
 	}
 	state := CurrentSubmissionState{Phase: "implementation", CompletedWork: []string{}, RemainingWork: []string{"SCN-316"}, BlockedWork: []string{}, LastAction: "ready for approved scenario", SafeResumePoint: "begin implementation", BaselineCheckpoint: runGitOutput(t, repo, "rev-parse", "HEAD"), ApprovalRecordPath: recordPath, ApprovalRecordFingerprint: mustContractFingerprint(t, repo, recordPath)}
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
+	return repo
+}
+
+func prepareSCN317ApprovedBaseline(t *testing.T) string {
+	t.Helper()
+	repo := prepareSCN248Repository(t)
+	runGit(t, repo, "checkout", "-b", "feature/feature-worktree-lifecycle")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-317\n@SCN-318\n")
+	mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() {}\n")
+	recordPath := "specs/approvals/feature-worktree-lifecycle.yaml"
+	mustWrite(t, filepath.Join(repo, filepath.FromSlash(recordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-317\n  - features/feature_worktree_lifecycle.feature#SCN-318\ncontract_fingerprints:\n  specs/hard_spec.md: "+mustContractFingerprint(t, repo, "specs/hard_spec.md")+"\n  features/feature_worktree_lifecycle.feature: "+mustContractFingerprint(t, repo, "features/feature_worktree_lifecycle.feature")+"\n")
+	runGit(t, repo, "add", ".gitignore", "specs/hard_spec.md", "features/feature_worktree_lifecycle.feature", "scenario.go", recordPath)
+	runGit(t, repo, "commit", "-m", "test: checkpoint approved SCN-317 contract")
+	if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-317", "SCN-318"}}); err != nil {
+		t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+	}
+	state := CurrentSubmissionState{Phase: "implementation", CompletedWork: []string{}, RemainingWork: []string{"SCN-317", "SCN-318"}, BlockedWork: []string{}, LastAction: "ready for approved scenario", SafeResumePoint: "begin implementation", BaselineCheckpoint: runGitOutput(t, repo, "rev-parse", "HEAD"), ApprovalRecordPath: recordPath, ApprovalRecordFingerprint: mustContractFingerprint(t, repo, recordPath)}
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
 	return repo
 }
