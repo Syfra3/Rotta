@@ -1,0 +1,37 @@
+format: rotta.feature-approval/v1
+contract_id: feature-worktree-lifecycle
+status: approved
+approved_on: "2026-07-15"
+approval_source: explicit_human
+spec_path: specs/hard_spec.md
+feature_paths:
+  - features/feature_worktree_lifecycle.feature
+approved_requirements:
+  - REQ-045
+  - REQ-046
+  - REQ-047
+  - REQ-048
+  - REQ-049
+  - REQ-050
+  - REQ-051
+approved_scenarios:
+  - features/feature_worktree_lifecycle.feature#SCN-312
+  - features/feature_worktree_lifecycle.feature#SCN-313
+  - features/feature_worktree_lifecycle.feature#SCN-314
+  - features/feature_worktree_lifecycle.feature#SCN-315
+  - features/feature_worktree_lifecycle.feature#SCN-316
+  - features/feature_worktree_lifecycle.feature#SCN-317
+  - features/feature_worktree_lifecycle.feature#SCN-318
+  - features/feature_worktree_lifecycle.feature#SCN-319
+  - features/feature_worktree_lifecycle.feature#SCN-320
+  - features/feature_worktree_lifecycle.feature#SCN-321
+  - features/feature_worktree_lifecycle.feature#SCN-322
+  - features/feature_worktree_lifecycle.feature#SCN-323
+contract_fingerprints:
+  specs/hard_spec.md: d275fba7d3b37ea39c0e86d0b1ab08d4464d0c6985bb2a86522969f1cb8d493a
+  features/feature_worktree_lifecycle.feature: b8cada4e742437ac75f416457a008a7b7467e9adf73f34fff34af7760115a351
+baseline_checkpoint:
+  status: pending
+  commit: null
+phase_3_eligibility: approved_pending_baseline_checkpoint
+legacy_approval_marker: not_used
