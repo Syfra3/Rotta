@@ -7,100 +7,6 @@ import (
 	"testing"
 )
 
-func TestSCN018_PendingContractRequiresScopedApproval(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_PendingContractRequiresScopedApproval
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-018\n")
-	mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# pending spec\n")
-	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-015 @SCN-018\nScenario: Pending generated contracts do not pass the implementation gate\n")
-
-	decision, err := EvaluateImplementationGate(repo, ContractScope{
-		SpecPath:    "specs/workflow_artifact_lifecycle.md",
-		FeaturePath: "features/workflow_artifact_lifecycle.feature",
-		ScenarioID:  "SCN-018",
-	})
-	if err != nil {
-		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
-	}
-	if decision.Approved {
-		t.Fatalf("expected pending contract to fail closed despite legacy specs/.approved marker")
-	}
-	if !strings.Contains(decision.Reason, "human approval is still required") {
-		t.Fatalf("expected human approval required message, got %q", decision.Reason)
-	}
-}
-
-func TestSCN018_ScopedApprovalAllowsImplementationGate(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_ScopedApprovalAllowsImplementationGate
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-018\n")
-
-	decision, err := EvaluateImplementationGate(repo, workflowArtifactLifecycleScope())
-	if err != nil {
-		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
-	}
-	if !decision.Approved {
-		t.Fatalf("expected scoped approval to allow implementation gate, got reason %q", decision.Reason)
-	}
-	if !strings.Contains(decision.Reason, "scoped human approval recorded") {
-		t.Fatalf("expected scoped approval reason, got %q", decision.Reason)
-	}
-}
-
-func TestSCN018_FeatureQualifiedScopedApprovalAllowsImplementationGate(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_FeatureQualifiedScopedApprovalAllowsImplementationGate
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "features/workflow_artifact_lifecycle.feature#SCN-018\n")
-
-	decision, err := EvaluateImplementationGate(repo, workflowArtifactLifecycleScope())
-	if err != nil {
-		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
-	}
-	if !decision.Approved {
-		t.Fatalf("expected feature-qualified scoped approval to allow implementation gate, got reason %q", decision.Reason)
-	}
-}
-
-func TestSCN018_MissingScopedApprovalFileFailsClosed(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_MissingScopedApprovalFileFailsClosed
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	decision, err := EvaluateImplementationGate(t.TempDir(), workflowArtifactLifecycleScope())
-	if err != nil {
-		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
-	}
-	if decision.Approved {
-		t.Fatalf("expected missing scoped approval file to fail closed")
-	}
-}
-
-func TestSCN018_UnreadableScopedApprovalFileReturnsError(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_UnreadableScopedApprovalFileReturnsError
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	repo := t.TempDir()
-	approvalPath := filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved")
-	if err := os.MkdirAll(approvalPath, 0o755); err != nil {
-		t.Fatalf("create unreadable approval path: %v", err)
-	}
-
-	if _, err := EvaluateImplementationGate(repo, workflowArtifactLifecycleScope()); err == nil {
-		t.Fatalf("expected unreadable scoped approval path to return an error")
-	}
-}
-
-func TestSCN018_MalformedScopedApprovalFileReturnsError(t *testing.T) {
-	// REQ-015 → SCN-018 → TestSCN018_MalformedScopedApprovalFileReturnsError
-	// Scenario: Pending generated contracts do not pass the implementation gate
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), strings.Repeat("x", 65*1024))
-
-	if _, err := EvaluateImplementationGate(repo, workflowArtifactLifecycleScope()); err == nil {
-		t.Fatalf("expected malformed scoped approval file to return an error")
-	}
-}
-
 func TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios(t *testing.T) {
 	// REQ-001 → SCN-324 → TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios
 	// Scenario: A valid feature approval record authorizes its approved scenarios
@@ -327,6 +233,38 @@ func TestSCN327_PartialHumanApprovalSelectsOnlyEligibleScenarios(t *testing.T) {
 	}
 }
 
+func TestSCN328_LegacyArtifactsDoNotAuthorizeOrAffectReview(t *testing.T) {
+	// REQ-002 → SCN-328 → TestSCN328_LegacyArtifactsDoNotAuthorizeOrAffectReview
+	// Scenario: Legacy markers do not authorize a workflow
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-328\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "hard_spec.approved"), "SCN-328\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "[GREEN] SCN-328\n")
+
+	decision, err := EvaluateImplementationGate(repo, ContractScope{
+		SpecPath:    "specs/hard_spec.md",
+		FeaturePath: "features/unified-workflow-authority.feature",
+		ScenarioID:  "SCN-328",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if decision.Approved || decision.Reason != "approval record is missing" {
+		t.Errorf("legacy approval artifacts produced decision %#v, want fresh-flow missing approval", decision)
+	}
+
+	mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-328\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: unified-workflow-authority\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/unified-workflow-authority.feature\nscenario_ids:\n  - SCN-328\nworktree: "+repo+"\nstatus: in_progress\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-328\n")
+	review, err := ReviewCurrentSubmission(repo)
+	if err != nil {
+		t.Fatalf("ReviewCurrentSubmission returned error: %v", err)
+	}
+	if !review.Passed || len(review.Warnings) != 0 {
+		t.Errorf("legacy artifacts affected review result: %#v", review)
+	}
+}
+
 const validSCN325ApprovalRecord = `format: rotta.feature-approval/v2
 contract_id: unified-workflow-authority
 status: approved
@@ -352,14 +290,6 @@ func committedApprovalBaseline(t *testing.T) (string, string) {
 	runGit(t, repo, "add", "baseline")
 	runGit(t, repo, "commit", "-m", "test: approved contract baseline")
 	return repo, runGitOutput(t, repo, "rev-parse", "HEAD")
-}
-
-func workflowArtifactLifecycleScope() ContractScope {
-	return ContractScope{
-		SpecPath:    "specs/workflow_artifact_lifecycle.md",
-		FeaturePath: "features/workflow_artifact_lifecycle.feature",
-		ScenarioID:  "SCN-018",
-	}
 }
 
 func mustWrite(t *testing.T, path, content string) {
