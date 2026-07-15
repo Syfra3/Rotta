@@ -503,6 +503,21 @@ func TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes(t *testi
 	})
 }
 
+// REQ-007 → SCN-347 → TestSCN347_Phase3RequiresValidApprovedCommittedAuthority
+func TestSCN347_Phase3RequiresValidApprovedCommittedAuthority(t *testing.T) {
+	// Scenario: Phase 3 starts only from valid approved committed authority
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Before delegating Phase 3, require approved Gherkin",
+		"valid matching feature confirmation record",
+		"committed baseline",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
