@@ -377,6 +377,142 @@ func TestSCN314_RejectsUnverifiableApprovalInputs(t *testing.T) {
 	}
 }
 
+// REQ-046, REQ-051 → SCN-314 → TestSCN314_ReportsBaselineCheckpointFailures
+func TestSCN314_ReportsBaselineCheckpointFailures(t *testing.T) {
+	// Scenario: Checkpoint an explicitly approved feature contract
+	for _, testCase := range []struct {
+		name       string
+		prepare    func(t *testing.T, repo string)
+		gitFailure string
+		wantError  string
+	}{
+		{
+			name: "approval directory cannot be created",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "specs", "approvals"), "not a directory\n")
+			},
+			wantError: "create feature-scoped approval directory",
+		},
+		{
+			name: "approval record cannot be written",
+			prepare: func(t *testing.T, repo string) {
+				if err := os.MkdirAll(filepath.Join(repo, "specs", "approvals", "worktree-handoff.yaml"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantError: "write feature-scoped approval record",
+		},
+		{
+			name:       "staging fails",
+			gitFailure: "add",
+			wantError:  "stage approved contract baseline",
+		},
+		{
+			name:       "checkpoint commit fails",
+			gitFailure: "commit",
+			wantError:  "create approved contract baseline checkpoint",
+		},
+		{
+			name:       "checkpoint identity cannot be read",
+			gitFailure: "rev-parse",
+			wantError:  "read approved contract baseline checkpoint",
+		},
+		{
+			name: "current workflow state is invalid",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "invalid state\n")
+			},
+			wantError: "current workflow state",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN248Repository(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+			mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-314\n")
+			if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-314"}}); err != nil {
+				t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+			}
+			if testCase.prepare != nil {
+				testCase.prepare(t, repo)
+			}
+			if testCase.gitFailure != "" {
+				installSCN314GitFailure(t, testCase.gitFailure)
+			}
+
+			_, err := CheckpointApprovedContractBaseline(repo, ApprovedContractBaselineRequest{
+				Submission:        NewImplementationSubmission{WorktreePath: repo, BaseBranch: "main", FeatureBranch: "feature/worktree-handoff"},
+				SpecPath:          "specs/hard_spec.md",
+				FeaturePath:       "features/feature_worktree_lifecycle.feature",
+				ApprovedScenarios: []string{"SCN-314"},
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("CheckpointApprovedContractBaseline error = %v, want %q", err, testCase.wantError)
+			}
+		})
+	}
+}
+
+// REQ-046, REQ-051 → SCN-314 → TestSCN314_CheckpointsWithCurrentApprovalTime
+func TestSCN314_CheckpointsWithCurrentApprovalTime(t *testing.T) {
+	// Scenario: Checkpoint an explicitly approved feature contract
+	repo := prepareSCN248Repository(t)
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-314\n")
+	if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-314"}}); err != nil {
+		t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+	}
+	if _, err := CheckpointApprovedContractBaseline(repo, ApprovedContractBaselineRequest{Submission: NewImplementationSubmission{WorktreePath: repo, BaseBranch: "main", FeatureBranch: "feature/worktree-handoff"}, SpecPath: "specs/hard_spec.md", FeaturePath: "features/feature_worktree_lifecycle.feature", ApprovedScenarios: []string{"SCN-314"}}); err != nil {
+		t.Fatalf("CheckpointApprovedContractBaseline returned error: %v", err)
+	}
+}
+
+// REQ-046, REQ-051 → SCN-314 → TestSCN314_ReportsStateRecordingFailures
+func TestSCN314_ReportsStateRecordingFailures(t *testing.T) {
+	// Scenario: Checkpoint an explicitly approved feature contract
+	for _, testCase := range []struct {
+		name     string
+		contents string
+	}{
+		{name: "current state is missing"},
+		{name: "current state is malformed", contents: "invalid state\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN248Repository(t)
+			if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-314"}}); err != nil {
+				t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+			}
+			statePath := filepath.Join(repo, ".rotta", "current", "state.yaml")
+			if testCase.contents == "" {
+				if err := os.Remove(statePath); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				mustWrite(t, statePath, testCase.contents)
+			}
+
+			err := recordCurrentSubmissionBaseline(repo, ApprovedContractBaseline{CommitID: "checkpoint"})
+			if err == nil || !strings.Contains(err.Error(), "current workflow state") {
+				t.Fatalf("recordCurrentSubmissionBaseline error = %v, want current workflow state failure", err)
+			}
+		})
+	}
+}
+
+func installSCN314GitFailure(t *testing.T, command string) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "git")
+	content := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = %q ]; then\n  printf 'forced %s failure\\n' >&2\n  exit 1\nfi\nexec %q \"$@\"\n", command, command, git)
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // REQ-046, REQ-048 → SCN-315 → TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline
 func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.T) {
 	// Scenario: Refuse implementation without a matching approved baseline
@@ -416,6 +552,24 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 			wantReason: "approved contract has changed after its baseline checkpoint",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
 				mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-315\nchanged\n")
+			},
+		},
+		{
+			name:       "approval record omits a contract fingerprint",
+			wantReason: "approved contract has changed after its baseline checkpoint",
+			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
+				mustWrite(t, filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-315\ncontract_fingerprints:\n  specs/hard_spec.md: "+mustContractFingerprint(t, repo, "specs/hard_spec.md")+"\n")
+				state.ApprovalRecordFingerprint = mustContractFingerprint(t, repo, state.ApprovalRecordPath)
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
+			},
+		},
+		{
+			name:       "approval record differs from its checkpoint",
+			wantReason: "approved contract has changed after its baseline checkpoint",
+			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
+				mustWrite(t, filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-315\ncontract_fingerprints:\n  specs/hard_spec.md: "+mustContractFingerprint(t, repo, "specs/hard_spec.md")+"\n  features/feature_worktree_lifecycle.feature: "+mustContractFingerprint(t, repo, "features/feature_worktree_lifecycle.feature")+"\nchanged: true\n")
+				state.ApprovalRecordFingerprint = mustContractFingerprint(t, repo, state.ApprovalRecordPath)
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
 			},
 		},
 		{
