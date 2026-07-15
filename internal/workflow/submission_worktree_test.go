@@ -358,6 +358,74 @@ func TestSCN318_SendsFinalCleanCheckpointToReviewWithoutPublication(t *testing.T
 	}
 }
 
+// REQ-048 → SCN-319 → TestSCN319_HaltsOnRequiredGateFailureWithoutCheckpointing
+func TestSCN319_HaltsOnRequiredGateFailureWithoutCheckpointing(t *testing.T) {
+	// Scenario: Halt autonomously without discarding evidence or user changes
+	repo := prepareSCN317ApprovedBaseline(t)
+	mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() { _ = 3 }\n")
+
+	started := false
+	_, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+		ScenarioID:       "SCN-317",
+		ExpectedPaths:    []string{"scenario.go"},
+		RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+		TDDComplete:      true,
+		TestsPassed:      false,
+		ValidationPassed: true,
+		StartNextScenario: func(string) error {
+			started = true
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "required tests") || !strings.Contains(err.Error(), "recovery:") {
+		t.Fatalf("boundary error=%v, want required-test failure with safe recovery", err)
+	}
+	if started {
+		t.Fatal("boundary started the next scenario after a required-test failure")
+	}
+	if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+		t.Fatalf("checkpoint commits=%s, want no checkpoint after failure", commits)
+	}
+	if status := runGitOutput(t, repo, "status", "--short"); status != "M scenario.go" {
+		t.Fatalf("status=%q, want the user change preserved", status)
+	}
+}
+
+// REQ-048 → SCN-319 → TestSCN319_HaltsOnFeatureWorktreeIdentityFailure
+func TestSCN319_HaltsOnFeatureWorktreeIdentityFailure(t *testing.T) {
+	// Scenario: Halt autonomously without discarding evidence or user changes
+	repo := prepareSCN317ApprovedBaseline(t)
+	runGit(t, repo, "checkout", "--detach")
+
+	started := false
+	_, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+		ScenarioID:       "SCN-317",
+		ExpectedPaths:    []string{"scenario.go"},
+		RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "main",
+			FeatureBranch: "feature/feature-worktree-lifecycle",
+		},
+		StartNextScenario: func(string) error {
+			started = true
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "attached feature branch") || !strings.Contains(err.Error(), "recovery:") {
+		t.Fatalf("boundary error=%v, want worktree identity failure with safe recovery", err)
+	}
+	if started {
+		t.Fatal("boundary started the next scenario after an identity failure")
+	}
+	if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+		t.Fatalf("checkpoint commits=%s, want no checkpoint after identity failure", commits)
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
