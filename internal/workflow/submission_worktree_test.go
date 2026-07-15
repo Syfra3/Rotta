@@ -51,6 +51,38 @@ func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktr
 	}
 }
 
+// REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseReportsContractWriteFailure
+func TestSCN312_BeginSpecificationPhaseReportsContractWriteFailure(t *testing.T) {
+	// Scenario: Prepare the isolated feature worktree before specification writes
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	runGit(t, initiatingWorktree, "add", "README.md")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish specification write failure base")
+
+	submission, err := BeginSpecificationPhase(initiatingWorktree, NewImplementationSubmissionRequest{
+		Slug:              "feature-lifecycle",
+		IntegrationBranch: "main",
+	}, func(string) error {
+		return fmt.Errorf("contract storage unavailable")
+	})
+	if err == nil || !strings.Contains(err.Error(), "write specification contract in recorded feature worktree: contract storage unavailable") {
+		t.Fatalf("BeginSpecificationPhase error = %v, want recorded-worktree contract write failure", err)
+	}
+	if submission != (NewImplementationSubmission{}) {
+		t.Fatalf("submission = %#v, want no submission after contract write failure", submission)
+	}
+	if _, err := os.Stat(filepath.Join(initiatingWorktree, "specs")); !os.IsNotExist(err) {
+		t.Fatalf("initiating worktree received specification artifact: %v", err)
+	}
+}
+
 // REQ-045, REQ-048 → SCN-313 → TestSCN313_PrepareFeatureWorktreeStopsSafelyWhenIsolationIsUnsafe
 func TestSCN313_PrepareFeatureWorktreeStopsSafelyWhenIsolationIsUnsafe(t *testing.T) {
 	// Scenario: Stop before specification when isolation is unsafe
