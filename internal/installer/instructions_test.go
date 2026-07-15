@@ -315,6 +315,20 @@ func TestSCN333_ReviewWorkReturnsEvidenceWithoutAdvancingLifecycleState(t *testi
 	}
 }
 
+// REQ-003 → SCN-334 → TestSCN334_LateOrDirectPhaseAgentOutputCannotAdvanceWorkflow
+func TestSCN334_LateOrDirectPhaseAgentOutputCannotAdvanceWorkflow(t *testing.T) {
+	// Scenario: Late or direct phase-agent output cannot advance the workflow
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Direct, retried, or late phase-agent output never independently advances lifecycle state",
+		"Before accepting any phase-agent result, validate it against approved scope and required evidence",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
