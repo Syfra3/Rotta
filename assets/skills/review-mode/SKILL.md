@@ -76,9 +76,7 @@ An explicitly empty critical-function list makes that coverage sub-gate
 ## Decision Report
 
 Emit review evidence and the decision using the configured reporting and
-remediation outcome for every evaluated gate. Include the resolved canonical
-configuration identity and each configured command result so the decision is
-auditable.
+remediation outcome for every evaluated gate. Include the resolved configuration identity or fingerprint and configured command outcomes sufficient to audit the decision.
 
 ---
 
