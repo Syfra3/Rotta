@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -375,6 +376,100 @@ func TestSCN316_DelegatesOnlyTheRecordedApprovedScenarioWithRequiredEvidence(t *
 		if !containsPath(delegation.RequiredEvidence, evidence) {
 			t.Fatalf("delegation evidence=%v, missing %q", delegation.RequiredEvidence, evidence)
 		}
+	}
+}
+
+// REQ-047 → SCN-316 → TestSCN316_StopsUnsafeOrFailedDelegationBeforeEvidenceCanAdvance
+func TestSCN316_StopsUnsafeOrFailedDelegationBeforeEvidenceCanAdvance(t *testing.T) {
+	// Scenario: Run exactly one approved scenario through its required evidence and gate boundary
+	for _, testCase := range []struct {
+		name      string
+		prepare   func(t *testing.T, repo string)
+		delegate  func(ApprovedScenarioDelegation) error
+		wantError string
+	}{
+		{
+			name:      "missing delegate",
+			wantError: "approved scenario delegation requires a delegate",
+		},
+		{
+			name: "different recorded worktree",
+			prepare: func(t *testing.T, repo string) {
+				current, err := LoadCurrentSubmission(repo)
+				if err != nil {
+					t.Fatalf("LoadCurrentSubmission returned error: %v", err)
+				}
+				current.Manifest.Worktree = t.TempDir()
+				mustWrite(t, current.ManifestPath, serializeCurrentSubmissionManifest(current.Manifest))
+			},
+			delegate:  func(ApprovedScenarioDelegation) error { return nil },
+			wantError: "verify recorded feature-worktree identity before checkpointing",
+		},
+		{
+			name: "missing recorded worktree",
+			prepare: func(t *testing.T, repo string) {
+				current, err := LoadCurrentSubmission(repo)
+				if err != nil {
+					t.Fatalf("LoadCurrentSubmission returned error: %v", err)
+				}
+				current.Manifest.Worktree = filepath.Join(t.TempDir(), "missing-worktree")
+				mustWrite(t, current.ManifestPath, serializeCurrentSubmissionManifest(current.Manifest))
+			},
+			delegate:  func(ApprovedScenarioDelegation) error { return nil },
+			wantError: "verify recorded feature-worktree identity",
+		},
+		{
+			name:      "delegate failure",
+			delegate:  func(ApprovedScenarioDelegation) error { return fmt.Errorf("delegate failed") },
+			wantError: "delegate failed",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN316ApprovedBaseline(t)
+			if testCase.prepare != nil {
+				testCase.prepare(t, repo)
+			}
+
+			delegated := false
+			delegate := testCase.delegate
+			if delegate != nil {
+				delegate = func(delegation ApprovedScenarioDelegation) error {
+					delegated = true
+					return testCase.delegate(delegation)
+				}
+			}
+			_, err := RunNextApprovedScenario(repo, ApprovedScenarioRunRequest{ScenarioID: "SCN-316", Delegate: delegate})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("RunNextApprovedScenario error = %v, want %q", err, testCase.wantError)
+			}
+			if testCase.name == "different recorded worktree" && delegated {
+				t.Fatal("delegated after recorded feature-worktree identity failure")
+			}
+		})
+	}
+}
+
+// REQ-047 → SCN-316 → TestSCN316_RejectsUnrecordedScenarioBeforeDelegation
+func TestSCN316_RejectsUnrecordedScenarioBeforeDelegation(t *testing.T) {
+	// Scenario: Run exactly one approved scenario through its required evidence and gate boundary
+	repo := prepareSCN316ApprovedBaseline(t)
+	delegated := false
+
+	decision, err := RunNextApprovedScenario(repo, ApprovedScenarioRunRequest{
+		ScenarioID: "SCN-317",
+		Delegate: func(ApprovedScenarioDelegation) error {
+			delegated = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunNextApprovedScenario returned error: %v", err)
+	}
+	if decision.Allowed || !strings.Contains(decision.Reason, "next scenario is not recorded") {
+		t.Fatalf("decision=%#v, want unrecorded scenario refusal", decision)
+	}
+	if delegated {
+		t.Fatal("delegated an unrecorded scenario")
 	}
 }
 
