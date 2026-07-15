@@ -230,6 +230,55 @@ func TestSCN363_RequirementTagMismatchBlocksWorkflowProgress(t *testing.T) {
 	}
 }
 
+func TestSCN364_DuplicateScenarioIdentityBlocksAuthorization(t *testing.T) {
+	// REQ-001 → SCN-364 → TestSCN364_DuplicateScenarioIdentityBlocksAuthorization
+	// Scenario: Duplicate approved scenario identity blocks authorization
+	for _, test := range []struct {
+		name              string
+		duplicateEntry    string
+		otherActiveRecord string
+	}{
+		{
+			name:           "duplicated in feature scoped record",
+			duplicateEntry: "  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n",
+		},
+		{
+			name:              "present in another active feature record",
+			otherActiveRecord: "format: rotta.feature-approval/v2\ncontract_id: other\nstatus: approved\nfeature_paths:\n  - features/other.feature\napproved_scenarios:\n  - feature_path: features/other.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, baseline := committedApprovalBaseline(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-364 @REQ-001\nScenario: duplicate identity\n")
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n" + test.duplicateEntry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+			if test.otherActiveRecord != "" {
+				mustWrite(t, filepath.Join(repo, "specs", "approvals", "other.yaml"), test.otherActiveRecord)
+			}
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-364"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected duplicate scenario identity to block authorization")
+			}
+			if decision.Reason != "duplicate approved-scenario identity" {
+				t.Fatalf("reason = %q, want duplicate scenario identity", decision.Reason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason

@@ -15,6 +15,7 @@ var errMalformedScenarioReference = errors.New("malformed approved-scenario refe
 var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario feature path")
 var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did not resolve exactly once")
 var errScenarioRequirementIDsMismatch = errors.New("approved-scenario requirement IDs do not match feature requirement tags")
+var errDuplicateScenarioIdentity = errors.New("duplicate approved-scenario identity")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -63,6 +64,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errScenarioRequirementIDsMismatch) {
 			return ImplementationGateDecision{Reason: "approved-scenario requirement IDs do not match feature requirement tags"}, nil
+		}
+		if errors.Is(err, errDuplicateScenarioIdentity) {
+			return ImplementationGateDecision{Reason: "duplicate approved-scenario identity"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -126,20 +130,24 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	entryScenarioID := ""
 	entryRequirementIDs := []string(nil)
 	approvedRequirementIDs := []string(nil)
+	scopedScenarioIdentities := 0
 	entryFields := map[string]bool{}
 	inScenarioEntry := false
+	entryValidated := false
 	malformedScenarioReference := false
 	invalidScenarioFeaturePath := false
 	validateScenarioEntry := func() {
-		if !inScenarioEntry {
+		if !inScenarioEntry || entryValidated {
 			return
 		}
+		entryValidated = true
 		for _, field := range []string{"feature_path", "scenario_id", "requirement_ids"} {
 			if !entryFields[field] {
 				malformedScenarioReference = true
 			}
 		}
 		if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
+			scopedScenarioIdentities++
 			approved = true
 			approvedRequirementIDs = entryRequirementIDs
 		}
@@ -195,6 +203,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		if value, ok := strings.CutPrefix(line, "- "); ok {
 			validateScenarioEntry()
 			inScenarioEntry = true
+			entryValidated = false
 			entryFields = map[string]bool{}
 			entryLine = value
 		}
@@ -256,6 +265,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	if !hasFeatureIdentity || !approved {
 		return false, true, errApprovalScopeMismatch
 	}
+	if scopedScenarioIdentities != 1 || duplicateScenarioIDInAnotherActiveRecord(repoRoot, featureApprovalPath(scope.FeaturePath), scope.ScenarioID) {
+		return false, true, errDuplicateScenarioIdentity
+	}
 	if submissionWorktree != "" && filepath.Clean(submissionWorktree) != filepath.Clean(repoRoot) {
 		return false, true, errApprovalScopeMismatch
 	}
@@ -286,6 +298,37 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		}
 	}
 	return true, true, nil
+}
+
+func duplicateScenarioIDInAnotherActiveRecord(repoRoot, approvalPath, scenarioID string) bool {
+	entries, err := os.ReadDir(filepath.Join(repoRoot, "specs", "approvals"))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" || filepath.Join("specs", "approvals", entry.Name()) == approvalPath {
+			continue
+		}
+		file, err := os.Open(filepath.Join(repoRoot, "specs", "approvals", entry.Name()))
+		if err != nil {
+			continue
+		}
+		canonical := false
+		active := false
+		containsScenarioID := false
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			canonical = canonical || line == "format: rotta.feature-approval/v2"
+			active = active || line == "status: approved"
+			containsScenarioID = containsScenarioID || line == "scenario_id: "+scenarioID
+		}
+		file.Close()
+		if canonical && active && containsScenarioID {
+			return true
+		}
+	}
+	return false
 }
 
 func parseRequirementIDs(value string) []string {
