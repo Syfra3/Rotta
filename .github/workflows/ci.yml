@@ -23,5 +23,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+
+      - name: Install Claude Code
+        run: npm install --global @anthropic-ai/claude-code
+
+      - name: Record Claude compatibility evidence
+        run: |
+          go test ./internal/installer -run '^TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents$'
+          {
+            echo "## Claude compatibility verification"
+            echo "Claude compatibility verification: PASS"
+            echo '```text'
+            claude --version
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run verification gate
         run: make verify
