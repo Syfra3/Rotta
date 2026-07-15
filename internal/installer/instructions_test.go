@@ -360,6 +360,21 @@ func TestSCN336_ExplicitHumanApprovalCompletesReviewedSnapshot(t *testing.T) {
 	})
 }
 
+// REQ-004 → SCN-337 → TestSCN337_ChangedOrInvalidatedReviewedSnapshotCannotComplete
+func TestSCN337_ChangedOrInvalidatedReviewedSnapshotCannotComplete(t *testing.T) {
+	// Scenario: A changed or invalidated reviewed snapshot cannot complete
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"later code change, manual commit, amendment, rebase, dirty code change, or subsequent review failure",
+		"does not complete from the stale reviewed commit",
+		"returns the feature to review before completion can be possible",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
