@@ -105,6 +105,25 @@ func TestSCN354_CIRecordsClaudeVersionAndCompatibilityResult(t *testing.T) {
 	})
 }
 
+// REQ-008 → SCN-355 → TestSCN355_UnverifiableClaudeCompatibilityClaimFailsCI
+func TestSCN355_UnverifiableClaudeCompatibilityClaimFailsCI(t *testing.T) {
+	// Scenario: An unverifiable Claude compatibility claim fails in CI
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workflow := string(data)
+	assertContainsAll(t, workflow, []string{
+		"set -euo pipefail",
+		`claude_version="$(claude --version)"`,
+		`echo "$claude_version"`,
+	})
+	if strings.Index(workflow, "Claude compatibility verification: PASS") < strings.Index(workflow, `echo "$claude_version"`) {
+		t.Fatal("CI reports Claude support as verified before version evidence is recorded")
+	}
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
