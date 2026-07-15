@@ -30,12 +30,15 @@ type CurrentSubmissionManifest struct {
 }
 
 type CurrentSubmissionState struct {
-	Phase           string
-	CompletedWork   []string
-	RemainingWork   []string
-	BlockedWork     []string
-	LastAction      string
-	SafeResumePoint string
+	Phase                     string
+	CompletedWork             []string
+	RemainingWork             []string
+	BlockedWork               []string
+	LastAction                string
+	SafeResumePoint           string
+	BaselineCheckpoint        string
+	ApprovalRecordPath        string
+	ApprovalRecordFingerprint string
 }
 
 type CurrentSubmission struct {
@@ -281,9 +284,12 @@ func parseCurrentSubmissionState(contents string) (CurrentSubmissionState, error
 	var state CurrentSubmissionState
 	if err := parseCurrentSubmissionDocument(contents,
 		map[string]*string{
-			"phase":             &state.Phase,
-			"last_action":       &state.LastAction,
-			"safe_resume_point": &state.SafeResumePoint,
+			"phase":                       &state.Phase,
+			"last_action":                 &state.LastAction,
+			"safe_resume_point":           &state.SafeResumePoint,
+			"baseline_checkpoint":         &state.BaselineCheckpoint,
+			"approval_record_path":        &state.ApprovalRecordPath,
+			"approval_record_fingerprint": &state.ApprovalRecordFingerprint,
 		},
 		map[string]*[]string{
 			"completed_work:": &state.CompletedWork,
@@ -339,13 +345,16 @@ func serializeCurrentSubmissionManifest(manifest CurrentSubmissionManifest) stri
 }
 
 func serializeCurrentSubmissionState(state CurrentSubmissionState) string {
-	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\n",
+	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\nbaseline_checkpoint: %s\napproval_record_path: %s\napproval_record_fingerprint: %s\n",
 		state.Phase,
 		yamlList(state.CompletedWork),
 		yamlList(state.RemainingWork),
 		yamlList(state.BlockedWork),
 		state.LastAction,
 		state.SafeResumePoint,
+		state.BaselineCheckpoint,
+		state.ApprovalRecordPath,
+		state.ApprovalRecordFingerprint,
 	)
 }
 
