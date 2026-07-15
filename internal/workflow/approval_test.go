@@ -128,6 +128,43 @@ func TestSCN360_MalformedStructuredScenarioReferenceBlocksWorkflowProgress(t *te
 	}
 }
 
+func TestSCN361_NonCanonicalScenarioPathBlocksWorkflowProgress(t *testing.T) {
+	// REQ-001 → SCN-361 → TestSCN361_NonCanonicalScenarioPathBlocksWorkflowProgress
+	// Scenario: A non-canonical scenario path cannot authorize a scenario
+	for _, featurePath := range []string{
+		"/features/unified-workflow-authority.feature",
+		"features/../features/unified-workflow-authority.feature",
+		"./features/unified-workflow-authority.feature",
+	} {
+		t.Run(featurePath, func(t *testing.T) {
+			repo, baseline := committedApprovalBaseline(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-361 @REQ-001\nScenario: invalid feature path\n")
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: " + featurePath + "\n    scenario_id: SCN-361\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-361"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected non-canonical approved-scenario feature path to block workflow progress")
+			}
+			if decision.Reason != "approved-scenario feature path is invalid" {
+				t.Fatalf("reason = %q, want invalid approved-scenario feature path", decision.Reason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason

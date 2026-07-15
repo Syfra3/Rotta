@@ -12,6 +12,7 @@ import (
 
 var errMalformedFeatureApproval = errors.New("malformed feature approval record")
 var errMalformedScenarioReference = errors.New("malformed approved-scenario reference")
+var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario feature path")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -51,6 +52,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errMalformedScenarioReference) {
 			return ImplementationGateDecision{Reason: "approved-scenario reference is malformed"}, nil
+		}
+		if errors.Is(err, errInvalidScenarioFeaturePath) {
+			return ImplementationGateDecision{Reason: "approved-scenario feature path is invalid"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -115,6 +119,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	entryFields := map[string]bool{}
 	inScenarioEntry := false
 	malformedScenarioReference := false
+	invalidScenarioFeaturePath := false
 	validateScenarioEntry := func() {
 		if !inScenarioEntry {
 			return
@@ -184,6 +189,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 				malformedScenarioReference = true
 			} else {
 				entryFields[field] = true
+				if field == "feature_path" && !isCanonicalFeaturePath(strings.TrimSpace(value)) {
+					invalidScenarioFeaturePath = true
+				}
 			}
 		}
 		if value, ok := strings.CutPrefix(line, "- scenario_id: "); ok {
@@ -217,6 +225,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		return false, true, err
 	}
 	validateScenarioEntry()
+	if invalidScenarioFeaturePath {
+		return false, true, errInvalidScenarioFeaturePath
+	}
 	if malformedScenarioReference {
 		return false, true, errMalformedScenarioReference
 	}
@@ -248,6 +259,15 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		return false, true, errApprovalBaselineUnreachable
 	}
 	return true, true, nil
+}
+
+func isCanonicalFeaturePath(path string) bool {
+	return path != "" &&
+		filepath.ToSlash(path) == path &&
+		!filepath.IsAbs(path) &&
+		filepath.Clean(path) == path &&
+		path != "." &&
+		!strings.HasPrefix(path, "../")
 }
 
 func approvalBaselineIsCommitted(repoRoot, baselineCommit string) bool {
