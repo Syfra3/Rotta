@@ -1,6 +1,6 @@
 ---
 name: rotta-review
-description: "Rotta — Judge. Metrics-based quality auditor. No line-by-line code review. Reads evidence, not code. Saves verdict."
+description: "Rotta — Judge. Metrics-based quality auditor. No line-by-line code review. Reads evidence, not code."
 model: inherit
 user-invocable: false
 mode: subagent
@@ -153,7 +153,6 @@ judge_decision:
   architecture_violations: 0
   complexity_violations: 0
   unauthorized_files: 0
-  next: feature_complete | tdd_craftsman | human_escalation
   remediation: |
     <specific instructions for TDD Craftsman — which scenarios need stronger tests,
     which mutations survived, which boundaries are uncovered>
@@ -161,27 +160,9 @@ judge_decision:
 
 ---
 
-## Save the State Index (not the full verdict)
+## Delegated Review Boundary
 
-The file `reports/judge_report.md` IS the source of truth — write the full verdict there.
-If Ancora is enabled by the generated integration instructions for this installation, it holds only the state index:
-
-```
-ancora_save:
-  title: "rotta/{project}/review — {status}"
-  type: decision
-  scope: project
-  topic_key: rotta/{project}/judge-report
-  content:
-    report_file: reports/judge_report.md   ← pointer only
-    status: pass | fail | escalate
-    failing_gates: [<gate_name>, ...]      ← empty on pass
-    mutation_score: 84.1
-    next: feature_complete | tdd_craftsman | human_escalation
-    remediation_summary: "<one sentence>"  ← never the full content
-```
-
-Then report back to the orchestrator with the verdict summary and next action.
+When review finishes, it returns pass, fail, or escalation evidence. Review Mode does not change approval, current-submission, lifecycle state, checkpoints, commits, or completion. It returns evidence only; the orchestrator validates and persists any lifecycle decision.
 
 ---
 
