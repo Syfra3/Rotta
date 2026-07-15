@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.9.0](https://github.com/Syfra3/Rotta/compare/v1.8.1...v1.9.0) (2026-07-15)
+
+
+### Features
+
+* add OpenCode reset target ([afb0dc6](https://github.com/Syfra3/Rotta/commit/afb0dc64229e2924abf1666e6d522f95dda4dafd))
+* add reset config opencode ([5861fcb](https://github.com/Syfra3/Rotta/commit/5861fcb5e4662be94d8d5e6162d7d8f5e3813d09))
+* apply proportional workflow policy ([5dcf2e4](https://github.com/Syfra3/Rotta/commit/5dcf2e47b558d97bcb7e19efdc7705e734968db3))
+* apply proportional workflow policy ([d188773](https://github.com/Syfra3/Rotta/commit/d188773877dc02eaedab251dc718dc782f78faec))
+* reset default OpenCode state ([aa43552](https://github.com/Syfra3/Rotta/commit/aa43552b307204aa11a3ad892976b9e3b75f8cb6))
+
+
+### Documentation
+
+* add OpenCode reset contract ([f114e32](https://github.com/Syfra3/Rotta/commit/f114e32e592d15107f8560c1ec6058359458252f))
+
 ## [1.8.1](https://github.com/Syfra3/Rotta/compare/v1.8.0...v1.8.1) (2026-07-14)
 
 
