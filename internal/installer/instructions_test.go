@@ -329,6 +329,21 @@ func TestSCN334_LateOrDirectPhaseAgentOutputCannotAdvanceWorkflow(t *testing.T) 
 	})
 }
 
+// REQ-004 → SCN-335 → TestSCN335_ObjectiveReviewSuccessEntersFinalHumanReview
+func TestSCN335_ObjectiveReviewSuccessEntersFinalHumanReview(t *testing.T) {
+	// Scenario: Objective review success enters final human review rather than completion
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"records that committed implementation snapshot as reviewed_commit",
+		"transitions the feature durably to final_human_review",
+		"does not mark the feature complete",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
