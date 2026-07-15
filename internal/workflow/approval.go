@@ -27,6 +27,21 @@ type ImplementationGateDecision struct {
 	Reason   string
 }
 
+func SelectApprovedScenarios(repoRoot string, scope ContractScope, scenarios []string) ([]string, error) {
+	selected := make([]string, 0, len(scenarios))
+	for _, scenarioID := range scenarios {
+		scope.ScenarioID = scenarioID
+		decision, err := EvaluateImplementationGate(repoRoot, scope)
+		if err != nil {
+			return nil, err
+		}
+		if decision.Approved {
+			selected = append(selected, scenarioID)
+		}
+	}
+	return selected, nil
+}
+
 func EvaluateImplementationGate(repoRoot string, scope ContractScope) (ImplementationGateDecision, error) {
 	approved, err := scopedApprovalContains(repoRoot, scope)
 	if err != nil {
