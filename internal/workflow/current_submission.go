@@ -208,8 +208,24 @@ func ArchiveTerminalCurrentSubmission(repoRoot string, featureChangesCommitted b
 	return nil
 }
 
+// ArchiveTerminalFeatureWorkflow archives a terminal review's active execution
+// state while preserving its recorded feature worktree, branch, and contracts.
+func ArchiveTerminalFeatureWorkflow(repoRoot string) error {
+	submission, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return err
+	}
+	if submission.Manifest.Worktree != repoRoot {
+		return fmt.Errorf("terminal archive requires the recorded feature worktree")
+	}
+	if !isTerminalCurrentSubmissionStatus(submission.Manifest.Status) {
+		return fmt.Errorf("terminal archive requires a terminal review result")
+	}
+	return ArchiveTerminalCurrentSubmission(repoRoot, true)
+}
+
 func isTerminalCurrentSubmissionStatus(status string) bool {
-	return status == "completed" || status == "abandoned" || status == "cancelled"
+	return status == "completed" || status == "review_failed" || status == "abandoned" || status == "cancelled"
 }
 
 // CleanupExpiredArchivedSubmissions removes only archive directories whose
