@@ -502,6 +502,70 @@ func TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup(t *testin
 	}
 }
 
+// REQ-049 → SCN-322 → TestSCN322_RefusesPrematureOrUnsafeFeatureWorktreeCleanup
+func TestSCN322_RefusesPrematureOrUnsafeFeatureWorktreeCleanup(t *testing.T) {
+	// Scenario: Refuse premature or unsafe feature-worktree cleanup
+	for _, testCase := range []struct {
+		name          string
+		terminalState string
+		dirty         bool
+		wantError     string
+	}{
+		{
+			name:          "reviewed but unpublished",
+			terminalState: "completed",
+			wantError:     "publication confirmation or explicit abandonment is required",
+		},
+		{
+			name:          "unexpected non-ignored changes",
+			terminalState: "published",
+			dirty:         true,
+			wantError:     "non-ignored changes",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			initiatingWorktree := filepath.Join(t.TempDir(), "initiating")
+			if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+				t.Fatalf("create initiating worktree: %v", err)
+			}
+			runGit(t, initiatingWorktree, "init", "-b", "main")
+			runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+			runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+			mustWrite(t, filepath.Join(initiatingWorktree, ".gitignore"), ".rotta/\n")
+			runGit(t, initiatingWorktree, "add", "README.md", ".gitignore")
+			runGit(t, initiatingWorktree, "commit", "-m", "test: establish cleanup refusal base")
+
+			submission, err := PrepareNewImplementationSubmission(initiatingWorktree, NewImplementationSubmissionRequest{Slug: "feature-worktree-lifecycle", IntegrationBranch: "main"})
+			if err != nil {
+				t.Fatalf("PrepareNewImplementationSubmission returned error: %v", err)
+			}
+			mustWrite(t, filepath.Join(submission.WorktreePath, "specs", "hard_spec.md"), "# Approved contract\n")
+			mustWrite(t, filepath.Join(submission.WorktreePath, "features", "feature_worktree_lifecycle.feature"), "@SCN-322\n")
+			runGit(t, submission.WorktreePath, "add", "specs/hard_spec.md", "features/feature_worktree_lifecycle.feature")
+			runGit(t, submission.WorktreePath, "commit", "-m", "test: retain cleanup refusal contract")
+			if _, err := InitializeCurrentSubmission(submission.WorktreePath, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-322"}}); err != nil {
+				t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+			}
+			mustWrite(t, filepath.Join(submission.WorktreePath, ".rotta", "current", "manifest.yaml"), "submission_id: feature-worktree-lifecycle\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/feature_worktree_lifecycle.feature\nscenario_ids:\n  - SCN-322\nworktree: "+submission.WorktreePath+"\nstatus: "+testCase.terminalState+"\n")
+			if testCase.dirty {
+				mustWrite(t, filepath.Join(submission.WorktreePath, "unexpected.txt"), "preserve me\n")
+			}
+
+			err = CleanupTerminalFeatureWorktree(submission.WorktreePath)
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("CleanupTerminalFeatureWorktree error = %v, want %q", err, testCase.wantError)
+			}
+			if _, err := os.Stat(submission.WorktreePath); err != nil {
+				t.Fatalf("recorded feature worktree was removed: %v", err)
+			}
+			if branch := runGitOutput(t, submission.WorktreePath, "branch", "--show-current"); branch != submission.FeatureBranch {
+				t.Fatalf("feature branch = %q, want preserved %q", branch, submission.FeatureBranch)
+			}
+		})
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
