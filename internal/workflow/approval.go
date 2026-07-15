@@ -115,6 +115,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	inFingerprints := false
 	fingerprints := map[string]string{}
 	baselineCommit := ""
+	submissionWorktree := ""
 	entryFeaturePath := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -145,6 +146,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		if value, ok := strings.CutPrefix(line, "baseline_commit: "); ok {
 			baselineCommit = strings.TrimSpace(value)
 		}
+		if value, ok := strings.CutPrefix(line, "submission_worktree: "); ok {
+			submissionWorktree = strings.TrimSpace(value)
+		}
 		if line == "approved_scenarios:" {
 			inApprovedScenarios = true
 			continue
@@ -174,6 +178,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		return false, true, errMalformedFeatureApproval
 	}
 	if !hasFeatureIdentity || !approved {
+		return false, true, errApprovalScopeMismatch
+	}
+	if submissionWorktree != "" && filepath.Clean(submissionWorktree) != filepath.Clean(repoRoot) {
 		return false, true, errApprovalScopeMismatch
 	}
 	for _, path := range []string{scope.SpecPath, scope.FeaturePath} {

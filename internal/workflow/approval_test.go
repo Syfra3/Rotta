@@ -274,6 +274,38 @@ func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T
 	})
 }
 
+func TestSCN326_ApprovalAuthorityIsIsolatedBetweenFeatureWorktrees(t *testing.T) {
+	// REQ-001 → SCN-326 → TestSCN326_ApprovalAuthorityIsIsolatedBetweenFeatureWorktrees
+	// Scenario: Approval authority remains isolated between feature worktrees
+	firstWorktree, firstBaseline := committedApprovalBaseline(t)
+	secondWorktree, secondBaseline := committedApprovalBaseline(t)
+	firstRecord := strings.ReplaceAll(validSCN325ApprovalRecord, "8801bf810c730720f5e01e156bb66c3c3efc4be6", firstBaseline) + "submission_worktree: " + firstWorktree + "\n"
+	secondRecord := strings.ReplaceAll(validSCN325ApprovalRecord, "8801bf810c730720f5e01e156bb66c3c3efc4be6", secondBaseline) + "submission_worktree: " + secondWorktree + "\n"
+
+	mustWrite(t, filepath.Join(firstWorktree, "specs", "approvals", "unified-workflow-authority.yaml"), firstRecord)
+	mustWrite(t, filepath.Join(secondWorktree, "specs", "approvals", "unified-workflow-authority.yaml"), secondRecord)
+	scope := ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-325"}
+	for _, repoRoot := range []string{firstWorktree, secondWorktree} {
+		decision, err := EvaluateImplementationGate(repoRoot, scope)
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if !decision.Approved {
+			t.Fatalf("expected worktree %q to authorize its own record, got reason %q", repoRoot, decision.Reason)
+		}
+	}
+
+	mustWrite(t, filepath.Join(secondWorktree, "specs", "approvals", "unified-workflow-authority.yaml"), firstRecord)
+
+	decision, err := EvaluateImplementationGate(secondWorktree, scope)
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if decision.Approved {
+		t.Fatal("expected another worktree's record with the same scenario ID to be rejected")
+	}
+}
+
 const validSCN325ApprovalRecord = `format: rotta.feature-approval/v2
 contract_id: unified-workflow-authority
 status: approved
