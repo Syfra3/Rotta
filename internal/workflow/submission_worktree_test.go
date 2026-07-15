@@ -1218,6 +1218,26 @@ func TestSCN322_RefusesPrematureOrUnsafeFeatureWorktreeCleanup(t *testing.T) {
 	}
 }
 
+// REQ-049 → SCN-322 → TestSCN322_RefusesCleanupWithoutUsableCurrentSubmission
+func TestSCN322_RefusesCleanupWithoutUsableCurrentSubmission(t *testing.T) {
+	// Scenario: Refuse premature or unsafe feature-worktree cleanup
+	repo := prepareSCN321EligibleCleanupRepository(t)
+	if err := os.Remove(filepath.Join(repo, ".rotta", "current", "manifest.yaml")); err != nil {
+		t.Fatalf("remove current submission manifest: %v", err)
+	}
+
+	err := CleanupTerminalFeatureWorktree(repo)
+	if err == nil || !strings.Contains(err.Error(), "current submission state cannot be safely used") {
+		t.Fatalf("CleanupTerminalFeatureWorktree error = %v, want unusable current-submission refusal", err)
+	}
+	if _, err := os.Stat(repo); err != nil {
+		t.Fatalf("unsafe cleanup removed recorded feature worktree: %v", err)
+	}
+	if branch := runGitOutput(t, repo, "branch", "--show-current"); branch != "feature/feature-worktree-lifecycle" {
+		t.Fatalf("feature branch = %q, want preserved feature worktree branch", branch)
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
