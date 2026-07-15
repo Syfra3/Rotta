@@ -31,13 +31,15 @@ jobs:
 
       - name: Record Claude compatibility evidence
         run: |
+          set -euo pipefail
           go test ./internal/installer -run '^TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents$'
+          claude_version="$(claude --version)"
           {
             echo "## Claude compatibility verification"
-            echo "Claude compatibility verification: PASS"
             echo '```text'
-            claude --version
+            echo "$claude_version"
             echo '```'
+            echo "Claude compatibility verification: PASS"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run verification gate
