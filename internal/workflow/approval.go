@@ -12,6 +12,7 @@ import (
 
 var errMalformedFeatureApproval = errors.New("malformed feature approval record")
 var errMalformedScenarioReference = errors.New("malformed approved-scenario reference")
+var errDisplayScenarioReference = errors.New("approved-scenario reference is not structured authoritative identity")
 var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario feature path")
 var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did not resolve exactly once")
 var errScenarioRequirementIDsMismatch = errors.New("approved-scenario requirement IDs do not match feature requirement tags")
@@ -55,6 +56,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errMalformedScenarioReference) {
 			return ImplementationGateDecision{Reason: "approved-scenario reference is malformed"}, nil
+		}
+		if errors.Is(err, errDisplayScenarioReference) {
+			return ImplementationGateDecision{Reason: "approved-scenario reference is not structured authoritative identity"}, nil
 		}
 		if errors.Is(err, errInvalidScenarioFeaturePath) {
 			return ImplementationGateDecision{Reason: "approved-scenario feature path is invalid"}, nil
@@ -135,6 +139,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	inScenarioEntry := false
 	entryValidated := false
 	malformedScenarioReference := false
+	displayScenarioReference := false
 	invalidScenarioFeaturePath := false
 	validateScenarioEntry := func() {
 		if !inScenarioEntry || entryValidated {
@@ -209,7 +214,11 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		}
 		if field, value, ok := strings.Cut(entryLine, ": "); ok {
 			if field != "feature_path" && field != "scenario_id" && field != "requirement_ids" || entryFields[field] || strings.TrimSpace(value) == "" {
-				malformedScenarioReference = true
+				if field == "scenario_title" || field == "source_line" || field == "scenario" {
+					displayScenarioReference = true
+				} else {
+					malformedScenarioReference = true
+				}
 			} else {
 				entryFields[field] = true
 				if field == "requirement_ids" {
@@ -219,6 +228,8 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 					invalidScenarioFeaturePath = true
 				}
 			}
+		} else if entryLine != "" {
+			displayScenarioReference = true
 		}
 		if value, ok := strings.CutPrefix(line, "- scenario_id: "); ok {
 			entryFeaturePath = ""
@@ -255,6 +266,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	validateScenarioEntry()
 	if invalidScenarioFeaturePath {
 		return false, true, errInvalidScenarioFeaturePath
+	}
+	if displayScenarioReference {
+		return false, true, errDisplayScenarioReference
 	}
 	if malformedScenarioReference {
 		return false, true, errMalformedScenarioReference
