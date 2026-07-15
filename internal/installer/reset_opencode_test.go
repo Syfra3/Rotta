@@ -89,6 +89,54 @@ func TestSCN002_ResetDefaultGlobalLocationsAndReinstallWithoutConfirmation(t *te
 	}
 }
 
+// REQ-003 → SCN-004 → TestSCN004_ResetCustomXDGOpenCodeLocationsWithoutRemovingRoots
+func TestSCN004_ResetCustomXDGOpenCodeLocationsWithoutRemovingRoots(t *testing.T) {
+	// Scenario: Reset custom XDG OpenCode locations without removing their roots
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	configRoot := t.TempDir()
+	dataRoot := t.TempDir()
+	cacheRoot := t.TempDir()
+	for _, root := range []string{configRoot, dataRoot, cacheRoot} {
+		opencodePath := filepath.Join(root, "opencode")
+		if err := os.MkdirAll(opencodePath, 0o755); err != nil {
+			t.Fatalf("create OpenCode directory %q: %v", opencodePath, err)
+		}
+		if err := os.WriteFile(filepath.Join(opencodePath, "state"), []byte("OpenCode state"), 0o600); err != nil {
+			t.Fatalf("write OpenCode state in %q: %v", opencodePath, err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "other-app"), 0o755); err != nil {
+			t.Fatalf("create unrelated directory in %q: %v", root, err)
+		}
+	}
+
+	binDir := t.TempDir()
+	curl := filepath.Join(binDir, "curl")
+	if err := os.WriteFile(curl, []byte("#!/bin/sh\n[ \"$#\" -eq 2 ] && [ \"$1\" = \"-fsSL\" ] && [ \"$2\" = \"https://opencode.ai/install\" ] || exit 1\nprintf '%s\\n' 'touch \"$INSTALLER_MARKER\"'\n"), 0o755); err != nil {
+		t.Fatalf("write fake curl: %v", err)
+	}
+
+	installerMarker := filepath.Join(t.TempDir(), "installer-ran")
+	command := exec.Command("make", "reset-opencode")
+	command.Dir = repoRoot
+	command.Env = append(os.Environ(), "XDG_CONFIG_HOME="+configRoot, "XDG_DATA_HOME="+dataRoot, "XDG_CACHE_HOME="+cacheRoot, "PATH="+binDir+":"+os.Getenv("PATH"), "INSTALLER_MARKER="+installerMarker)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make reset-opencode: %v\n%s", err, output)
+	}
+
+	for _, root := range []string{configRoot, dataRoot, cacheRoot} {
+		if _, err := os.Stat(filepath.Join(root, "opencode")); !os.IsNotExist(err) {
+			t.Errorf("expected custom OpenCode path in %q to be removed, stat error: %v", root, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "other-app")); err != nil {
+			t.Errorf("expected unrelated path in %q to remain: %v", root, err)
+		}
+	}
+	if _, err := os.Stat(installerMarker); err != nil {
+		t.Errorf("expected official installer to run: %v", err)
+	}
+}
+
 func withoutXDG(environment []string) []string {
 	filtered := make([]string, 0, len(environment))
 	for _, entry := range environment {
