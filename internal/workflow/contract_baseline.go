@@ -34,6 +34,62 @@ type ApprovedPhase3Decision struct {
 	Reason  string
 }
 
+type ApprovedScenarioRunRequest struct {
+	ScenarioID string
+	Delegate   func(ApprovedScenarioDelegation) error
+}
+
+type ApprovedScenarioDelegation struct {
+	ScenarioID       string
+	WorktreePath     string
+	RequiredEvidence []string
+}
+
+var requiredApprovedScenarioEvidence = []string{
+	"Red",
+	"Green",
+	"Refactor",
+	"traceable-test",
+	"required-test",
+	"active-gate",
+	"feature-worktree-identity",
+}
+
+// RunNextApprovedScenario delegates exactly the approved next scenario from
+// the recorded feature worktree and supplies its required boundary evidence.
+func RunNextApprovedScenario(repoRoot string, request ApprovedScenarioRunRequest) (ApprovedPhase3Decision, error) {
+	decision, err := BeginApprovedPhase3(repoRoot, ApprovedPhase3Request{ScenarioID: request.ScenarioID})
+	if err != nil || !decision.Allowed {
+		return decision, err
+	}
+	if request.Delegate == nil {
+		return ApprovedPhase3Decision{}, fmt.Errorf("approved scenario delegation requires a delegate")
+	}
+
+	current, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return ApprovedPhase3Decision{}, err
+	}
+	recordedWorktree, err := filepath.EvalSymlinks(current.Manifest.Worktree)
+	if err != nil {
+		return ApprovedPhase3Decision{}, fmt.Errorf("verify recorded feature-worktree identity: %w", err)
+	}
+	actualWorktree, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil || actualWorktree != recordedWorktree {
+		return ApprovedPhase3Decision{}, fmt.Errorf("verify recorded feature-worktree identity before checkpointing")
+	}
+
+	delegation := ApprovedScenarioDelegation{
+		ScenarioID:       request.ScenarioID,
+		WorktreePath:     current.Manifest.Worktree,
+		RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+	}
+	if err := request.Delegate(delegation); err != nil {
+		return ApprovedPhase3Decision{}, err
+	}
+	return decision, nil
+}
+
 // BeginApprovedPhase3 proves the recorded feature-scoped approval baseline
 // before an implementation scenario can be delegated.
 func BeginApprovedPhase3(repoRoot string, request ApprovedPhase3Request) (ApprovedPhase3Decision, error) {
