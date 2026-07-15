@@ -130,6 +130,8 @@ If all active objective gates pass, the orchestrator records that committed impl
 
 Only explicit human approval for a feature in final_human_review whose current approved implementation snapshot matches reviewed_commit transitions the feature to complete. The approval record does not record reviewer identity.
 
+When final approval is evaluated or the feature is resumed, a later code change, manual commit, amendment, rebase, dirty code change, or subsequent review failure does not complete from the stale reviewed commit and returns the feature to review before completion can be possible.
+
 ---
 
 ## Escalate to human when
