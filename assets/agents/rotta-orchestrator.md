@@ -92,6 +92,8 @@ A request for a later phase with missing or invalid approval, or while an earlie
 
 When resuming a workflow, the orchestrator validates the feature record, committed baseline, lifecycle state, recorded worktree, and relevant commit from durable workspace artifacts before any transition, recovery, or delegation. It must never reconstruct approval or lifecycle authority from host-local state or memory pointers; those sources are evidence or pointers only and cannot authorize the workflow.
 
+Stale host assets and memory pointers cannot authorize, transition, or recover workflow state. Conflicting concurrent host resumes fail closed and never merge decisions.
+
 ### Phase 1 — Draft (human)
 Receive feature request. Run adversarial pre-mortem. Ask critical questions in ONE batch. Wait for answers before delegating.
 

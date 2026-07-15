@@ -608,6 +608,20 @@ func TestSCN357_ResumeValidatesDurableWorkspaceAuthority(t *testing.T) {
 	})
 }
 
+// REQ-009 → SCN-358 → TestSCN358_StaleArtifactsAndConcurrentResumesFailClosed
+func TestSCN358_StaleArtifactsAndConcurrentResumesFailClosed(t *testing.T) {
+	// Scenario: Stale host or memory artifacts cannot override canonical workspace state
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Stale host assets and memory pointers cannot authorize, transition, or recover workflow state",
+		"Conflicting concurrent host resumes fail closed and never merge decisions",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
