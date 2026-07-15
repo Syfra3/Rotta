@@ -79,33 +79,8 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 }
 
 func scopedApprovalContains(repoRoot string, scope ContractScope) (bool, error) {
-	approved, found, err := featureApprovalContains(repoRoot, scope)
-	if err != nil || found {
-		return approved, err
-	}
-
-	file, closeFile, err := openRepositoryFile(repoRoot, scopedApprovalPath(scope.SpecPath))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	defer closeFile()
-
-	wantedScenario := strings.TrimSpace(scope.ScenarioID)
-	wantedReference := scope.FeaturePath + "#" + wantedScenario
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == wantedScenario || line == wantedReference {
-			return true, nil
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return false, err
-	}
-	return false, nil
+	approved, _, err := featureApprovalContains(repoRoot, scope)
+	return approved, err
 }
 
 func featureApprovalContains(repoRoot string, scope ContractScope) (approved, found bool, err error) {
@@ -232,11 +207,6 @@ func approvalBaselineIsReachable(repoRoot, baselineCommit string) bool {
 	command := exec.Command("git", "merge-base", "--is-ancestor", baselineCommit, "HEAD")
 	command.Dir = repoRoot
 	return command.Run() == nil
-}
-
-func scopedApprovalPath(specPath string) string {
-	contractID := strings.TrimSuffix(filepath.Base(specPath), filepath.Ext(specPath))
-	return filepath.Join("specs", "approvals", contractID+".approved")
 }
 
 func featureApprovalPath(featurePath string) string {
