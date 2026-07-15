@@ -410,6 +410,20 @@ func TestSCN339_UserInvocableClaudePhaseRequestsRouteThroughOrchestrator(t *test
 	}
 }
 
+// REQ-005 → SCN-340 → TestSCN340_IllegalLaterPhaseRequestDoesNotExecuteDirectly
+func TestSCN340_IllegalLaterPhaseRequestDoesNotExecuteDirectly(t *testing.T) {
+	// Scenario: A request for an illegal later phase cannot execute that phase directly
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"A request for a later phase with missing or invalid approval, or while an earlier phase is required, does not execute that phase directly",
+		"stops or routes the request to the required earlier phase",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

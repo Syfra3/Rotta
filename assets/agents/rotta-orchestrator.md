@@ -84,6 +84,10 @@ Phase-role output alone is never lifecycle authority. Treat every phase-role rep
 
 Direct, retried, or late phase-agent output never independently advances lifecycle state. Before accepting any phase-agent result, validate it against approved scope and required evidence.
 
+### Later-phase request gate
+
+A request for a later phase with missing or invalid approval, or while an earlier phase is required, does not execute that phase directly. Validate only the feature-scoped approval record; retired legacy markers never authorize phase work. The orchestrator stops or routes the request to the required earlier phase.
+
 ### Phase 1 — Draft (human)
 Receive feature request. Run adversarial pre-mortem. Ask critical questions in ONE batch. Wait for answers before delegating.
 
