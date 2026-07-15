@@ -489,6 +489,20 @@ func TestSCN345_EmptyCriticalFunctionListIsNotApplicable(t *testing.T) {
 	})
 }
 
+// REQ-006 → SCN-346 → TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes
+func TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes(t *testing.T) {
+	// Scenario: Review evidence identifies the configuration used and command outcomes
+	data, err := assets.FS.ReadFile("skills/review-mode/SKILL.md")
+	if err != nil {
+		t.Fatalf("read review mode asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"resolved configuration identity or fingerprint",
+		"configured command outcomes sufficient to audit the decision",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
