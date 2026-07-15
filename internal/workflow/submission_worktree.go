@@ -70,56 +70,60 @@ func ValidatePhase3SubagentBoundary(submission NewImplementationSubmission, retu
 func PrepareNewImplementationSubmission(initiatingWorktree string, request NewImplementationSubmissionRequest) (NewImplementationSubmission, error) {
 	repoRoot, err := gitSubmissionOutput(initiatingWorktree, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("resolve initiating Git worktree: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("resolve initiating Git worktree: %w", err))
 	}
 	if status, err := gitSubmissionOutput(repoRoot, "status", "--short"); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("check initiating worktree cleanliness: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("check initiating worktree cleanliness: %w", err))
 	} else if status != "" {
-		return NewImplementationSubmission{}, fmt.Errorf("initiating worktree has non-ignored changes")
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("initiating worktree has non-ignored changes"))
 	}
 	if _, err := gitSubmissionOutput(repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD"); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("validate initiating worktree HEAD: detached HEAD: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("validate initiating worktree HEAD: detached HEAD: %w", err))
 	}
 	if !submissionSlugPattern.MatchString(request.Slug) {
-		return NewImplementationSubmission{}, fmt.Errorf("invalid submission slug %q", request.Slug)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("invalid submission slug %q", request.Slug))
 	}
 
 	baseBranch := request.IntegrationBranch
 	if baseBranch == "" {
 		baseBranch, err = gitSubmissionOutput(repoRoot, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 		if err != nil {
-			return NewImplementationSubmission{}, fmt.Errorf("resolve repository-default integration branch: %w", err)
+			return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("resolve repository-default integration branch: %w", err))
 		}
 	}
 	if _, err := gitSubmissionOutput(repoRoot, "rev-parse", "--verify", baseBranch+"^{commit}"); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("resolve integration branch %q: %w", baseBranch, err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("resolve integration branch %q: %w", baseBranch, err))
 	}
 
 	featureBranch := "feature/" + request.Slug
 	if branches, err := gitSubmissionOutput(repoRoot, "branch", "--list", "--format=%(refname:short)", featureBranch); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("check feature branch availability %q: %w", featureBranch, err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("check feature branch availability %q: %w", featureBranch, err))
 	} else if branches != "" {
-		return NewImplementationSubmission{}, fmt.Errorf("feature branch already exists: %s", featureBranch)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("feature branch already exists: %s", featureBranch))
 	}
 	worktreePath := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-"+request.Slug)
 	if _, err := os.Lstat(worktreePath); err == nil {
-		return NewImplementationSubmission{}, fmt.Errorf("worktree path collision: %s", worktreePath)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("worktree path collision: %s", worktreePath))
 	} else if !os.IsNotExist(err) {
-		return NewImplementationSubmission{}, fmt.Errorf("inspect prescribed worktree path: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("inspect prescribed worktree path: %w", err))
 	}
 	if worktrees, err := gitSubmissionOutput(repoRoot, "worktree", "list", "--porcelain"); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("inspect worktree ownership: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("inspect worktree ownership: %w", err))
 	} else if strings.Contains("\n"+worktrees+"\n", "\nworktree "+worktreePath+"\n") {
-		return NewImplementationSubmission{}, fmt.Errorf("worktree ownership conflict: %s", worktreePath)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("worktree ownership conflict: %s", worktreePath))
 	}
 	if _, err := gitSubmissionOutput(repoRoot, "worktree", "add", "-b", featureBranch, worktreePath, baseBranch); err != nil {
-		return NewImplementationSubmission{}, fmt.Errorf("create isolated feature worktree: %w", err)
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("create isolated feature worktree: %w", err))
 	}
 	return NewImplementationSubmission{
 		WorktreePath:  worktreePath,
 		BaseBranch:    baseBranch,
 		FeatureBranch: featureBranch,
 	}, nil
+}
+
+func unsafeWorktreePreparation(validation error) error {
+	return fmt.Errorf("%w; recovery: preserve the initiating checkout and resolve the reported Git/worktree condition before retrying", validation)
 }
 
 func gitSubmissionOutput(dir string, args ...string) (string, error) {
