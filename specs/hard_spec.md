@@ -260,6 +260,35 @@ Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Co
 - Continuous background telemetry or a guarantee that a closed installer UI can observe future runtime failures.
 - Concealing a degradation merely because another host or MCP remains healthy.
 
+### REQ-015: Provide Native Claude Code Orchestration and Delegated Phase Agents
+**Description:** Extend the global Claude Code integration so normal user requests enter a Rotta orchestration surface that selects the proportional workflow, guides the user through its phases, and delegates phase work to native hidden Claude Code agents named `rotta-spec`, `rotta-impl`, and `rotta-review`. This is an extension to the approved host-compatibility contract; it must preserve all existing approved host behavior and must not silently replace it with a manual, user-driven phase-skill workflow.
+**Acceptance Criteria:**
+- Global installation creates a Claude Code-consumable Rotta orchestration entrypoint under `~/.claude/` that is discoverable for normal user feature requests and contains the canonical proportional workflow-selection policy.
+- The entrypoint performs the same observable routing as the OpenCode orchestrator: it uses the direct, focused-verification path only for simple, well-scoped, low-risk work; otherwise it guides the user through Draft, Spec + Gherkin, explicit approval, one-scenario-at-a-time TDD, and Review.
+- Global installation creates Claude Code-consumable, automatically delegated phase-agent definitions named exactly `rotta-spec`, `rotta-impl`, and `rotta-review` under the host's supported global agent location.
+- `rotta-spec`, `rotta-impl`, and `rotta-review` are not the normal user-facing workflow entrypoints; the orchestrator selects and delegates to them at the canonical phase boundaries.
+- The orchestrator does not write production or test code itself. It delegates specification/Gherkin work only to `rotta-spec`, exactly one approved scenario implementation task at a time to `rotta-impl`, and evidence-based review only to `rotta-review`.
+- The orchestrator preserves the explicit human approval gate after Gherkin, refuses to advance with unresolved open questions, verifies the clean-worktree precondition before every implementation delegation, and performs the same post-scenario boundary/cleanup behavior required by the canonical workflow.
+- Phase-agent tool access is least-privilege and behaviorally equivalent to OpenCode: `rotta-spec` cannot run arbitrary shell commands or implement production/test code; `rotta-impl` can edit and run project test commands; `rotta-review` reviews evidence without editing production code; none of the three phase agents can recursively delegate.
+- The orchestrator and every delegated agent that needs them receive the installed Ancora, Vela, and Context7 MCP surfaces and follow the same generated fallback/degradation instructions. A missing or degraded MCP never bypasses an approval or quality gate.
+- Claude agents inherit the invoking model unless the user later configures an explicit model policy.
+- Installation, rerun, update, cleanup, and failure recovery preserve unrelated `~/.claude/` settings, skills, agents, hooks, and MCP entries; they remove or update only Rotta-owned artifacts.
+- Automated integration tests cover the generated global entrypoint, the three named agent definitions, delegation/tool boundaries, role instructions, MCP visibility/configuration, idempotent reinstall, and safe cleanup.
+- Compatibility verification runs against the latest stable Claude Code release available when the Rotta test/release pipeline executes, records the tested `claude --version`, and fails rather than claiming verified Claude compatibility when that verification cannot run. Earlier Claude Code releases are best-effort only.
+**Edge Cases:**
+- A simple request is handled directly and never launches a phase agent.
+- A complex or high-risk request triggers the orchestrated workflow and waits for user clarification or approval where required.
+- A user explicitly asks for a phase agent, but the workspace state requires an earlier phase; the orchestrator preserves phase order rather than bypassing it.
+- A selected phase agent, MCP, or required tool is unavailable; the orchestrator reports the specific degradation and safe recovery action without fabricating task completion.
+- A previous Rotta installation contains only legacy phase skills or malformed Rotta-owned agent files.
+- A reinstall is performed while unrelated user-defined Claude agents, skills, permissions, hooks, or MCPs coexist.
+- The installed Claude Code executable is absent, unsupported, or cannot report its version during verification.
+**Out of Scope:**
+- Project-local Claude installation or per-repository agent configuration.
+- Guaranteed support for every historical or future Claude Code release.
+- Changing the OpenCode agent contract or requiring OpenCode to use Claude-specific artifact shapes.
+- Selecting specialised models per phase agent in this feature.
+
 ## Open Questions
 - None.
 
@@ -270,6 +299,7 @@ Add a host-agnostic compatibility layer so Rotta installs into exactly Claude Co
 - Keeping lifecycle artifacts out of commits by default protects clean worktree expectations, but teams that want committable specs/features will need an explicit opt-in path.
 - Continuing without optional MCPs preserves progress and durable contracts, but users receive less memory, graph, or documentation evidence and must act on disclosed verification needs.
 - A fixed source-exploration budget prevents an unavailable Vela graph from causing unbounded investigation, but may require an explicit follow-up when evidence is incomplete.
+- Native Claude orchestration provides actual delegation parity but adds host-specific entrypoint and agent-discovery behavior that must be tested against the current stable Claude Code release rather than inferred from OpenCode behavior.
 
 ## Risk Level
-high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, clean worktree expectations, and explicit safe degradation when optional MCP services fail at runtime.
+high — Justification: This feature mutates user-level configuration for three AI coding hosts, generates behavior-shaping agent/instruction artifacts, configures multiple MCP servers, and must preserve workflow parity across hosts with different capabilities while maintaining idempotency, recoverability, clean worktree expectations, and explicit safe degradation when optional MCP services fail at runtime. The extension additionally relies on Claude Code's evolving global agent discovery and Task delegation behavior.
