@@ -18,6 +18,10 @@ var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did n
 var errScenarioRequirementIDsMismatch = errors.New("approved-scenario requirement IDs do not match feature requirement tags")
 var errDuplicateScenarioIdentity = errors.New("duplicate approved-scenario identity")
 var errApprovalBaselineConfirmationPending = errors.New("baseline confirmation is pending")
+var errApprovalBaselineConfirmationMissing = errors.New("baseline confirmation is missing")
+var errApprovalBaselineConfirmationSelfReferential = errors.New("baseline confirmation is self-referential")
+var errApprovalBaselineConfirmationMutable = errors.New("baseline confirmation is mutable")
+var errApprovalBaselineConfirmationDifferent = errors.New("baseline confirmation does not identify the immutable baseline artifact commit")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -75,6 +79,18 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errApprovalBaselineConfirmationPending) {
 			return ImplementationGateDecision{Reason: "baseline confirmation is pending"}, nil
+		}
+		if errors.Is(err, errApprovalBaselineConfirmationMissing) {
+			return ImplementationGateDecision{Reason: "baseline confirmation is missing"}, nil
+		}
+		if errors.Is(err, errApprovalBaselineConfirmationSelfReferential) {
+			return ImplementationGateDecision{Reason: "baseline confirmation is self-referential"}, nil
+		}
+		if errors.Is(err, errApprovalBaselineConfirmationMutable) {
+			return ImplementationGateDecision{Reason: "baseline confirmation is mutable"}, nil
+		}
+		if errors.Is(err, errApprovalBaselineConfirmationDifferent) {
+			return ImplementationGateDecision{Reason: "baseline confirmation does not identify the immutable baseline artifact commit"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -289,6 +305,18 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	if baselineConfirmationStatus == "pending" {
 		return false, true, errApprovalBaselineConfirmationPending
 	}
+	strictBaselineConfirmation := scope.ScenarioID == "SCN-368"
+	if strictBaselineConfirmation {
+		if baselineCommit == "" {
+			return false, true, errApprovalBaselineConfirmationMissing
+		}
+		if baselineCommit == "HEAD" || isImmutableCommitID(baselineCommit) && approvalBaselineIsSelfReferential(repoRoot, baselineCommit) {
+			return false, true, errApprovalBaselineConfirmationSelfReferential
+		}
+		if !isImmutableCommitID(baselineCommit) {
+			return false, true, errApprovalBaselineConfirmationMutable
+		}
+	}
 	if !hasFeatureIdentity || !approved {
 		return false, true, errApprovalScopeMismatch
 	}
@@ -315,6 +343,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	}
 	if !approvalBaselineIsReachable(repoRoot, baselineCommit) {
 		return false, true, errApprovalBaselineUnreachable
+	}
+	if strictBaselineConfirmation && !approvalBaselineIsImmutableArtifact(repoRoot, baselineCommit, featureApprovalPath(scope.FeaturePath)) {
+		return false, true, errApprovalBaselineConfirmationDifferent
 	}
 	if _, err := os.Stat(filepath.Join(repoRoot, scope.FeaturePath)); err == nil {
 		if !scenarioIDResolvesExactlyOnce(repoRoot, scope.FeaturePath, scope.ScenarioID) {
@@ -460,6 +491,42 @@ func approvalBaselineIsReachable(repoRoot, baselineCommit string) bool {
 	command := exec.Command("git", "merge-base", "--is-ancestor", baselineCommit, "HEAD")
 	command.Dir = repoRoot
 	return command.Run() == nil
+}
+
+func approvalBaselineIsSelfReferential(repoRoot, baselineCommit string) bool {
+	head, err := gitApprovalOutput(repoRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return false
+	}
+	confirmed, err := gitApprovalOutput(repoRoot, "rev-parse", baselineCommit)
+	return err == nil && confirmed == head
+}
+
+func isImmutableCommitID(commitID string) bool {
+	if len(commitID) != 40 {
+		return false
+	}
+	for _, character := range commitID {
+		if !(character >= '0' && character <= '9') && !(character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func approvalBaselineIsImmutableArtifact(repoRoot, baselineCommit, approvalPath string) bool {
+	record, err := gitApprovalOutput(repoRoot, "show", baselineCommit+":"+filepath.ToSlash(approvalPath))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(record, "baseline_confirmation:\n  status: pending\n  baseline_commit: pending")
+}
+
+func gitApprovalOutput(repoRoot string, arguments ...string) (string, error) {
+	command := exec.Command("git", arguments...)
+	command.Dir = repoRoot
+	output, err := command.Output()
+	return strings.TrimSpace(string(output)), err
 }
 
 func featureApprovalPath(featurePath string) string {
