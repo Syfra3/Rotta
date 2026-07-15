@@ -576,6 +576,24 @@ func TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing(t *testing.T
 	})
 }
 
+// REQ-007 → SCN-352 → TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass
+func TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass(t *testing.T) {
+	// Scenario: A scenario-loop anomaly halts without bypass
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"checkpoint persistence and state persistence disagree",
+		"another process changes the worktree during delegation",
+		"contract drift is detected",
+		"approval becomes invalid",
+		"a required gate fails",
+		"halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

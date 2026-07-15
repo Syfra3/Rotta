@@ -127,6 +127,8 @@ not decide how to persist or discard them.
 
 Before accepting a reported scenario result, verify required evidence, approved scope, and boundary cleanliness. Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario.
 
+If checkpoint persistence and state persistence disagree, another process changes the worktree during delegation, contract drift is detected, approval becomes invalid, or a required gate fails, halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates.
+
 ### Phase 4 — Review → `rotta-review`
 ```
 Task("rotta-review", { approved_scn_ids, project, state_ref: "reports/judge_report.md" })
