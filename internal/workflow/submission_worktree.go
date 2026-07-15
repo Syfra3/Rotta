@@ -127,7 +127,7 @@ func unsafeWorktreePreparation(validation error) error {
 }
 
 func gitSubmissionOutput(dir string, args ...string) (string, error) {
-	command := exec.Command("git", args...)
+	command := exec.Command("git", args...) // #nosec G204 -- executable is the fixed Git binary; arguments never pass through a shell.
 	command.Dir = dir
 	output, err := command.CombinedOutput()
 	if err != nil {

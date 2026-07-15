@@ -287,6 +287,16 @@ func TestSCN314_CheckpointApprovedFeatureContract(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "specs", ".approved")); !os.IsNotExist(err) {
 		t.Fatalf("legacy approval marker was used or modified: %v", err)
 	}
+	assertWorkflowMode(t, filepath.Join(repo, "specs", "approvals"), 0o750)
+	assertWorkflowMode(t, filepath.Join(repo, filepath.FromSlash(baseline.ApprovalRecordPath)), 0o600)
+}
+
+// REQ-046, REQ-048 → SCN-315 → TestSCN315_RejectsApprovalRecordOutsideRecordedWorktree
+func TestSCN315_RejectsApprovalRecordOutsideRecordedWorktree(t *testing.T) {
+	// Scenario: Refuse implementation without a matching approved baseline
+	if _, err := repositoryFilePath(t.TempDir(), "../approval.yaml"); err == nil {
+		t.Fatal("repositoryFilePath accepted an approval record outside the recorded worktree")
+	}
 }
 
 // REQ-046, REQ-051 → SCN-314 → TestSCN314_RejectsBaselineWithoutCurrentWorkflowState
@@ -1564,7 +1574,7 @@ func prepareSCN315ApprovedBaseline(t *testing.T) (string, CurrentSubmissionState
 
 func mustContractFingerprint(t *testing.T, repo, path string) string {
 	t.Helper()
-	fingerprint, err := contractFileFingerprint(filepath.Join(repo, filepath.FromSlash(path)))
+	fingerprint, err := contractFileFingerprint(repo, path)
 	if err != nil {
 		t.Fatalf("fingerprint %q: %v", path, err)
 	}

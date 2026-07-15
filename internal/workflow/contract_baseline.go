@@ -122,7 +122,7 @@ func CompleteApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioB
 		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary requires Red, Green, Refactor, traceable-test, required-test, and active-gate evidence"))
 	}
 	nextScenario := current.State.RemainingWork[1]
-	record, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(current.State.ApprovalRecordPath)))
+	record, err := readRepositoryFile(repoRoot, current.State.ApprovalRecordPath)
 	if err != nil || !approvedRecordIncludesScenario(string(record), current.Manifest.FeaturePaths[0], nextScenario) {
 		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary requires the recorded next scenario to be approved"))
 	}
@@ -249,12 +249,11 @@ func BeginApprovedPhase3(repoRoot string, request ApprovedPhase3Request) (Approv
 	if state.ApprovalRecordPath == "" || state.ApprovalRecordFingerprint == "" {
 		return blockedApprovedPhase3("the feature-scoped approval record is missing"), nil
 	}
-	recordPath := filepath.Join(repoRoot, filepath.FromSlash(state.ApprovalRecordPath))
-	record, err := os.ReadFile(recordPath)
+	record, err := readRepositoryFile(repoRoot, state.ApprovalRecordPath)
 	if err != nil {
 		return blockedApprovedPhase3("the feature-scoped approval record is missing"), nil
 	}
-	recordFingerprint, err := contractFileFingerprint(recordPath)
+	recordFingerprint, err := contractFileFingerprint(repoRoot, state.ApprovalRecordPath)
 	if err != nil || recordFingerprint != state.ApprovalRecordFingerprint {
 		return blockedApprovedPhase3("the feature-scoped approval record does not match its baseline identity"), nil
 	}
@@ -263,7 +262,7 @@ func BeginApprovedPhase3(repoRoot string, request ApprovedPhase3Request) (Approv
 	}
 	contractPaths := approvedContractPaths(resume.Manifest)
 	for _, path := range contractPaths {
-		fingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		fingerprint, err := contractFileFingerprint(repoRoot, path)
 		if err != nil || approvedRecordFingerprint(string(record), path) != fingerprint {
 			return blockedApprovedPhase3("the approved contract has changed after its baseline checkpoint"), nil
 		}
@@ -320,7 +319,11 @@ func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContrac
 	if err != nil {
 		return ApprovedContractBaseline{}, err
 	}
-	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(recordPath)), 0o755); err != nil {
+	recordFilePath, err := repositoryFilePath(repoRoot, recordPath)
+	if err != nil {
+		return ApprovedContractBaseline{}, fmt.Errorf("resolve feature-scoped approval record path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(recordFilePath), 0o750); err != nil {
 		return ApprovedContractBaseline{}, fmt.Errorf("create feature-scoped approval directory: %w", err)
 	}
 	approvedAt := request.ApprovedAt.UTC()
@@ -328,10 +331,10 @@ func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContrac
 		approvedAt = time.Now().UTC()
 	}
 	record := serializeApprovedContractRecord(request, approvedAt, recordPath, contractFingerprints)
-	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(recordPath)), []byte(record), 0o644); err != nil {
+	if err := os.WriteFile(recordFilePath, []byte(record), 0o600); err != nil {
 		return ApprovedContractBaseline{}, fmt.Errorf("write feature-scoped approval record: %w", err)
 	}
-	recordFingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(recordPath)))
+	recordFingerprint, err := contractFileFingerprint(repoRoot, recordPath)
 	if err != nil {
 		return ApprovedContractBaseline{}, fmt.Errorf("fingerprint feature-scoped approval record: %w", err)
 	}
@@ -358,7 +361,7 @@ func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContrac
 func approvedContractFingerprints(repoRoot, specPath, featurePath string) (map[string]string, error) {
 	fingerprints := make(map[string]string, 2)
 	for _, path := range []string{specPath, featurePath} {
-		fingerprint, err := contractFileFingerprint(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		fingerprint, err := contractFileFingerprint(repoRoot, path)
 		if err != nil {
 			return nil, fmt.Errorf("fingerprint approved contract %q: %w", path, err)
 		}
@@ -367,8 +370,8 @@ func approvedContractFingerprints(repoRoot, specPath, featurePath string) (map[s
 	return fingerprints, nil
 }
 
-func contractFileFingerprint(path string) (string, error) {
-	contents, err := os.ReadFile(path)
+func contractFileFingerprint(repoRoot, path string) (string, error) {
+	contents, err := readRepositoryFile(repoRoot, path)
 	if err != nil {
 		return "", err
 	}
@@ -389,7 +392,7 @@ func serializeApprovedContractRecord(request ApprovedContractBaselineRequest, ap
 
 func recordCurrentSubmissionBaseline(repoRoot string, baseline ApprovedContractBaseline) error {
 	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
-	contents, err := os.ReadFile(statePath)
+	contents, err := readRepositoryFile(repoRoot, filepath.ToSlash(filepath.Join(".rotta", "current", "state.yaml")))
 	if err != nil {
 		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
 	}
@@ -407,8 +410,7 @@ func recordCurrentSubmissionBaseline(repoRoot string, baseline ApprovedContractB
 }
 
 func verifyCurrentSubmissionBaselineState(repoRoot string) error {
-	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
-	contents, err := os.ReadFile(statePath)
+	contents, err := readRepositoryFile(repoRoot, filepath.ToSlash(filepath.Join(".rotta", "current", "state.yaml")))
 	if err != nil {
 		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
 	}
@@ -416,4 +418,21 @@ func verifyCurrentSubmissionBaselineState(repoRoot string) error {
 		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
 	}
 	return nil
+}
+
+// repositoryFilePath confines lifecycle artifacts to the recorded worktree.
+func repositoryFilePath(repoRoot, path string) (string, error) {
+	if path == "" || filepath.IsAbs(path) {
+		return "", fmt.Errorf("path must be relative to the recorded worktree")
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve recorded worktree: %w", err)
+	}
+	filePath := filepath.Join(root, filepath.FromSlash(path))
+	relative, err := filepath.Rel(root, filePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes the recorded worktree")
+	}
+	return filePath, nil
 }
