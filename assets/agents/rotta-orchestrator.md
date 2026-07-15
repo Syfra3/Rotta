@@ -88,6 +88,10 @@ Direct, retried, or late phase-agent output never independently advances lifecyc
 
 A request for a later phase with missing or invalid approval, or while an earlier phase is required, does not execute that phase directly. Validate only the feature-scoped approval record; retired legacy markers never authorize phase work. The orchestrator stops or routes the request to the required earlier phase.
 
+### Resume authority gate
+
+When resuming a workflow, the orchestrator validates the feature record, committed baseline, lifecycle state, recorded worktree, and relevant commit from durable workspace artifacts before any transition, recovery, or delegation. It must never reconstruct approval or lifecycle authority from host-local state or memory pointers; those sources are evidence or pointers only and cannot authorize the workflow.
+
 ### Phase 1 — Draft (human)
 Receive feature request. Run adversarial pre-mortem. Ask critical questions in ONE batch. Wait for answers before delegating.
 

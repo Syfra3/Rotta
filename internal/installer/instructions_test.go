@@ -594,6 +594,20 @@ func TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass(t *testing.T) {
 	})
 }
 
+// REQ-009 → SCN-357 → TestSCN357_ResumeValidatesDurableWorkspaceAuthority
+func TestSCN357_ResumeValidatesDurableWorkspaceAuthority(t *testing.T) {
+	// Scenario: Resume validates durable workspace state rather than host or memory state
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"validates the feature record, committed baseline, lifecycle state, recorded worktree, and relevant commit",
+		"never reconstruct approval or lifecycle authority from host-local state or memory pointers",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
