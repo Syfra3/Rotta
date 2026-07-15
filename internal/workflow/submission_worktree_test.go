@@ -149,6 +149,90 @@ func TestSCN313_PrepareFeatureWorktreeStopsSafelyWhenIsolationIsUnsafe(t *testin
 	}
 }
 
+// REQ-045, REQ-048 → SCN-313 → TestSCN313_ReportsRecoveryForEveryPreparationFailure
+func TestSCN313_ReportsRecoveryForEveryPreparationFailure(t *testing.T) {
+	// Scenario: Stop before specification when isolation is unsafe
+	for _, testCase := range []struct {
+		name      string
+		failure   string
+		useBegin  bool
+		longPath  bool
+		wantError string
+	}{
+		{name: "initiating checkout cannot resolve", failure: "root", useBegin: true, wantError: "resolve initiating Git worktree"},
+		{name: "initiating checkout cannot report status", failure: "status", wantError: "check initiating worktree cleanliness"},
+		{name: "repository default branch cannot resolve", failure: "default", wantError: "resolve repository-default integration branch"},
+		{name: "configured integration branch cannot resolve", failure: "base", wantError: "resolve integration branch"},
+		{name: "feature branch availability cannot be inspected", failure: "branch", wantError: "check feature branch availability"},
+		{name: "prescribed worktree path cannot be inspected", failure: "path", longPath: true, wantError: "inspect prescribed worktree path"},
+		{name: "worktree ownership cannot be inspected", failure: "worktrees", wantError: "inspect worktree ownership"},
+		{name: "isolated worktree cannot be created", failure: "add", wantError: "create isolated feature worktree"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			initiatingWorktree := t.TempDir()
+			parent := t.TempDir()
+			repoName := "repository"
+			if testCase.longPath {
+				repoName = strings.Repeat("r", 240)
+			}
+			repoRoot := filepath.Join(parent, repoName)
+			if err := os.Mkdir(repoRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			installSCN313GitFailure(t, testCase.failure, repoRoot)
+
+			request := NewImplementationSubmissionRequest{Slug: "unsafe-isolation", IntegrationBranch: "main"}
+			if testCase.failure == "default" {
+				request.IntegrationBranch = ""
+			}
+			var err error
+			if testCase.useBegin {
+				_, err = BeginSpecificationPhase(initiatingWorktree, request, func(string) error {
+					t.Fatal("specification writer was called after unsafe preparation")
+					return nil
+				})
+			} else {
+				_, err = PrepareNewImplementationSubmission(initiatingWorktree, request)
+			}
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) || !strings.Contains(err.Error(), "recovery:") {
+				t.Fatalf("unsafe preparation error = %v, want %q with recovery", err, testCase.wantError)
+			}
+		})
+	}
+}
+
+func installSCN313GitFailure(t *testing.T, failure, repoRoot string) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "git")
+	content := "#!/bin/sh\ncase \"$*\" in\n" +
+		"  'rev-parse --show-toplevel') " + failureCase("root", failure, "exit 1", "printf '%s\\n' \"$SCN313_REPO_ROOT\"") + ";;\n" +
+		"  'status --short') " + failureCase("status", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'symbolic-ref --quiet --short HEAD') printf '%s\\n' main;;\n" +
+		"  'symbolic-ref --short refs/remotes/origin/HEAD') " + failureCase("default", failure, "exit 1", "printf '%s\\n' origin/main") + ";;\n" +
+		"  'rev-parse --verify main^{commit}') " + failureCase("base", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'branch --list --format=%(refname:short) feature/unsafe-isolation') " + failureCase("branch", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'worktree list --porcelain') " + failureCase("worktrees", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'worktree add -b feature/unsafe-isolation '* ) " + failureCase("add", failure, "exit 1", "exec \""+git+"\" \"$@\"") + ";;\n" +
+		"  *) exec \"" + git + "\" \"$@\";;\nesac\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SCN313_REPO_ROOT", repoRoot)
+}
+
+func failureCase(expected, actual, failed, succeeded string) string {
+	if expected == actual {
+		return failed
+	}
+	return succeeded
+}
+
 // REQ-046, REQ-051 → SCN-314 → TestSCN314_CheckpointApprovedFeatureContract
 func TestSCN314_CheckpointApprovedFeatureContract(t *testing.T) {
 	// Scenario: Checkpoint an explicitly approved feature contract
