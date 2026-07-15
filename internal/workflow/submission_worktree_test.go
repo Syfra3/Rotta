@@ -519,6 +519,158 @@ func TestSCN317_CheckpointsAndAdvancesFromCleanSuccessfulBoundary(t *testing.T) 
 	}
 }
 
+// REQ-047 → SCN-317 → TestSCN317_RejectsIncompleteOrUnapprovedProgressBoundary
+func TestSCN317_RejectsIncompleteOrUnapprovedProgressBoundary(t *testing.T) {
+	// Scenario: Automatically checkpoint and advance from a clean successful scenario boundary
+	for _, testCase := range []struct {
+		name               string
+		prepare            func(t *testing.T, repo string)
+		incompleteEvidence bool
+		startNext          func(string) error
+		wantError          string
+		wantCheckouts      string
+	}{
+		{
+			name: "blocked approved baseline",
+			prepare: func(t *testing.T, repo string) {
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.State.BaselineCheckpoint = ""
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			wantError:     "approved baseline checkpoint is missing",
+			wantCheckouts: "2",
+		},
+		{
+			name: "missing progress state",
+			prepare: func(t *testing.T, repo string) {
+				if err := os.Remove(filepath.Join(repo, ".rotta", "current", "state.yaml")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantError:     "current workflow state cannot be verified",
+			wantCheckouts: "2",
+		},
+		{
+			name: "invalid progress state",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "invalid state\n")
+			},
+			wantError:     "current workflow state cannot be verified",
+			wantCheckouts: "2",
+		},
+		{
+			name: "missing recorded feature contract",
+			prepare: func(t *testing.T, repo string) {
+				if err := os.Remove(filepath.Join(repo, "features", "feature_worktree_lifecycle.feature")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantError:     "current workflow state cannot be verified",
+			wantCheckouts: "2",
+		},
+		{
+			name: "missing approval record identity",
+			prepare: func(t *testing.T, repo string) {
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.State.ApprovalRecordPath = ""
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			wantError:     "feature-scoped approval record is missing",
+			wantCheckouts: "2",
+		},
+		{
+			name: "drifted checkpoint contract",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Drifted contract\n")
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record := "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-317\n  - features/feature_worktree_lifecycle.feature#SCN-318\ncontract_fingerprints:\n  specs/hard_spec.md: " + mustContractFingerprint(t, repo, "specs/hard_spec.md") + "\n  features/feature_worktree_lifecycle.feature: " + mustContractFingerprint(t, repo, "features/feature_worktree_lifecycle.feature") + "\n"
+				mustWrite(t, filepath.Join(repo, filepath.FromSlash(current.State.ApprovalRecordPath)), record)
+				current.State.ApprovalRecordFingerprint = mustContractFingerprint(t, repo, current.State.ApprovalRecordPath)
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			wantError:     "approved contract has changed after its baseline checkpoint",
+			wantCheckouts: "2",
+		},
+		{
+			name: "no recorded next scenario",
+			prepare: func(t *testing.T, repo string) {
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.State.RemainingWork = []string{"SCN-317"}
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			wantError:     "requires a recorded next scenario",
+			wantCheckouts: "2",
+		},
+		{
+			name:               "incomplete required evidence",
+			incompleteEvidence: true,
+			wantError:          "requires Red, Green, Refactor",
+			wantCheckouts:      "2",
+		},
+		{
+			name: "unapproved recorded next scenario",
+			prepare: func(t *testing.T, repo string) {
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.State.RemainingWork = []string{"SCN-317", "SCN-319"}
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			wantError:     "requires the recorded next scenario to be approved",
+			wantCheckouts: "2",
+		},
+		{
+			name: "next scenario start failure after checkpoint",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() { _ = 2 }\n")
+			},
+			startNext:     func(string) error { return fmt.Errorf("next scenario failed") },
+			wantError:     "next scenario failed",
+			wantCheckouts: "3",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN317ApprovedBaseline(t)
+			if testCase.prepare != nil {
+				testCase.prepare(t, repo)
+			}
+
+			requiredEvidence := append([]string(nil), requiredApprovedScenarioEvidence...)
+			if testCase.incompleteEvidence {
+				requiredEvidence = nil
+			}
+			_, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+				ScenarioID:        "SCN-317",
+				ExpectedPaths:     []string{"scenario.go"},
+				RequiredEvidence:  requiredEvidence,
+				TDDComplete:       true,
+				TestsPassed:       true,
+				ValidationPassed:  true,
+				StartNextScenario: testCase.startNext,
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) || !strings.Contains(err.Error(), "recovery:") {
+				t.Fatalf("CompleteApprovedScenarioBoundary error = %v, want %q with recovery", err, testCase.wantError)
+			}
+			if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != testCase.wantCheckouts {
+				t.Fatalf("checkpoint commits=%s, want %s", commits, testCase.wantCheckouts)
+			}
+		})
+	}
+}
+
 // REQ-047 → SCN-318 → TestSCN318_SendsFinalCleanCheckpointToReviewWithoutPublication
 func TestSCN318_SendsFinalCleanCheckpointToReviewWithoutPublication(t *testing.T) {
 	// Scenario: Send the final clean checkpoint to review without publication
