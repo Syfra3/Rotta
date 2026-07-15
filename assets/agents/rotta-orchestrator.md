@@ -126,11 +126,7 @@ user to regenerate/confirm gates in the TUI before review. Do not silently fall
 back to embedded defaults.
 
 If any active objective gate fails: return to Phase 3 with specific remediation.
-If all active objective gates pass: the work is eligible for human review, not
-automatically approved. Final approval still requires semantic correctness,
-design fit, meaningful tests, and risk-boundary review.
-
-If gates fail: return to Phase 3 with specific remediation. If gates pass: feature complete.
+If all active objective gates pass, the orchestrator records that committed implementation snapshot as reviewed_commit, transitions the feature durably to final_human_review, and does not mark the feature complete. Final approval still requires semantic correctness, design fit, meaningful tests, and risk-boundary review.
 
 ---
 
