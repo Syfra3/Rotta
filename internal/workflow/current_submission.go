@@ -30,12 +30,18 @@ type CurrentSubmissionManifest struct {
 }
 
 type CurrentSubmissionState struct {
-	Phase           string
-	CompletedWork   []string
-	RemainingWork   []string
-	BlockedWork     []string
-	LastAction      string
-	SafeResumePoint string
+	Phase                     string
+	CompletedWork             []string
+	RemainingWork             []string
+	BlockedWork               []string
+	LastAction                string
+	SafeResumePoint           string
+	BaselineCheckpoint        string
+	ApprovalRecordPath        string
+	ApprovalRecordFingerprint string
+	Evidence                  []string
+	Checkpoint                string
+	NextScenario              string
 }
 
 type CurrentSubmission struct {
@@ -202,8 +208,61 @@ func ArchiveTerminalCurrentSubmission(repoRoot string, featureChangesCommitted b
 	return nil
 }
 
+// ArchiveTerminalFeatureWorkflow archives a terminal review's active execution
+// state while preserving its recorded feature worktree, branch, and contracts.
+func ArchiveTerminalFeatureWorkflow(repoRoot string) error {
+	submission, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return err
+	}
+	if submission.Manifest.Worktree != repoRoot {
+		return fmt.Errorf("terminal archive requires the recorded feature worktree")
+	}
+	if !isTerminalCurrentSubmissionStatus(submission.Manifest.Status) {
+		return fmt.Errorf("terminal archive requires a terminal review result")
+	}
+	return ArchiveTerminalCurrentSubmission(repoRoot, true)
+}
+
+// CleanupTerminalFeatureWorktree removes a clean, recorded feature worktree
+// only after an explicit cleanup request for an eligible terminal workflow.
+// Its feature branch is intentionally retained with the committed contracts.
+func CleanupTerminalFeatureWorktree(repoRoot string) error {
+	submission, err := LoadCurrentSubmission(repoRoot)
+	if err != nil {
+		return err
+	}
+	recordedWorktree, err := filepath.EvalSymlinks(submission.Manifest.Worktree)
+	if err != nil {
+		return fmt.Errorf("cleanup resolve recorded feature worktree: %w", err)
+	}
+	actualWorktree, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil || actualWorktree != recordedWorktree {
+		return fmt.Errorf("cleanup requires the recorded feature worktree")
+	}
+	if !isCleanupEligibleFeatureWorkflowStatus(submission.Manifest.Status) {
+		return fmt.Errorf("cleanup is blocked: publication confirmation or explicit abandonment is required; only published, abandoned, or cancelled feature workflows are eligible")
+	}
+	if status, err := gitSubmissionOutput(actualWorktree, "status", "--short"); err != nil {
+		return fmt.Errorf("cleanup check recorded feature worktree cleanliness: %w", err)
+	} else if status != "" {
+		return fmt.Errorf("cleanup refuses recorded feature worktree with non-ignored changes")
+	}
+	if branch, err := gitSubmissionOutput(actualWorktree, "symbolic-ref", "--quiet", "--short", "HEAD"); err != nil || !strings.HasPrefix(branch, "feature/") {
+		return fmt.Errorf("cleanup requires the recorded attached feature branch")
+	}
+	if _, err := gitSubmissionOutput(actualWorktree, "worktree", "remove", actualWorktree); err != nil {
+		return fmt.Errorf("remove recorded feature worktree: %w", err)
+	}
+	return nil
+}
+
+func isCleanupEligibleFeatureWorkflowStatus(status string) bool {
+	return status == "published" || status == "abandoned" || status == "cancelled"
+}
+
 func isTerminalCurrentSubmissionStatus(status string) bool {
-	return status == "completed" || status == "abandoned" || status == "cancelled"
+	return status == "completed" || status == "review_failed" || status == "abandoned" || status == "cancelled"
 }
 
 // CleanupExpiredArchivedSubmissions removes only archive directories whose
@@ -281,14 +340,20 @@ func parseCurrentSubmissionState(contents string) (CurrentSubmissionState, error
 	var state CurrentSubmissionState
 	if err := parseCurrentSubmissionDocument(contents,
 		map[string]*string{
-			"phase":             &state.Phase,
-			"last_action":       &state.LastAction,
-			"safe_resume_point": &state.SafeResumePoint,
+			"phase":                       &state.Phase,
+			"last_action":                 &state.LastAction,
+			"safe_resume_point":           &state.SafeResumePoint,
+			"baseline_checkpoint":         &state.BaselineCheckpoint,
+			"approval_record_path":        &state.ApprovalRecordPath,
+			"approval_record_fingerprint": &state.ApprovalRecordFingerprint,
+			"checkpoint":                  &state.Checkpoint,
+			"next_scenario":               &state.NextScenario,
 		},
 		map[string]*[]string{
 			"completed_work:": &state.CompletedWork,
 			"remaining_work:": &state.RemainingWork,
 			"blocked_work:":   &state.BlockedWork,
+			"evidence:":       &state.Evidence,
 		}); err != nil {
 		return CurrentSubmissionState{}, fmt.Errorf("invalid state: %w", err)
 	}
@@ -339,13 +404,19 @@ func serializeCurrentSubmissionManifest(manifest CurrentSubmissionManifest) stri
 }
 
 func serializeCurrentSubmissionState(state CurrentSubmissionState) string {
-	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\n",
+	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\nbaseline_checkpoint: %s\napproval_record_path: %s\napproval_record_fingerprint: %s\nevidence:\n%s\ncheckpoint: %s\nnext_scenario: %s\n",
 		state.Phase,
 		yamlList(state.CompletedWork),
 		yamlList(state.RemainingWork),
 		yamlList(state.BlockedWork),
 		state.LastAction,
 		state.SafeResumePoint,
+		state.BaselineCheckpoint,
+		state.ApprovalRecordPath,
+		state.ApprovalRecordFingerprint,
+		yamlList(state.Evidence),
+		state.Checkpoint,
+		state.NextScenario,
 	)
 }
 

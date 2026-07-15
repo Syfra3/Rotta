@@ -56,7 +56,7 @@ evaluation and returns to TDD.
 
 ## Step 1 — Traceability Audit
 
-For each SCN-NNN in `specs/.approved`:
+For each SCN-NNN in the feature-scoped approval record that matches its committed baseline:
 
 1. Search all test files for `TestSCN<NNN>_` pattern.
 2. Verify at least one test maps to the scenario.

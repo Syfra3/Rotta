@@ -63,6 +63,10 @@ func canonicalWorkflowInstructions() string {
 - These adapted invocations map to the same canonical Rotta command behavior and state transitions as exact command surfaces.
 - When continuing a workflow started from another supported host, read shared workspace state before acting: ` + "`specs/`" + `, ` + "`features/`" + `, and ` + "`.rotta/`" + ` artifacts.
 - Always preserve the same phase order, command semantics, and approval gates across hosts.
+- For every full workflow start or resume, apply the recorded pre-spec feature-worktree lifecycle: create or validate the recorded isolated feature worktree before specification writes, and never write submission artifacts in the initiating checkout.
+- Treat the recorded feature-scoped approval record as authoritative instead of ` + "`specs/.approved`" + `; require its matching committed baseline before Phase 3.
+- Run only the next approved scenario through its required evidence and autonomous scenario checkpoint; safety-stop without discarding ambiguous changes, archive terminal execution state, and use the archive and eligible explicit cleanup lifecycle without removing durable contract artifacts.
+- Claude native orchestration resumes the recorded feature worktree and does not create a second worktree after approval.
 - Do not treat host-local config as the workflow source of truth.
 - Preserve the no AI attribution rule: do not add AI-generated, generated-by, or co-author attribution to commits or generated project artifacts.
 - Workspace files are the source of truth. Ancora stores compact pointers/status only when enabled.
