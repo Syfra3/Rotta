@@ -310,6 +310,9 @@ func CheckpointApprovedContractBaseline(repoRoot string, request ApprovedContrac
 	if request.SpecPath == "" || request.FeaturePath == "" || len(request.ApprovedScenarios) == 0 {
 		return ApprovedContractBaseline{}, fmt.Errorf("approved contract baseline requires contract paths and approved scenarios")
 	}
+	if err := verifyCurrentSubmissionBaselineState(repoRoot); err != nil {
+		return ApprovedContractBaseline{}, err
+	}
 
 	slug := strings.TrimPrefix(request.Submission.FeatureBranch, "feature/")
 	recordPath := filepath.ToSlash(filepath.Join("specs", "approvals", slug+".yaml"))
@@ -398,6 +401,18 @@ func recordCurrentSubmissionBaseline(repoRoot string, baseline ApprovedContractB
 	state.ApprovalRecordPath = baseline.ApprovalRecordPath
 	state.ApprovalRecordFingerprint = baseline.ApprovalRecordFingerprint
 	if err := os.WriteFile(statePath, []byte(serializeCurrentSubmissionState(state)), 0o600); err != nil {
+		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
+	}
+	return nil
+}
+
+func verifyCurrentSubmissionBaselineState(repoRoot string) error {
+	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
+	contents, err := os.ReadFile(statePath)
+	if err != nil {
+		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
+	}
+	if _, err := parseCurrentSubmissionState(string(contents)); err != nil {
 		return fmt.Errorf("record approved contract baseline in current workflow state: %w", err)
 	}
 	return nil
