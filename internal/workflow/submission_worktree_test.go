@@ -1072,6 +1072,88 @@ func TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup(t *testin
 	}
 }
 
+// REQ-049 → SCN-321 → TestSCN321_RejectsEligibleCleanupWhenValidationFails
+func TestSCN321_RejectsEligibleCleanupWhenValidationFails(t *testing.T) {
+	// Scenario: Remove a feature worktree only through eligible explicit cleanup
+	for _, testCase := range []struct {
+		name      string
+		setup     func(t *testing.T, repo string) string
+		wantError string
+	}{
+		{
+			name: "recorded worktree cannot be resolved",
+			setup: func(t *testing.T, repo string) string {
+				return filepath.Join(t.TempDir(), "missing-worktree")
+			},
+			wantError: "resolve recorded feature worktree",
+		},
+		{
+			name: "cleanup is requested from another worktree",
+			setup: func(t *testing.T, repo string) string {
+				return t.TempDir()
+			},
+			wantError: "requires the recorded feature worktree",
+		},
+		{
+			name: "recorded checkout is not attached to its feature branch",
+			setup: func(t *testing.T, repo string) string {
+				runGit(t, repo, "checkout", "main")
+				return repo
+			},
+			wantError: "attached feature branch",
+		},
+		{
+			name: "recorded checkout no longer provides Git status",
+			setup: func(t *testing.T, repo string) string {
+				if err := os.RemoveAll(filepath.Join(repo, ".git")); err != nil {
+					t.Fatalf("remove test Git directory: %v", err)
+				}
+				return repo
+			},
+			wantError: "check recorded feature worktree cleanliness",
+		},
+		{
+			name: "primary feature checkout cannot be removed as a worktree",
+			setup: func(t *testing.T, repo string) string {
+				return repo
+			},
+			wantError: "remove recorded feature worktree",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN321EligibleCleanupRepository(t)
+			recordedWorktree := testCase.setup(t, repo)
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: feature-worktree-lifecycle\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/feature_worktree_lifecycle.feature\nscenario_ids:\n  - SCN-321\nworktree: "+recordedWorktree+"\nstatus: published\n")
+
+			err := CleanupTerminalFeatureWorktree(repo)
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("CleanupTerminalFeatureWorktree error = %v, want %q", err, testCase.wantError)
+			}
+			if _, statErr := os.Stat(repo); statErr != nil {
+				t.Fatalf("rejected cleanup removed its checkout: %v", statErr)
+			}
+		})
+	}
+}
+
+func prepareSCN321EligibleCleanupRepository(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, ".gitignore"), ".rotta/\n")
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-321\n")
+	runGit(t, repo, "add", ".gitignore", "specs/hard_spec.md", "features/feature_worktree_lifecycle.feature")
+	runGit(t, repo, "commit", "-m", "test: establish eligible cleanup validation")
+	runGit(t, repo, "checkout", "-b", "feature/feature-worktree-lifecycle")
+	if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-321"}}); err != nil {
+		t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+	}
+	return repo
+}
+
 // REQ-049 → SCN-322 → TestSCN322_RefusesPrematureOrUnsafeFeatureWorktreeCleanup
 func TestSCN322_RefusesPrematureOrUnsafeFeatureWorktreeCleanup(t *testing.T) {
 	// Scenario: Refuse premature or unsafe feature-worktree cleanup
