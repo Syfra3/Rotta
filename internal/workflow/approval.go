@@ -11,6 +11,7 @@ import (
 )
 
 var errMalformedFeatureApproval = errors.New("malformed feature approval record")
+var errMalformedScenarioReference = errors.New("malformed approved-scenario reference")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -47,6 +48,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 	if err != nil {
 		if errors.Is(err, errMalformedFeatureApproval) {
 			return ImplementationGateDecision{Reason: "approval record is malformed"}, nil
+		}
+		if errors.Is(err, errMalformedScenarioReference) {
+			return ImplementationGateDecision{Reason: "approved-scenario reference is malformed"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -108,6 +112,19 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	submissionWorktree := ""
 	entryFeaturePath := ""
 	entryScenarioID := ""
+	entryFields := map[string]bool{}
+	inScenarioEntry := false
+	malformedScenarioReference := false
+	validateScenarioEntry := func() {
+		if !inScenarioEntry {
+			return
+		}
+		for _, field := range []string{"feature_path", "scenario_id", "requirement_ids"} {
+			if !entryFields[field] {
+				malformedScenarioReference = true
+			}
+		}
+	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -151,8 +168,23 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 			continue
 		}
 		if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, "-") {
+			validateScenarioEntry()
 			inApprovedScenarios = false
 			continue
+		}
+		entryLine := line
+		if value, ok := strings.CutPrefix(line, "- "); ok {
+			validateScenarioEntry()
+			inScenarioEntry = true
+			entryFields = map[string]bool{}
+			entryLine = value
+		}
+		if field, value, ok := strings.Cut(entryLine, ": "); ok {
+			if field != "feature_path" && field != "scenario_id" && field != "requirement_ids" || entryFields[field] || strings.TrimSpace(value) == "" {
+				malformedScenarioReference = true
+			} else {
+				entryFields[field] = true
+			}
 		}
 		if value, ok := strings.CutPrefix(line, "- scenario_id: "); ok {
 			entryFeaturePath = ""
@@ -183,6 +215,10 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	}
 	if err := scanner.Err(); err != nil {
 		return false, true, err
+	}
+	validateScenarioEntry()
+	if malformedScenarioReference {
+		return false, true, errMalformedScenarioReference
 	}
 	if !hasFormat || !hasContractID || !hasStatus || !hasFeaturePaths || !hasApprovedScenarios || !hasFingerprints || !hasBaselineConfirmation {
 		return false, true, errMalformedFeatureApproval

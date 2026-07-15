@@ -83,6 +83,51 @@ func TestSCN359_ValidStructuredScenarioReferenceAuthorizesExactScenario(t *testi
 	}
 }
 
+func TestSCN360_MalformedStructuredScenarioReferenceBlocksWorkflowProgress(t *testing.T) {
+	// REQ-001 → SCN-360 → TestSCN360_MalformedStructuredScenarioReferenceBlocksWorkflowProgress
+	// Scenario: A malformed structured approved-scenario reference blocks workflow progress
+	for _, test := range []struct {
+		name  string
+		entry string
+	}{
+		{
+			name:  "missing required requirement IDs",
+			entry: "  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-360\n",
+		},
+		{
+			name:  "additional authoritative field",
+			entry: "  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-360\n    requirement_ids: [REQ-001]\n    authority: inherited\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, baseline := committedApprovalBaseline(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-360 @REQ-001\nScenario: malformed scenario reference\n")
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-360"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected malformed approved-scenario reference to block workflow progress")
+			}
+			if decision.Reason != "approved-scenario reference is malformed" {
+				t.Fatalf("reason = %q, want malformed approved-scenario reference", decision.Reason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason
