@@ -39,6 +39,9 @@ type CurrentSubmissionState struct {
 	BaselineCheckpoint        string
 	ApprovalRecordPath        string
 	ApprovalRecordFingerprint string
+	Evidence                  []string
+	Checkpoint                string
+	NextScenario              string
 }
 
 type CurrentSubmission struct {
@@ -290,11 +293,14 @@ func parseCurrentSubmissionState(contents string) (CurrentSubmissionState, error
 			"baseline_checkpoint":         &state.BaselineCheckpoint,
 			"approval_record_path":        &state.ApprovalRecordPath,
 			"approval_record_fingerprint": &state.ApprovalRecordFingerprint,
+			"checkpoint":                  &state.Checkpoint,
+			"next_scenario":               &state.NextScenario,
 		},
 		map[string]*[]string{
 			"completed_work:": &state.CompletedWork,
 			"remaining_work:": &state.RemainingWork,
 			"blocked_work:":   &state.BlockedWork,
+			"evidence:":       &state.Evidence,
 		}); err != nil {
 		return CurrentSubmissionState{}, fmt.Errorf("invalid state: %w", err)
 	}
@@ -345,7 +351,7 @@ func serializeCurrentSubmissionManifest(manifest CurrentSubmissionManifest) stri
 }
 
 func serializeCurrentSubmissionState(state CurrentSubmissionState) string {
-	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\nbaseline_checkpoint: %s\napproval_record_path: %s\napproval_record_fingerprint: %s\n",
+	return fmt.Sprintf("phase: %s\ncompleted_work:\n%s\nremaining_work:\n%s\nblocked_work:\n%s\nlast_action: %s\nsafe_resume_point: %s\nbaseline_checkpoint: %s\napproval_record_path: %s\napproval_record_fingerprint: %s\nevidence:\n%s\ncheckpoint: %s\nnext_scenario: %s\n",
 		state.Phase,
 		yamlList(state.CompletedWork),
 		yamlList(state.RemainingWork),
@@ -355,6 +361,9 @@ func serializeCurrentSubmissionState(state CurrentSubmissionState) string {
 		state.BaselineCheckpoint,
 		state.ApprovalRecordPath,
 		state.ApprovalRecordFingerprint,
+		yamlList(state.Evidence),
+		state.Checkpoint,
+		state.NextScenario,
 	)
 }
 
