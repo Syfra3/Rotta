@@ -124,6 +124,36 @@ func TestSCN355_UnverifiableClaudeCompatibilityClaimFailsCI(t *testing.T) {
 	}
 }
 
+// REQ-009 → SCN-356 → TestSCN356_SupportedHostsUseSharedWorkspaceControlledAuthority
+func TestSCN356_SupportedHostsUseSharedWorkspaceControlledAuthority(t *testing.T) {
+	// Scenario: Supported hosts use the same workspace-controlled workflow authority
+	home, options := setupCanonicalWorkflowInstall(t)
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("%s was not installed: %#v", host, result.Hosts[host])
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"shared workspace authority and the Rotta-Orchestrator",
+			"canonical approval gates and legal transitions",
+			"Retired legacy markers never authorize workflow activity",
+			"final_human_review semantics",
+		})
+	}
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
