@@ -1,5 +1,8 @@
 ---
+name: rotta-review
 description: "Rotta — Judge. Metrics-based quality auditor. No line-by-line code review. Reads evidence, not code. Saves verdict."
+model: inherit
+user-invocable: false
 mode: subagent
 hidden: true
 color: "#FF9EB8"

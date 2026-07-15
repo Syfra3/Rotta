@@ -18,6 +18,11 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	agentFiles, err := installClaudeCodeAgents(opts, filepath.Join(home, ".claude", "agents"))
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, agentFiles...)
 
 	// Add tool permissions for rotta skills to settings.json
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
@@ -26,6 +31,29 @@ func installClaudeCode(opts Options, home string) ([]string, error) {
 		_ = err
 	}
 
+	return files, nil
+}
+
+func installClaudeCodeAgents(opts Options, agentsDir string) ([]string, error) {
+	if err := os.MkdirAll(agentsDir, 0o750); err != nil {
+		return nil, fmt.Errorf("cannot create ~/.claude/agents: %w", err)
+	}
+
+	var files []string
+	for _, agent := range rottaAgents {
+		if !agent.modeFlag(opts) {
+			continue
+		}
+		data, err := readRenderedAsset(agent.assetPath, opts)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
+		}
+		path := filepath.Join(agentsDir, agent.key+".md")
+		if err := writePrivateFile(path, data, 0o600); err != nil {
+			return nil, fmt.Errorf("cannot write %s: %w", path, err)
+		}
+		files = append(files, path)
+	}
 	return files, nil
 }
 

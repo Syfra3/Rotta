@@ -39,6 +39,34 @@ func TestSCN201_InstallRottaIntoSingleSupportedCodexHost(t *testing.T) {
 	assertPathMissing(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator"))
 }
 
+// REQ-015 → SCN-301 → TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents
+func TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents(t *testing.T) {
+	// Scenario: Install the global Claude orchestration surface and phase agents
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "claude-code",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agentsDir := filepath.Join(home, ".claude", "agents")
+	assertFileContains(t, filepath.Join(agentsDir, "rotta-orchestrator.md"), "name: rotta-orchestrator")
+	for _, name := range []string{"rotta-spec", "rotta-impl", "rotta-review"} {
+		path := filepath.Join(agentsDir, name+".md")
+		assertFileContains(t, path, "name: "+name)
+		assertFileContains(t, path, "user-invocable: false")
+		assertFileContains(t, path, "model: inherit")
+		assertFileContains(t, path, "You are a sub-agent invoked by the Rotta-Orchestrator.")
+	}
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
