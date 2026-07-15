@@ -444,6 +444,21 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 	})
 }
 
+// REQ-006 → SCN-343 → TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults
+func TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults(t *testing.T) {
+	// Scenario: Invalid gate configuration stops review without defaults
+	data, err := assets.FS.ReadFile("skills/review-mode/SKILL.md")
+	if err != nil {
+		t.Fatalf("read review mode asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent",
+		"stop review with a configuration error",
+		"Do not substitute embedded default gate behavior",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

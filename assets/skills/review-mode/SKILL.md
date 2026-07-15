@@ -64,6 +64,8 @@ not invent a gate, command, target, parser, threshold, applicability exception,
 severity, or remediation. Configuration validation and configuration-error
 handling are defined only by the canonical YAML.
 
+Before evaluating any gate, validate the canonical YAML. If it is missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent, stop review with a configuration error. Do not substitute embedded default gate behavior.
+
 ---
 
 ## Decision Report
