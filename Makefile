@@ -116,6 +116,8 @@ hooks-install:
 
 reset-opencode:
 	@echo "Starting global OpenCode reset-and-reinstall workflow"
+	@rm -rf "$$HOME/.config/opencode" "$$HOME/.local/share/opencode" "$$HOME/.cache/opencode"
+	@curl -fsSL https://opencode.ai/install | bash
 
 help:
 	@echo "Available targets:"
