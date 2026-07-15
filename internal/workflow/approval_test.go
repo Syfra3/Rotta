@@ -279,6 +279,46 @@ func TestSCN364_DuplicateScenarioIdentityBlocksAuthorization(t *testing.T) {
 	}
 }
 
+func TestSCN365_DisplayScenarioReferenceBlocksAuthorization(t *testing.T) {
+	// REQ-001 → SCN-365 → TestSCN365_DisplayScenarioReferenceBlocksAuthorization
+	// Scenario: A display-oriented scenario reference cannot authorize a scenario
+	for _, test := range []struct {
+		name  string
+		entry string
+	}{
+		{name: "scenario title", entry: "  - scenario_title: A display-oriented scenario reference cannot authorize a scenario\n"},
+		{name: "source line", entry: "  - source_line: 365\n"},
+		{name: "opaque path and scenario string", entry: "  - features/unified-workflow-authority.feature#SCN-365\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, baseline := committedApprovalBaseline(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-365 @REQ-001\nScenario: display reference\n")
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-365"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected display-oriented scenario reference to block authorization")
+			}
+			if decision.Reason != "approved-scenario reference is not structured authoritative identity" {
+				t.Fatalf("reason = %q, want non-structured authoritative identity", decision.Reason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason
