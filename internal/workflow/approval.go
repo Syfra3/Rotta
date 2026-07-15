@@ -14,6 +14,7 @@ var errMalformedFeatureApproval = errors.New("malformed feature approval record"
 var errMalformedScenarioReference = errors.New("malformed approved-scenario reference")
 var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario feature path")
 var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did not resolve exactly once")
+var errScenarioRequirementIDsMismatch = errors.New("approved-scenario requirement IDs do not match feature requirement tags")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -59,6 +60,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errScenarioIDNotResolvedExactlyOnce) {
 			return ImplementationGateDecision{Reason: "approved-scenario ID did not resolve exactly once"}, nil
+		}
+		if errors.Is(err, errScenarioRequirementIDsMismatch) {
+			return ImplementationGateDecision{Reason: "approved-scenario requirement IDs do not match feature requirement tags"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -120,6 +124,8 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	submissionWorktree := ""
 	entryFeaturePath := ""
 	entryScenarioID := ""
+	entryRequirementIDs := []string(nil)
+	approvedRequirementIDs := []string(nil)
 	entryFields := map[string]bool{}
 	inScenarioEntry := false
 	malformedScenarioReference := false
@@ -132,6 +138,10 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 			if !entryFields[field] {
 				malformedScenarioReference = true
 			}
+		}
+		if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
+			approved = true
+			approvedRequirementIDs = entryRequirementIDs
 		}
 	}
 	scanner := bufio.NewScanner(file)
@@ -193,6 +203,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 				malformedScenarioReference = true
 			} else {
 				entryFields[field] = true
+				if field == "requirement_ids" {
+					entryRequirementIDs = parseRequirementIDs(value)
+				}
 				if field == "feature_path" && !isCanonicalFeaturePath(strings.TrimSpace(value)) {
 					invalidScenarioFeaturePath = true
 				}
@@ -201,11 +214,13 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		if value, ok := strings.CutPrefix(line, "- scenario_id: "); ok {
 			entryFeaturePath = ""
 			entryScenarioID = strings.TrimSpace(value)
+			entryRequirementIDs = nil
 			continue
 		}
 		if value, ok := strings.CutPrefix(line, "- feature_path: "); ok {
 			entryFeaturePath = strings.TrimSpace(value)
 			entryScenarioID = ""
+			entryRequirementIDs = nil
 			if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
 				approved = true
 			}
@@ -262,10 +277,65 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	if !approvalBaselineIsReachable(repoRoot, baselineCommit) {
 		return false, true, errApprovalBaselineUnreachable
 	}
-	if _, err := os.Stat(filepath.Join(repoRoot, scope.FeaturePath)); err == nil && !scenarioIDResolvesExactlyOnce(repoRoot, scope.FeaturePath, scope.ScenarioID) {
-		return false, true, errScenarioIDNotResolvedExactlyOnce
+	if _, err := os.Stat(filepath.Join(repoRoot, scope.FeaturePath)); err == nil {
+		if !scenarioIDResolvesExactlyOnce(repoRoot, scope.FeaturePath, scope.ScenarioID) {
+			return false, true, errScenarioIDNotResolvedExactlyOnce
+		}
+		if !sameRequirementIDs(approvedRequirementIDs, scenarioRequirementIDs(repoRoot, scope.FeaturePath, scope.ScenarioID)) {
+			return false, true, errScenarioRequirementIDsMismatch
+		}
 	}
 	return true, true, nil
+}
+
+func parseRequirementIDs(value string) []string {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(value), "["), "]"))
+	if value == "" {
+		return nil
+	}
+	return strings.Split(strings.ReplaceAll(value, " ", ""), ",")
+}
+
+func sameRequirementIDs(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := make(map[string]bool, len(left))
+	for _, value := range left {
+		seen[value] = true
+	}
+	for _, value := range right {
+		if !seen[value] {
+			return false
+		}
+	}
+	return len(seen) == len(right)
+}
+
+func scenarioRequirementIDs(repoRoot, featurePath, scenarioID string) []string {
+	file, closeFile, err := openRepositoryFile(repoRoot, featurePath)
+	if err != nil {
+		return nil
+	}
+	defer closeFile()
+
+	tag := "@" + scenarioID
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(strings.TrimSpace(scanner.Text()))
+		for _, field := range fields {
+			if field == tag {
+				requirements := make([]string, 0)
+				for _, value := range fields {
+					if strings.HasPrefix(value, "@REQ-") {
+						requirements = append(requirements, strings.TrimPrefix(value, "@"))
+					}
+				}
+				return requirements
+			}
+		}
+	}
+	return nil
 }
 
 func scenarioIDResolvesExactlyOnce(repoRoot, featurePath, scenarioID string) bool {
