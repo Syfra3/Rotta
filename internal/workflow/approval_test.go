@@ -165,6 +165,42 @@ func TestSCN361_NonCanonicalScenarioPathBlocksWorkflowProgress(t *testing.T) {
 	}
 }
 
+func TestSCN362_UnresolvedOrAmbiguousScenarioIDBlocksWorkflowProgress(t *testing.T) {
+	// REQ-001 → SCN-362 → TestSCN362_UnresolvedOrAmbiguousScenarioIDBlocksWorkflowProgress
+	// Scenario: An unresolved or ambiguous scenario ID cannot authorize a scenario
+	for _, feature := range []string{
+		"@SCN-999 @REQ-001\nScenario: another scenario\n",
+		"@SCN-362 @REQ-001\nScenario: first scenario\n\n@SCN-362 @REQ-001\nScenario: second scenario\n",
+	} {
+		t.Run(feature, func(t *testing.T) {
+			repo, baseline := committedApprovalBaseline(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+			mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), feature)
+			specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+			if err != nil {
+				t.Fatalf("fingerprint specification: %v", err)
+			}
+			featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+			if err != nil {
+				t.Fatalf("fingerprint feature: %v", err)
+			}
+			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-362\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-362"})
+			if err != nil {
+				t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+			}
+			if decision.Approved {
+				t.Fatal("expected an unresolved or ambiguous scenario ID to block workflow progress")
+			}
+			if decision.Reason != "approved-scenario ID did not resolve exactly once" {
+				t.Fatalf("reason = %q, want scenario ID resolution failure", decision.Reason)
+			}
+		})
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason

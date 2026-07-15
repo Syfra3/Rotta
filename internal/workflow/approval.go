@@ -13,6 +13,7 @@ import (
 var errMalformedFeatureApproval = errors.New("malformed feature approval record")
 var errMalformedScenarioReference = errors.New("malformed approved-scenario reference")
 var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario feature path")
+var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did not resolve exactly once")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -55,6 +56,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errInvalidScenarioFeaturePath) {
 			return ImplementationGateDecision{Reason: "approved-scenario feature path is invalid"}, nil
+		}
+		if errors.Is(err, errScenarioIDNotResolvedExactlyOnce) {
+			return ImplementationGateDecision{Reason: "approved-scenario ID did not resolve exactly once"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -258,7 +262,40 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	if !approvalBaselineIsReachable(repoRoot, baselineCommit) {
 		return false, true, errApprovalBaselineUnreachable
 	}
+	if _, err := os.Stat(filepath.Join(repoRoot, scope.FeaturePath)); err == nil && !scenarioIDResolvesExactlyOnce(repoRoot, scope.FeaturePath, scope.ScenarioID) {
+		return false, true, errScenarioIDNotResolvedExactlyOnce
+	}
 	return true, true, nil
+}
+
+func scenarioIDResolvesExactlyOnce(repoRoot, featurePath, scenarioID string) bool {
+	file, closeFile, err := openRepositoryFile(repoRoot, featurePath)
+	if err != nil {
+		return false
+	}
+	defer closeFile()
+
+	tag := "@" + scenarioID
+	pendingScenario := false
+	resolved := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "@") {
+			pendingScenario = false
+			for _, value := range strings.Fields(line) {
+				if value == tag {
+					pendingScenario = true
+				}
+			}
+			continue
+		}
+		if pendingScenario && strings.HasPrefix(line, "Scenario") {
+			resolved++
+			pendingScenario = false
+		}
+	}
+	return scanner.Err() == nil && resolved == 1
 }
 
 func isCanonicalFeaturePath(path string) bool {
