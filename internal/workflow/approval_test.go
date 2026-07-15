@@ -101,6 +101,52 @@ func TestSCN018_MalformedScopedApprovalFileReturnsError(t *testing.T) {
 	}
 }
 
+func TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios(t *testing.T) {
+	// REQ-001 → SCN-324 → TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios
+	// Scenario: A valid feature approval record authorizes its approved scenarios
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), `format: rotta.feature-approval/v2
+contract_id: unified-workflow-authority
+status: approved
+feature_paths:
+  - features/unified-workflow-authority.feature
+approved_scenarios:
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-324
+    requirement_ids: [REQ-001]
+contract_fingerprints:
+  specs/hard_spec.md: matching-fingerprint
+  features/unified-workflow-authority.feature: matching-fingerprint
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: 8801bf810c730720f5e01e156bb66c3c3efc4be6
+`)
+
+	approved, err := EvaluateImplementationGate(repo, ContractScope{
+		SpecPath:    "specs/hard_spec.md",
+		FeaturePath: "features/unified-workflow-authority.feature",
+		ScenarioID:  "SCN-324",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if !approved.Approved {
+		t.Fatalf("expected SCN-324 to be authorized, got reason %q", approved.Reason)
+	}
+
+	notApproved, err := EvaluateImplementationGate(repo, ContractScope{
+		SpecPath:    "specs/hard_spec.md",
+		FeaturePath: "features/unified-workflow-authority.feature",
+		ScenarioID:  "SCN-325",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if notApproved.Approved {
+		t.Fatalf("expected SCN-325 to remain unauthorized, got reason %q", notApproved.Reason)
+	}
+}
+
 func workflowArtifactLifecycleScope() ContractScope {
 	return ContractScope{
 		SpecPath:    "specs/workflow_artifact_lifecycle.md",

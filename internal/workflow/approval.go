@@ -35,6 +35,11 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 }
 
 func scopedApprovalContains(repoRoot string, scope ContractScope) (bool, error) {
+	approved, found, err := featureApprovalContains(repoRoot, scope)
+	if err != nil || found {
+		return approved, err
+	}
+
 	file, closeFile, err := openRepositoryFile(repoRoot, scopedApprovalPath(scope.SpecPath))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,7 +64,51 @@ func scopedApprovalContains(repoRoot string, scope ContractScope) (bool, error) 
 	return false, nil
 }
 
+func featureApprovalContains(repoRoot string, scope ContractScope) (approved, found bool, err error) {
+	file, closeFile, err := openRepositoryFile(repoRoot, featureApprovalPath(scope.FeaturePath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, false, nil
+		}
+		return false, true, err
+	}
+	defer closeFile()
+
+	inApprovedScenarios := false
+	entryFeaturePath := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "approved_scenarios:" {
+			inApprovedScenarios = true
+			continue
+		}
+		if !inApprovedScenarios {
+			continue
+		}
+		if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, "-") {
+			break
+		}
+		if value, ok := strings.CutPrefix(line, "- feature_path: "); ok {
+			entryFeaturePath = strings.TrimSpace(value)
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "scenario_id: "); ok && entryFeaturePath == scope.FeaturePath && strings.TrimSpace(value) == strings.TrimSpace(scope.ScenarioID) {
+			return true, true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, true, err
+	}
+	return false, true, nil
+}
+
 func scopedApprovalPath(specPath string) string {
 	contractID := strings.TrimSuffix(filepath.Base(specPath), filepath.Ext(specPath))
 	return filepath.Join("specs", "approvals", contractID+".approved")
+}
+
+func featureApprovalPath(featurePath string) string {
+	contractID := strings.TrimSuffix(filepath.Base(featurePath), filepath.Ext(featurePath))
+	return filepath.Join("specs", "approvals", contractID+".yaml")
 }
