@@ -68,6 +68,9 @@ Before evaluating any gate, validate the canonical YAML. If it is missing, unrea
 
 When configuration changes a threshold, enabled status, severity, remediation outcome, command, or critical-function list, that change takes effect for the next review without changing review code or instructions.
 
+An explicitly empty critical-function list makes that coverage sub-gate
+`not_applicable`; it does not fail solely because no functions are named.
+
 ---
 
 ## Decision Report
