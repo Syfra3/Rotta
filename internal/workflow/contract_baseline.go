@@ -159,6 +159,61 @@ func CompleteApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioB
 	return state, nil
 }
 
+// CompleteFinalApprovedScenarioBoundary checkpoints the final approved scenario
+// and enters review after its clean recorded-worktree boundary.
+func CompleteFinalApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioBoundaryRequest, startReview func() error) (CurrentSubmissionState, error) {
+	decision, err := BeginApprovedPhase3(repoRoot, ApprovedPhase3Request{ScenarioID: request.ScenarioID})
+	if err != nil {
+		return CurrentSubmissionState{}, err
+	}
+	if !decision.Allowed {
+		return CurrentSubmissionState{}, fmt.Errorf("%s", decision.Reason)
+	}
+	current, err := ResumeCurrentSubmission(repoRoot, nil)
+	if err != nil {
+		return CurrentSubmissionState{}, err
+	}
+	if len(current.State.RemainingWork) != 1 || current.State.RemainingWork[0] != request.ScenarioID {
+		return CurrentSubmissionState{}, fmt.Errorf("final approved scenario boundary requires the recorded final scenario")
+	}
+	if !containsAllEvidence(request.RequiredEvidence, requiredApprovedScenarioEvidence) {
+		return CurrentSubmissionState{}, fmt.Errorf("final approved scenario boundary requires Red, Green, Refactor, traceable-test, required-test, and active-gate evidence")
+	}
+	checkpoint, err := CheckpointApprovedScenario(repoRoot, ScenarioCheckpointRequest{
+		ScenarioID:       request.ScenarioID,
+		ExpectedPaths:    request.ExpectedPaths,
+		TDDComplete:      request.TDDComplete,
+		TestsPassed:      request.TestsPassed,
+		ValidationPassed: request.ValidationPassed,
+	})
+	if err != nil {
+		return CurrentSubmissionState{}, err
+	}
+	state := current.State
+	state.Phase = "Phase 4 review"
+	state.CompletedWork = append(state.CompletedWork, request.ScenarioID)
+	state.RemainingWork = []string{}
+	state.Evidence = append([]string(nil), request.RequiredEvidence...)
+	state.Checkpoint = checkpoint.CommitID
+	state.NextScenario = ""
+	state.LastAction = "checkpointed " + request.ScenarioID
+	state.SafeResumePoint = "begin Phase 4 review"
+	if err := os.WriteFile(current.StatePath, []byte(serializeCurrentSubmissionState(state)), 0o600); err != nil {
+		return CurrentSubmissionState{}, fmt.Errorf("record final approved scenario boundary state: %w", err)
+	}
+	if status, err := gitSubmissionOutput(repoRoot, "status", "--short"); err != nil {
+		return CurrentSubmissionState{}, fmt.Errorf("verify final approved scenario boundary cleanliness: %w", err)
+	} else if status != "" {
+		return CurrentSubmissionState{}, fmt.Errorf("final approved scenario boundary has non-ignored changes: %s", status)
+	}
+	if startReview != nil {
+		if err := startReview(); err != nil {
+			return CurrentSubmissionState{}, err
+		}
+	}
+	return state, nil
+}
+
 func containsAllEvidence(actual, required []string) bool {
 	for _, evidence := range required {
 		if !containsPath(actual, evidence) {
