@@ -172,6 +172,94 @@ func TestSCN314_CheckpointApprovedFeatureContract(t *testing.T) {
 	}
 }
 
+// REQ-046, REQ-051 → SCN-314 → TestSCN314_RejectsBaselineWithoutCurrentWorkflowState
+func TestSCN314_RejectsBaselineWithoutCurrentWorkflowState(t *testing.T) {
+	// Scenario: Checkpoint an explicitly approved feature contract
+	repo := prepareSCN248Repository(t)
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-314\n")
+	before := runGitOutput(t, repo, "rev-parse", "HEAD")
+
+	_, err := CheckpointApprovedContractBaseline(repo, ApprovedContractBaselineRequest{
+		Submission:        NewImplementationSubmission{WorktreePath: repo, BaseBranch: "main", FeatureBranch: "feature/worktree-handoff"},
+		SpecPath:          "specs/hard_spec.md",
+		FeaturePath:       "features/feature_worktree_lifecycle.feature",
+		ApprovedScenarios: []string{"SCN-314"},
+		ApprovedAt:        time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC),
+	})
+	if err == nil || !strings.Contains(err.Error(), "current workflow state") {
+		t.Fatalf("CheckpointApprovedContractBaseline error = %v, want current workflow state failure", err)
+	}
+	if after := runGitOutput(t, repo, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("baseline checkpoint advanced HEAD from %q to %q without current workflow state", before, after)
+	}
+}
+
+// REQ-046, REQ-051 → SCN-314 → TestSCN314_RejectsUnverifiableApprovalInputs
+func TestSCN314_RejectsUnverifiableApprovalInputs(t *testing.T) {
+	// Scenario: Checkpoint an explicitly approved feature contract
+	for _, testCase := range []struct {
+		name      string
+		configure func(*ApprovedContractBaselineRequest)
+		wantError string
+	}{
+		{
+			name: "unrecorded worktree",
+			configure: func(request *ApprovedContractBaselineRequest) {
+				request.Submission.WorktreePath = filepath.Join(filepath.Dir(request.Submission.WorktreePath), "other-worktree")
+			},
+			wantError: "recorded feature worktree",
+		},
+		{
+			name: "wrong active feature branch",
+			configure: func(request *ApprovedContractBaselineRequest) {
+				request.Submission.FeatureBranch = "feature/other"
+			},
+			wantError: "recorded feature branch",
+		},
+		{
+			name: "incomplete approval scope",
+			configure: func(request *ApprovedContractBaselineRequest) {
+				request.ApprovedScenarios = nil
+			},
+			wantError: "contract paths and approved scenarios",
+		},
+		{
+			name: "missing approved hard spec",
+			configure: func(request *ApprovedContractBaselineRequest) {
+				request.SpecPath = "specs/missing.md"
+			},
+			wantError: "fingerprint approved contract",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN248Repository(t)
+			mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+			mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-314\n")
+			if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{
+				ID:           "feature-worktree-lifecycle",
+				SpecPath:     "specs/hard_spec.md",
+				FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"},
+				ScenarioIDs:  []string{"SCN-314"},
+			}); err != nil {
+				t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+			}
+			request := ApprovedContractBaselineRequest{
+				Submission:        NewImplementationSubmission{WorktreePath: repo, BaseBranch: "main", FeatureBranch: "feature/worktree-handoff"},
+				SpecPath:          "specs/hard_spec.md",
+				FeaturePath:       "features/feature_worktree_lifecycle.feature",
+				ApprovedScenarios: []string{"SCN-314"},
+				ApprovedAt:        time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC),
+			}
+			testCase.configure(&request)
+
+			if _, err := CheckpointApprovedContractBaseline(repo, request); err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("CheckpointApprovedContractBaseline error = %v, want %q", err, testCase.wantError)
+			}
+		})
+	}
+}
+
 // REQ-046, REQ-048 → SCN-315 → TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline
 func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.T) {
 	// Scenario: Refuse implementation without a matching approved baseline
