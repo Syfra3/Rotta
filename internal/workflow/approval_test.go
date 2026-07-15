@@ -58,6 +58,31 @@ baseline_confirmation:
 	}
 }
 
+func TestSCN359_ValidStructuredScenarioReferenceAuthorizesExactScenario(t *testing.T) {
+	// REQ-001 → SCN-359 → TestSCN359_ValidStructuredScenarioReferenceAuthorizesExactScenario
+	// Scenario: A valid structured approved-scenario reference authorizes its exact scenario
+	repo, baseline := committedApprovalBaseline(t)
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+	mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-359 @REQ-001\nScenario: approved scenario\n")
+	specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+	if err != nil {
+		t.Fatalf("fingerprint specification: %v", err)
+	}
+	featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+	if err != nil {
+		t.Fatalf("fingerprint feature: %v", err)
+	}
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - scenario_id: SCN-359\n    requirement_ids: [REQ-001]\n    feature_path: features/unified-workflow-authority.feature\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: "+baseline+"\n")
+
+	decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-359"})
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if !decision.Approved {
+		t.Fatalf("expected the exact structured scenario to be authorized, got reason %q", decision.Reason)
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason

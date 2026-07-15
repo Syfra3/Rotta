@@ -107,6 +107,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	baselineCommit := ""
 	submissionWorktree := ""
 	entryFeaturePath := ""
+	entryScenarioID := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -153,12 +154,31 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 			inApprovedScenarios = false
 			continue
 		}
-		if value, ok := strings.CutPrefix(line, "- feature_path: "); ok {
-			entryFeaturePath = strings.TrimSpace(value)
+		if value, ok := strings.CutPrefix(line, "- scenario_id: "); ok {
+			entryFeaturePath = ""
+			entryScenarioID = strings.TrimSpace(value)
 			continue
 		}
-		if value, ok := strings.CutPrefix(line, "scenario_id: "); ok && entryFeaturePath == scope.FeaturePath && strings.TrimSpace(value) == strings.TrimSpace(scope.ScenarioID) {
-			approved = true
+		if value, ok := strings.CutPrefix(line, "- feature_path: "); ok {
+			entryFeaturePath = strings.TrimSpace(value)
+			entryScenarioID = ""
+			if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
+				approved = true
+			}
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "feature_path: "); ok {
+			entryFeaturePath = strings.TrimSpace(value)
+			if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
+				approved = true
+			}
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "scenario_id: "); ok {
+			entryScenarioID = strings.TrimSpace(value)
+			if entryFeaturePath == scope.FeaturePath && entryScenarioID == strings.TrimSpace(scope.ScenarioID) {
+				approved = true
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
