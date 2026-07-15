@@ -46,13 +46,14 @@ type ApprovedScenarioDelegation struct {
 }
 
 type ApprovedScenarioBoundaryRequest struct {
-	ScenarioID       string
-	ExpectedPaths    []string
-	RequiredEvidence []string
-	TDDComplete      bool
-	TestsPassed      bool
-	ValidationPassed bool
-	StartNextScenario  func(string) error
+	ScenarioID        string
+	ExpectedPaths     []string
+	RequiredEvidence  []string
+	TDDComplete       bool
+	TestsPassed       bool
+	ValidationPassed  bool
+	Submission        NewImplementationSubmission
+	StartNextScenario func(string) error
 }
 
 var requiredApprovedScenarioEvidence = []string{
@@ -105,25 +106,25 @@ func RunNextApprovedScenario(repoRoot string, request ApprovedScenarioRunRequest
 func CompleteApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioBoundaryRequest) (CurrentSubmissionState, error) {
 	decision, err := BeginApprovedPhase3(repoRoot, ApprovedPhase3Request{ScenarioID: request.ScenarioID})
 	if err != nil {
-		return CurrentSubmissionState{}, err
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, err)
 	}
 	if !decision.Allowed {
-		return CurrentSubmissionState{}, fmt.Errorf("%s", decision.Reason)
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("%s", decision.Reason))
 	}
 	current, err := ResumeCurrentSubmission(repoRoot, nil)
 	if err != nil {
-		return CurrentSubmissionState{}, err
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, err)
 	}
 	if len(current.State.RemainingWork) < 2 || current.State.RemainingWork[0] != request.ScenarioID {
-		return CurrentSubmissionState{}, fmt.Errorf("approved scenario boundary requires a recorded next scenario")
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary requires a recorded next scenario"))
 	}
 	if !containsAllEvidence(request.RequiredEvidence, requiredApprovedScenarioEvidence) {
-		return CurrentSubmissionState{}, fmt.Errorf("approved scenario boundary requires Red, Green, Refactor, traceable-test, required-test, and active-gate evidence")
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary requires Red, Green, Refactor, traceable-test, required-test, and active-gate evidence"))
 	}
 	nextScenario := current.State.RemainingWork[1]
 	record, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(current.State.ApprovalRecordPath)))
 	if err != nil || !approvedRecordIncludesScenario(string(record), current.Manifest.FeaturePaths[0], nextScenario) {
-		return CurrentSubmissionState{}, fmt.Errorf("approved scenario boundary requires the recorded next scenario to be approved")
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary requires the recorded next scenario to be approved"))
 	}
 	checkpoint, err := CheckpointApprovedScenario(repoRoot, ScenarioCheckpointRequest{
 		ScenarioID:       request.ScenarioID,
@@ -131,9 +132,10 @@ func CompleteApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioB
 		TDDComplete:      request.TDDComplete,
 		TestsPassed:      request.TestsPassed,
 		ValidationPassed: request.ValidationPassed,
+		Submission:       request.Submission,
 	})
 	if err != nil {
-		return CurrentSubmissionState{}, err
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, err)
 	}
 	state := current.State
 	state.CompletedWork = append(state.CompletedWork, request.ScenarioID)
@@ -144,19 +146,23 @@ func CompleteApprovedScenarioBoundary(repoRoot string, request ApprovedScenarioB
 	state.LastAction = "checkpointed " + request.ScenarioID
 	state.SafeResumePoint = "begin " + nextScenario
 	if err := os.WriteFile(current.StatePath, []byte(serializeCurrentSubmissionState(state)), 0o600); err != nil {
-		return CurrentSubmissionState{}, fmt.Errorf("record approved scenario boundary state: %w", err)
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("record approved scenario boundary state: %w", err))
 	}
 	if status, err := gitSubmissionOutput(repoRoot, "status", "--short"); err != nil {
-		return CurrentSubmissionState{}, fmt.Errorf("verify approved scenario boundary cleanliness: %w", err)
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("verify approved scenario boundary cleanliness: %w", err))
 	} else if status != "" {
-		return CurrentSubmissionState{}, fmt.Errorf("approved scenario boundary has non-ignored changes: %s", status)
+		return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, fmt.Errorf("approved scenario boundary has non-ignored changes: %s", status))
 	}
 	if request.StartNextScenario != nil {
 		if err := request.StartNextScenario(nextScenario); err != nil {
-			return CurrentSubmissionState{}, err
+			return CurrentSubmissionState{}, haltedApprovedScenarioBoundary(request.ScenarioID, err)
 		}
 	}
 	return state, nil
+}
+
+func haltedApprovedScenarioBoundary(scenarioID string, cause error) error {
+	return fmt.Errorf("approved scenario boundary halted for %s: %w; recovery: preserve evidence and user changes, resolve the reported condition, then retry the recorded scenario", scenarioID, cause)
 }
 
 // CompleteFinalApprovedScenarioBoundary checkpoints the final approved scenario
