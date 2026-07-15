@@ -127,6 +127,41 @@ func TestSCN204_GenerateHostSpecificInstructionsFromCanonicalWorkflow(t *testing
 	assertCanonicalWorkflowInstructions(t, result, home)
 }
 
+func TestGeneratedHostInstructionsApplyProportionalWorkflowPolicy(t *testing.T) {
+	home, options := setupCanonicalWorkflowInstall(t)
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "implementation-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("%s was not installed: %#v", host, result.Hosts[host])
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"Workflow Selection (MANDATORY)",
+			"direct, narrowly verified path",
+			"focused impact assessment and appropriate focused verification",
+			"A Makefile change alone is not automatically low-risk",
+			"Use the full workflow for ambiguous, multi-component, destructive, security, auth, payments, infrastructure, secrets, migrations, public-contract, data-loss, or behaviorally significant changes.",
+			"When uncertain, use the full workflow.",
+			"Phase 2 — Spec + Gherkin",
+			"Do NOT advance without explicit human approval",
+			"Phase 3 — TDD",
+			"strict Red/Green/Refactor TDD",
+			"Phase 4 — Review",
+		})
+	}
+}
+
 // REQ-042, REQ-043 → SCN-248 → TestSCN248_GeneratedHostInstructionsPreserveManualPRHandoffPolicy
 func TestSCN248_GeneratedHostInstructionsPreserveManualPRHandoffPolicy(t *testing.T) {
 	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
