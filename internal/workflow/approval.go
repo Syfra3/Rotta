@@ -17,6 +17,7 @@ var errInvalidScenarioFeaturePath = errors.New("invalid approved-scenario featur
 var errScenarioIDNotResolvedExactlyOnce = errors.New("approved-scenario ID did not resolve exactly once")
 var errScenarioRequirementIDsMismatch = errors.New("approved-scenario requirement IDs do not match feature requirement tags")
 var errDuplicateScenarioIdentity = errors.New("duplicate approved-scenario identity")
+var errApprovalBaselineConfirmationPending = errors.New("baseline confirmation is pending")
 var errApprovalBaselineUncommitted = errors.New("approval baseline is not committed")
 var errApprovalBaselineUnreachable = errors.New("approval baseline is unreachable")
 var errApprovalScopeMismatch = errors.New("approval record has an identity or scenario-scope mismatch")
@@ -71,6 +72,9 @@ func EvaluateImplementationGate(repoRoot string, scope ContractScope) (Implement
 		}
 		if errors.Is(err, errDuplicateScenarioIdentity) {
 			return ImplementationGateDecision{Reason: "duplicate approved-scenario identity"}, nil
+		}
+		if errors.Is(err, errApprovalBaselineConfirmationPending) {
+			return ImplementationGateDecision{Reason: "baseline confirmation is pending"}, nil
 		}
 		if errors.Is(err, errApprovalBaselineUncommitted) {
 			return ImplementationGateDecision{Reason: "approval baseline is not committed"}, nil
@@ -129,6 +133,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	inFingerprints := false
 	fingerprints := map[string]string{}
 	baselineCommit := ""
+	baselineConfirmationStatus := ""
 	submissionWorktree := ""
 	entryFeaturePath := ""
 	entryScenarioID := ""
@@ -185,6 +190,11 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 		}
 		if value, ok := strings.CutPrefix(line, "baseline_commit: "); ok {
 			baselineCommit = strings.TrimSpace(value)
+		}
+		if hasBaselineConfirmation {
+			if value, ok := strings.CutPrefix(line, "status: "); ok {
+				baselineConfirmationStatus = strings.TrimSpace(value)
+			}
 		}
 		if value, ok := strings.CutPrefix(line, "submission_worktree: "); ok {
 			submissionWorktree = strings.TrimSpace(value)
@@ -275,6 +285,9 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	}
 	if !hasFormat || !hasContractID || !hasStatus || !hasFeaturePaths || !hasApprovedScenarios || !hasFingerprints || !hasBaselineConfirmation {
 		return false, true, errMalformedFeatureApproval
+	}
+	if baselineConfirmationStatus == "pending" {
+		return false, true, errApprovalBaselineConfirmationPending
 	}
 	if !hasFeatureIdentity || !approved {
 		return false, true, errApprovalScopeMismatch

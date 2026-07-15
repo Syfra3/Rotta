@@ -319,6 +319,44 @@ func TestSCN365_DisplayScenarioReferenceBlocksAuthorization(t *testing.T) {
 	}
 }
 
+func TestSCN366_PendingBaselineCannotStartTDDScenarioLoop(t *testing.T) {
+	// REQ-001, REQ-007 → SCN-366 → TestSCN366_PendingBaselineCannotStartTDDScenarioLoop
+	// Scenario: A pending baseline cannot start the TDD scenario loop
+	repo, baseline := committedApprovalBaseline(t)
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+	mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-366 @REQ-001 @REQ-007\nScenario: pending baseline\n")
+	specFingerprint, err := contractFileFingerprint(repo, "specs/hard_spec.md")
+	if err != nil {
+		t.Fatalf("fingerprint specification: %v", err)
+	}
+	featureFingerprint, err := contractFileFingerprint(repo, "features/unified-workflow-authority.feature")
+	if err != nil {
+		t.Fatalf("fingerprint feature: %v", err)
+	}
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-366\n    requirement_ids: [REQ-001, REQ-007]\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: pending\n  baseline_commit: "+baseline+"\n")
+
+	delegated := false
+	decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{
+		Scope: ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-366"},
+		LaunchScenario: func() error {
+			delegated = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartAutonomousScenarioLoop returned error: %v", err)
+	}
+	if decision.Approved {
+		t.Fatalf("pending baseline authorized Phase 3: %#v", decision)
+	}
+	if decision.Reason != "baseline confirmation is pending" {
+		t.Fatalf("reason = %q, want pending baseline confirmation", decision.Reason)
+	}
+	if delegated {
+		t.Fatal("pending baseline delegated an approved scenario")
+	}
+}
+
 func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
 	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
 	// Scenario: An invalid approval record fails closed with its specific reason
