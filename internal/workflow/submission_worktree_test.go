@@ -240,6 +240,53 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 	}
 }
 
+// REQ-047 → SCN-316 → TestSCN316_DelegatesOnlyTheRecordedApprovedScenarioWithRequiredEvidence
+func TestSCN316_DelegatesOnlyTheRecordedApprovedScenarioWithRequiredEvidence(t *testing.T) {
+	// Scenario: Run exactly one approved scenario through its required evidence and gate boundary
+	repo := prepareSCN316ApprovedBaseline(t)
+	delegated := []ApprovedScenarioDelegation{}
+
+	decision, err := RunNextApprovedScenario(repo, ApprovedScenarioRunRequest{
+		ScenarioID: "SCN-316",
+		Delegate: func(delegation ApprovedScenarioDelegation) error {
+			delegated = append(delegated, delegation)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunNextApprovedScenario returned error: %v", err)
+	}
+	if !decision.Allowed || len(delegated) != 1 {
+		t.Fatalf("decision=%#v delegated=%#v, want one approved delegation", decision, delegated)
+	}
+	delegation := delegated[0]
+	if delegation.ScenarioID != "SCN-316" || delegation.WorktreePath != repo {
+		t.Fatalf("delegation=%#v, want only SCN-316 in recorded worktree %q", delegation, repo)
+	}
+	for _, evidence := range []string{"Red", "Green", "Refactor", "traceable-test", "required-test", "active-gate", "feature-worktree-identity"} {
+		if !containsPath(delegation.RequiredEvidence, evidence) {
+			t.Fatalf("delegation evidence=%v, missing %q", delegation.RequiredEvidence, evidence)
+		}
+	}
+}
+
+func prepareSCN316ApprovedBaseline(t *testing.T) string {
+	t.Helper()
+	repo := prepareSCN248Repository(t)
+	mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "feature_worktree_lifecycle.feature"), "@SCN-316\n")
+	recordPath := "specs/approvals/feature-worktree-lifecycle.yaml"
+	mustWrite(t, filepath.Join(repo, filepath.FromSlash(recordPath)), "approved_scenarios:\n  - features/feature_worktree_lifecycle.feature#SCN-316\ncontract_fingerprints:\n  specs/hard_spec.md: "+mustContractFingerprint(t, repo, "specs/hard_spec.md")+"\n  features/feature_worktree_lifecycle.feature: "+mustContractFingerprint(t, repo, "features/feature_worktree_lifecycle.feature")+"\n")
+	runGit(t, repo, "add", "specs/hard_spec.md", "features/feature_worktree_lifecycle.feature", recordPath)
+	runGit(t, repo, "commit", "-m", "test: checkpoint approved SCN-316 contract")
+	if _, err := InitializeCurrentSubmission(repo, CurrentSubmissionRequest{ID: "feature-worktree-lifecycle", SpecPath: "specs/hard_spec.md", FeaturePaths: []string{"features/feature_worktree_lifecycle.feature"}, ScenarioIDs: []string{"SCN-316"}}); err != nil {
+		t.Fatalf("InitializeCurrentSubmission returned error: %v", err)
+	}
+	state := CurrentSubmissionState{Phase: "implementation", CompletedWork: []string{}, RemainingWork: []string{"SCN-316"}, BlockedWork: []string{}, LastAction: "ready for approved scenario", SafeResumePoint: "begin implementation", BaselineCheckpoint: runGitOutput(t, repo, "rev-parse", "HEAD"), ApprovalRecordPath: recordPath, ApprovalRecordFingerprint: mustContractFingerprint(t, repo, recordPath)}
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), serializeCurrentSubmissionState(state))
+	return repo
+}
+
 func prepareSCN315ApprovedBaseline(t *testing.T) (string, CurrentSubmissionState) {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
