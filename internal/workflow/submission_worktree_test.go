@@ -967,6 +967,61 @@ func TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree(t *testing.
 	}
 }
 
+// REQ-049 → SCN-320 → TestSCN320_ArchivesTerminalStatesOnlyFromRecordedFeatureWorktree
+func TestSCN320_ArchivesTerminalStatesOnlyFromRecordedFeatureWorktree(t *testing.T) {
+	// Scenario: Archive terminal state while retaining the reviewable feature worktree
+	for _, testCase := range []struct {
+		name      string
+		status    string
+		worktree  func(t *testing.T, repo string) string
+		wantError string
+	}{
+		{name: "completed", status: "completed"},
+		{name: "abandoned", status: "abandoned"},
+		{name: "cancelled", status: "cancelled"},
+		{
+			name:      "different recorded worktree",
+			status:    "completed",
+			worktree:  func(t *testing.T, _ string) string { return t.TempDir() },
+			wantError: "recorded feature worktree",
+		},
+		{
+			name:      "non-terminal result",
+			status:    "in_progress",
+			wantError: "terminal review result",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN317ApprovedBaseline(t)
+			recordedWorktree := repo
+			if testCase.worktree != nil {
+				recordedWorktree = testCase.worktree(t, repo)
+			}
+			mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: feature-worktree-lifecycle\nspec_path: specs/hard_spec.md\nfeature_paths:\n  - features/feature_worktree_lifecycle.feature\nscenario_ids:\n  - SCN-317\nworktree: "+recordedWorktree+"\nstatus: "+testCase.status+"\n")
+
+			err := ArchiveTerminalFeatureWorkflow(repo)
+			if testCase.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+					t.Fatalf("ArchiveTerminalFeatureWorkflow error = %v, want %q", err, testCase.wantError)
+				}
+				if _, statErr := os.Stat(filepath.Join(repo, ".rotta", "current")); statErr != nil {
+					t.Fatalf("rejected archive removed active execution state: %v", statErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ArchiveTerminalFeatureWorkflow returned error: %v", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(repo, ".rotta", "archive", "feature-worktree-lifecycle", "manifest.yaml")); statErr != nil {
+				t.Fatalf("terminal execution state was not archived: %v", statErr)
+			}
+			if branch := runGitOutput(t, repo, "branch", "--show-current"); branch != "feature/feature-worktree-lifecycle" {
+				t.Fatalf("feature branch = %q, want retained reviewable feature branch", branch)
+			}
+		})
+	}
+}
+
 // REQ-049 → SCN-321 → TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup
 func TestSCN321_RemovesEligibleFeatureWorktreeOnlyAfterExplicitCleanup(t *testing.T) {
 	// Scenario: Remove a feature worktree only through eligible explicit cleanup
