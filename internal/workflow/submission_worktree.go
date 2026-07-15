@@ -22,6 +22,19 @@ type NewImplementationSubmission struct {
 	FeatureBranch string
 }
 
+// BeginSpecificationPhase prepares the recorded isolated feature worktree
+// before handing that worktree to the specification writer.
+func BeginSpecificationPhase(initiatingWorktree string, request NewImplementationSubmissionRequest, writeContract func(recordedWorktree string) error) (NewImplementationSubmission, error) {
+	submission, err := PrepareNewImplementationSubmission(initiatingWorktree, request)
+	if err != nil {
+		return NewImplementationSubmission{}, err
+	}
+	if err := writeContract(submission.WorktreePath); err != nil {
+		return NewImplementationSubmission{}, fmt.Errorf("write specification contract in recorded feature worktree: %w", err)
+	}
+	return submission, nil
+}
+
 // ValidatePhase3SubagentBoundary verifies that a returned Phase 3 subagent
 // remains in its recorded isolated feature worktree before another subagent
 // may start.
