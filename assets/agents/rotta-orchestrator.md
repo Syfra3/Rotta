@@ -98,6 +98,9 @@ Task("rotta-spec", { draft, clarifications, project, state_ref: "specs/hard_spec
 **Gate**: present spec summary. Do NOT advance without explicit human approval. Refuse if Open Questions are unresolved.
 
 ### Phase 3 — TDD → `rotta-impl` (one scenario per call)
+
+Before delegating Phase 3, require approved Gherkin, a valid matching feature confirmation record, and a committed baseline; otherwise stop without delegation.
+
 ```
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
