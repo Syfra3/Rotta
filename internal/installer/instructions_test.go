@@ -562,6 +562,20 @@ func TestSCN350_ImplementationTaskReceivesOneApprovedScenarioAndStops(t *testing
 	})
 }
 
+// REQ-007 → SCN-351 → TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing
+func TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing(t *testing.T) {
+	// Scenario: The orchestrator validates a scenario result before continuing
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"verify required evidence, approved scope, and boundary cleanliness",
+		"Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
