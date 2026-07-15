@@ -247,6 +247,29 @@ func TestSCN330_OnlyOrchestratorPersistsLifecycleDecisions(t *testing.T) {
 	})
 }
 
+// REQ-003 → SCN-331 → TestSCN331_SpecWorkProducesOnlyAssignedContractArtifacts
+func TestSCN331_SpecWorkProducesOnlyAssignedContractArtifacts(t *testing.T) {
+	// Scenario: Spec work produces only its contract artifacts
+	data, err := assets.FS.ReadFile("agents/rotta-spec.md")
+	if err != nil {
+		t.Fatalf("read spec asset: %v", err)
+	}
+
+	got := string(data)
+	assertContainsAll(t, got, []string{
+		"MAY ONLY write the assigned hard spec and Gherkin contract artifacts",
+		"MUST NOT create an approval record, baseline, current state, lifecycle state, or commit",
+	})
+	for _, forbidden := range []string{
+		"Maintain the workflow state index",
+		"Save a STATE INDEX",
+		"Update the state index",
+		"ancora_save",
+	} {
+		assertNotContains(t, got, forbidden)
+	}
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
