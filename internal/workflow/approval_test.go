@@ -306,6 +306,27 @@ func TestSCN326_ApprovalAuthorityIsIsolatedBetweenFeatureWorktrees(t *testing.T)
 	}
 }
 
+func TestSCN327_PartialHumanApprovalSelectsOnlyEligibleScenarios(t *testing.T) {
+	// REQ-001 → SCN-327 → TestSCN327_PartialHumanApprovalSelectsOnlyEligibleScenarios
+	// Scenario: A partial human approval limits eligible scenarios
+	repo, baseline := committedApprovalBaseline(t)
+	record := strings.ReplaceAll(validSCN325ApprovalRecord, "SCN-325", "SCN-324")
+	record = strings.ReplaceAll(record, "8801bf810c730720f5e01e156bb66c3c3efc4be6", baseline)
+	record = strings.Replace(record, "    requirement_ids: [REQ-001]\ncontract_fingerprints:", "    requirement_ids: [REQ-001]\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-326\n    requirement_ids: [REQ-001]\ncontract_fingerprints:", 1)
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+	selected, err := SelectApprovedScenarios(repo, ContractScope{
+		SpecPath:    "specs/hard_spec.md",
+		FeaturePath: "features/unified-workflow-authority.feature",
+	}, []string{"SCN-324", "SCN-325", "SCN-326"})
+	if err != nil {
+		t.Fatalf("SelectApprovedScenarios returned error: %v", err)
+	}
+	if got, want := strings.Join(selected, ","), "SCN-324,SCN-326"; got != want {
+		t.Fatalf("selected scenarios = %q, want %q", got, want)
+	}
+}
+
 const validSCN325ApprovalRecord = `format: rotta.feature-approval/v2
 contract_id: unified-workflow-authority
 status: approved
