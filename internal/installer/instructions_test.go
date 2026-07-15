@@ -474,6 +474,21 @@ func TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior(t *testing.T
 	})
 }
 
+// REQ-006 → SCN-345 → TestSCN345_EmptyCriticalFunctionListIsNotApplicable
+func TestSCN345_EmptyCriticalFunctionListIsNotApplicable(t *testing.T) {
+	// Scenario: An explicitly empty critical-function list is not applicable
+	data, err := assets.FS.ReadFile("skills/review-mode/SKILL.md")
+	if err != nil {
+		t.Fatalf("read review mode asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"explicitly empty critical-function list",
+		"not_applicable",
+		"does not fail solely because no functions are named",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {
