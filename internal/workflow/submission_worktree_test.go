@@ -316,6 +316,48 @@ func TestSCN317_CheckpointsAndAdvancesFromCleanSuccessfulBoundary(t *testing.T) 
 	}
 }
 
+// REQ-047 → SCN-318 → TestSCN318_SendsFinalCleanCheckpointToReviewWithoutPublication
+func TestSCN318_SendsFinalCleanCheckpointToReviewWithoutPublication(t *testing.T) {
+	// Scenario: Send the final clean checkpoint to review without publication
+	repo := prepareSCN317ApprovedBaseline(t)
+	current, err := ResumeCurrentSubmission(repo, nil)
+	if err != nil {
+		t.Fatalf("ResumeCurrentSubmission returned error: %v", err)
+	}
+	state := current.State
+	state.CompletedWork = []string{"SCN-317"}
+	state.RemainingWork = []string{"SCN-318"}
+	state.LastAction = "checkpointed SCN-317"
+	state.SafeResumePoint = "begin SCN-318"
+	mustWrite(t, current.StatePath, serializeCurrentSubmissionState(state))
+	mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() { _ = 2 }\n")
+
+	reviewStarted := false
+	state, err = CompleteFinalApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+		ScenarioID:       "SCN-318",
+		ExpectedPaths:    []string{"scenario.go"},
+		RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	}, func() error {
+		reviewStarted = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("CompleteFinalApprovedScenarioBoundary returned error: %v", err)
+	}
+	if !reviewStarted || state.Phase != "Phase 4 review" || len(state.RemainingWork) != 0 || state.Checkpoint == "" {
+		t.Fatalf("state=%#v reviewStarted=%t, want final checkpoint routed only to Phase 4 review", state, reviewStarted)
+	}
+	if status := runGitOutput(t, repo, "status", "--short"); status != "" {
+		t.Fatalf("final checkpoint boundary has non-ignored changes: %q", status)
+	}
+	if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "3" {
+		t.Fatalf("checkpoint commits=%s, want exactly one final local scenario checkpoint", commits)
+	}
+}
+
 func prepareSCN316ApprovedBaseline(t *testing.T) string {
 	t.Helper()
 	repo := prepareSCN248Repository(t)
