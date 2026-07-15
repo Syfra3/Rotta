@@ -8,6 +8,47 @@ import (
 	"testing"
 )
 
+// REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree
+func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree(t *testing.T) {
+	// Scenario: Prepare the isolated feature worktree before specification writes
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	runGit(t, initiatingWorktree, "add", "README.md")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish specification base")
+
+	submission, err := BeginSpecificationPhase(initiatingWorktree, NewImplementationSubmissionRequest{
+		Slug:              "feature-lifecycle",
+		IntegrationBranch: "main",
+	}, func(recordedWorktree string) error {
+		mustWrite(t, filepath.Join(recordedWorktree, "specs", "hard_spec.md"), "# Contract\n")
+		mustWrite(t, filepath.Join(recordedWorktree, "features", "feature.feature"), "Feature: Contract\n")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("BeginSpecificationPhase returned error: %v", err)
+	}
+
+	wantWorktree := filepath.Join(parent, "repository-feature-lifecycle")
+	if submission.WorktreePath != wantWorktree || submission.BaseBranch != "main" || submission.FeatureBranch != "feature/feature-lifecycle" {
+		t.Fatalf("recorded submission = %#v, want %q on main as feature/feature-lifecycle", submission, wantWorktree)
+	}
+	for _, path := range []string{"specs/hard_spec.md", "features/feature.feature"} {
+		if _, err := os.Stat(filepath.Join(submission.WorktreePath, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("recorded worktree is missing contract artifact %q: %v", path, err)
+		}
+		if _, err := os.Stat(filepath.Join(initiatingWorktree, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("initiating worktree received contract artifact %q: %v", path, err)
+		}
+	}
+}
+
 // REQ-037, REQ-038 → SCN-241 → TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree
 func TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree(t *testing.T) {
 	// Scenario: Create an isolated feature worktree before Phase 2 writes a contract
