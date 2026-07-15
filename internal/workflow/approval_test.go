@@ -105,7 +105,12 @@ func TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios(t *testin
 	// REQ-001 → SCN-324 → TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios
 	// Scenario: A valid feature approval record authorizes its approved scenarios
 	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), `format: rotta.feature-approval/v2
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "baseline"), "approved contract baseline\n")
+	runGit(t, repo, "add", "baseline")
+	runGit(t, repo, "commit", "-m", "test: approved contract baseline")
+	baseline := runGitOutput(t, repo, "rev-parse", "HEAD")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), strings.ReplaceAll(`format: rotta.feature-approval/v2
 contract_id: unified-workflow-authority
 status: approved
 feature_paths:
@@ -120,7 +125,7 @@ contract_fingerprints:
 baseline_confirmation:
   status: confirmed
   baseline_commit: 8801bf810c730720f5e01e156bb66c3c3efc4be6
-`)
+`, "8801bf810c730720f5e01e156bb66c3c3efc4be6", baseline))
 
 	approved, err := EvaluateImplementationGate(repo, ContractScope{
 		SpecPath:    "specs/hard_spec.md",
@@ -145,6 +150,155 @@ baseline_confirmation:
 	if notApproved.Approved {
 		t.Fatalf("expected SCN-325 to remain unauthorized, got reason %q", notApproved.Reason)
 	}
+}
+
+func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T) {
+	// REQ-001 → SCN-325 → TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason
+	// Scenario: An invalid approval record fails closed with its specific reason
+	decision, err := EvaluateImplementationGate(t.TempDir(), ContractScope{
+		SpecPath:    "specs/hard_spec.md",
+		FeaturePath: "features/unified-workflow-authority.feature",
+		ScenarioID:  "SCN-325",
+	})
+	if err != nil {
+		t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+	}
+	if decision.Approved {
+		t.Fatal("expected a missing approval record to block workflow activity")
+	}
+	if decision.Reason != "approval record is missing" {
+		t.Fatalf("reason = %q, want %q", decision.Reason, "approval record is missing")
+	}
+
+	t.Run("malformed", func(t *testing.T) {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\n")
+
+		decision, err := EvaluateImplementationGate(repo, ContractScope{
+			SpecPath:    "specs/hard_spec.md",
+			FeaturePath: "features/unified-workflow-authority.feature",
+			ScenarioID:  "SCN-325",
+		})
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if decision.Approved {
+			t.Fatal("expected a malformed approval record to block workflow activity")
+		}
+		if decision.Reason != "approval record is malformed" {
+			t.Fatalf("reason = %q, want %q", decision.Reason, "approval record is malformed")
+		}
+	})
+
+	t.Run("uncommitted baseline", func(t *testing.T) {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), validSCN325ApprovalRecord)
+
+		decision, err := EvaluateImplementationGate(repo, ContractScope{
+			SpecPath:    "specs/hard_spec.md",
+			FeaturePath: "features/unified-workflow-authority.feature",
+			ScenarioID:  "SCN-325",
+		})
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if decision.Approved {
+			t.Fatal("expected an uncommitted baseline to block workflow activity")
+		}
+		if decision.Reason != "approval baseline is not committed" {
+			t.Fatalf("reason = %q, want %q", decision.Reason, "approval baseline is not committed")
+		}
+	})
+
+	t.Run("unreachable baseline", func(t *testing.T) {
+		repo := t.TempDir()
+		runGit(t, repo, "init")
+		mustWrite(t, filepath.Join(repo, "baseline"), "unreachable baseline\n")
+		runGit(t, repo, "add", "baseline")
+		runGit(t, repo, "commit", "-m", "test: unreachable baseline")
+		baseline := runGitOutput(t, repo, "rev-parse", "HEAD")
+		runGit(t, repo, "checkout", "--orphan", "current")
+		runGit(t, repo, "rm", "-rf", ".")
+		mustWrite(t, filepath.Join(repo, "current"), "current history\n")
+		runGit(t, repo, "add", "current")
+		runGit(t, repo, "commit", "-m", "test: current history")
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), strings.ReplaceAll(validSCN325ApprovalRecord, "8801bf810c730720f5e01e156bb66c3c3efc4be6", baseline))
+
+		decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-325"})
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if decision.Approved {
+			t.Fatal("expected an unreachable baseline to block workflow activity")
+		}
+		if decision.Reason != "approval baseline is unreachable" {
+			t.Fatalf("reason = %q, want %q", decision.Reason, "approval baseline is unreachable")
+		}
+	})
+
+	t.Run("feature identity mismatch", func(t *testing.T) {
+		repo, baseline := committedApprovalBaseline(t)
+		record := strings.ReplaceAll(validSCN325ApprovalRecord, "8801bf810c730720f5e01e156bb66c3c3efc4be6", baseline)
+		record = strings.Replace(record, "- features/unified-workflow-authority.feature", "- features/other.feature", 1)
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+		decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-325"})
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if decision.Approved {
+			t.Fatal("expected a feature identity mismatch to block workflow activity")
+		}
+		if decision.Reason != "approval record has an identity or scenario-scope mismatch" {
+			t.Fatalf("reason = %q, want %q", decision.Reason, "approval record has an identity or scenario-scope mismatch")
+		}
+	})
+
+	t.Run("contract fingerprint drift", func(t *testing.T) {
+		repo, baseline := committedApprovalBaseline(t)
+		mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "approved specification\n")
+		mustWrite(t, filepath.Join(repo, "features", "unified-workflow-authority.feature"), "@SCN-325\nFeature: authority\n")
+		record := strings.ReplaceAll(validSCN325ApprovalRecord, "8801bf810c730720f5e01e156bb66c3c3efc4be6", baseline)
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
+
+		decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-325"})
+		if err != nil {
+			t.Fatalf("EvaluateImplementationGate returned error: %v", err)
+		}
+		if decision.Approved {
+			t.Fatal("expected contract fingerprint drift to block workflow activity")
+		}
+		if decision.Reason != "approval record has contract fingerprint drift" {
+			t.Fatalf("reason = %q, want %q", decision.Reason, "approval record has contract fingerprint drift")
+		}
+	})
+}
+
+const validSCN325ApprovalRecord = `format: rotta.feature-approval/v2
+contract_id: unified-workflow-authority
+status: approved
+feature_paths:
+  - features/unified-workflow-authority.feature
+approved_scenarios:
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-325
+    requirement_ids: [REQ-001]
+contract_fingerprints:
+  specs/hard_spec.md: matching-fingerprint
+  features/unified-workflow-authority.feature: matching-fingerprint
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: 8801bf810c730720f5e01e156bb66c3c3efc4be6
+`
+
+func committedApprovalBaseline(t *testing.T) (string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "baseline"), "approved contract baseline\n")
+	runGit(t, repo, "add", "baseline")
+	runGit(t, repo, "commit", "-m", "test: approved contract baseline")
+	return repo, runGitOutput(t, repo, "rev-parse", "HEAD")
 }
 
 func workflowArtifactLifecycleScope() ContractScope {
