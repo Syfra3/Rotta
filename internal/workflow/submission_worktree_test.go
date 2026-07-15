@@ -781,6 +781,166 @@ func TestSCN319_HaltsOnFeatureWorktreeIdentityFailure(t *testing.T) {
 	}
 }
 
+// REQ-048 → SCN-319 → TestSCN319_PreservesChangesWhenBaselineOrCheckpointGatesFail
+func TestSCN319_PreservesChangesWhenBaselineOrCheckpointGatesFail(t *testing.T) {
+	// Scenario: Halt autonomously without discarding evidence or user changes
+	for _, testCase := range []struct {
+		name       string
+		prepare    func(t *testing.T, repo string)
+		validation bool
+		wantError  string
+	}{
+		{
+			name: "objective validation gate failure",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "scenario.go"), "package workflow\n\nfunc scenario() { _ = 4 }\n")
+			},
+			wantError: "active objective validation",
+		},
+		{
+			name: "unexpected untracked user change",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "ambiguous.txt"), "preserve me\n")
+			},
+			validation: true,
+			wantError:  "unexpected untracked change",
+		},
+		{
+			name: "contract fingerprint drift after approval",
+			prepare: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "specs", "hard_spec.md"), "# Drifted contract\n")
+			},
+			validation: true,
+			wantError:  "approved contract has changed",
+		},
+		{
+			name: "approval record differs from its baseline checkpoint",
+			prepare: func(t *testing.T, repo string) {
+				current, err := ResumeCurrentSubmission(repo, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				recordPath := filepath.Join(repo, filepath.FromSlash(current.State.ApprovalRecordPath))
+				record, err := os.ReadFile(recordPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				mustWrite(t, recordPath, string(record)+"# changed after approval\n")
+				current.State.ApprovalRecordFingerprint = mustContractFingerprint(t, repo, current.State.ApprovalRecordPath)
+				mustWrite(t, current.StatePath, serializeCurrentSubmissionState(current.State))
+			},
+			validation: true,
+			wantError:  "approved contract has changed",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN317ApprovedBaseline(t)
+			testCase.prepare(t, repo)
+
+			started := false
+			_, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+				ScenarioID:       "SCN-317",
+				ExpectedPaths:    []string{"scenario.go"},
+				RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+				TDDComplete:      true,
+				TestsPassed:      true,
+				ValidationPassed: testCase.validation,
+				StartNextScenario: func(string) error {
+					started = true
+					return nil
+				},
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) || !strings.Contains(err.Error(), "recovery:") {
+				t.Fatalf("boundary error=%v, want %q with safe recovery", err, testCase.wantError)
+			}
+			if started {
+				t.Fatal("boundary started the next scenario after a fail-closed error")
+			}
+			if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+				t.Fatalf("checkpoint commits=%s, want no checkpoint after failure", commits)
+			}
+			if status := runGitOutput(t, repo, "status", "--short"); status == "" {
+				t.Fatal("failure discarded the user or contract change")
+			}
+		})
+	}
+}
+
+// REQ-048 → SCN-319 → TestSCN319_RejectsUnsafeRecordedWorktreeOrBranchVariants
+func TestSCN319_RejectsUnsafeRecordedWorktreeOrBranchVariants(t *testing.T) {
+	// Scenario: Halt autonomously without discarding evidence or user changes
+	for _, testCase := range []struct {
+		name    string
+		prepare func(t *testing.T, repo string, submission *NewImplementationSubmission)
+	}{
+		{
+			name: "missing recorded worktree",
+			prepare: func(t *testing.T, repo string, submission *NewImplementationSubmission) {
+				submission.WorktreePath = filepath.Join(repo, "missing-worktree")
+			},
+		},
+		{
+			name: "different recorded worktree",
+			prepare: func(t *testing.T, _ string, submission *NewImplementationSubmission) {
+				submission.WorktreePath = t.TempDir()
+			},
+		},
+		{
+			name: "wrong recorded feature branch",
+			prepare: func(_ *testing.T, _ string, submission *NewImplementationSubmission) {
+				submission.FeatureBranch = "feature/other-worktree"
+			},
+		},
+		{
+			name: "feature branch recorded as base branch",
+			prepare: func(t *testing.T, repo string, submission *NewImplementationSubmission) {
+				submission.BaseBranch = runGitOutput(t, repo, "branch", "--show-current")
+			},
+		},
+		{
+			name: "non feature branch",
+			prepare: func(t *testing.T, repo string, submission *NewImplementationSubmission) {
+				runGit(t, repo, "checkout", "-b", "scenario-checkpoint")
+				submission.FeatureBranch = "scenario-checkpoint"
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := prepareSCN317ApprovedBaseline(t)
+			submission := NewImplementationSubmission{
+				WorktreePath:  repo,
+				BaseBranch:    "main",
+				FeatureBranch: "feature/feature-worktree-lifecycle",
+			}
+			testCase.prepare(t, repo, &submission)
+
+			started := false
+			_, err := CompleteApprovedScenarioBoundary(repo, ApprovedScenarioBoundaryRequest{
+				ScenarioID:       "SCN-317",
+				ExpectedPaths:    []string{"scenario.go"},
+				RequiredEvidence: append([]string(nil), requiredApprovedScenarioEvidence...),
+				TDDComplete:      true,
+				TestsPassed:      true,
+				ValidationPassed: true,
+				Submission:       submission,
+				StartNextScenario: func(string) error {
+					started = true
+					return nil
+				},
+			})
+			if err == nil || !strings.Contains(err.Error(), "recovery:") {
+				t.Fatalf("boundary error=%v, want identity failure with safe recovery", err)
+			}
+			if started {
+				t.Fatal("boundary started the next scenario after an identity failure")
+			}
+			if commits := runGitOutput(t, repo, "rev-list", "--count", "HEAD"); commits != "2" {
+				t.Fatalf("checkpoint commits=%s, want no checkpoint after identity failure", commits)
+			}
+		})
+	}
+}
+
 // REQ-049 → SCN-320 → TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree
 func TestSCN320_ArchivesTerminalReviewStateAndRetainsFeatureWorktree(t *testing.T) {
 	// Scenario: Archive terminal state while retaining the reviewable feature worktree
