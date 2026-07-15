@@ -344,6 +344,22 @@ func TestSCN335_ObjectiveReviewSuccessEntersFinalHumanReview(t *testing.T) {
 	})
 }
 
+// REQ-004 → SCN-336 → TestSCN336_ExplicitHumanApprovalCompletesReviewedSnapshot
+func TestSCN336_ExplicitHumanApprovalCompletesReviewedSnapshot(t *testing.T) {
+	// Scenario: Explicit human approval completes the reviewed snapshot
+	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatalf("read orchestrator asset: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"Only explicit human approval",
+		"current approved implementation snapshot matches reviewed_commit",
+		"transitions the feature to complete",
+		"does not record reviewer identity",
+	})
+}
+
 func countOccurrences(items []string, want string) int {
 	count := 0
 	for _, item := range items {

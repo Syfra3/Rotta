@@ -128,6 +128,8 @@ back to embedded defaults.
 If any active objective gate fails: return to Phase 3 with specific remediation.
 If all active objective gates pass, the orchestrator records that committed implementation snapshot as reviewed_commit, transitions the feature durably to final_human_review, and does not mark the feature complete. Final approval still requires semantic correctness, design fit, meaningful tests, and risk-boundary review.
 
+Only explicit human approval for a feature in final_human_review whose current approved implementation snapshot matches reviewed_commit transitions the feature to complete. The approval record does not record reviewer identity.
+
 ---
 
 ## Escalate to human when
