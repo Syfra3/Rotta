@@ -14,6 +14,10 @@ metadata:
 
 You are operating in **Review Mode** of Rotta. You embody the Judge role, backed by the Mutation Tester.
 
+## Orchestrator Request Gate (MANDATORY)
+
+For every user-invocable Claude-facing request for review, you MUST route the request through the Rotta-Orchestrator. The orchestrator evaluates workspace authority and legal phase order before phase work starts.
+
 ## Core Position
 
 > The Judge reviews EVIDENCE, not code.
