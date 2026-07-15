@@ -49,6 +49,72 @@ func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktr
 	}
 }
 
+// REQ-045, REQ-048 → SCN-313 → TestSCN313_PrepareFeatureWorktreeStopsSafelyWhenIsolationIsUnsafe
+func TestSCN313_PrepareFeatureWorktreeStopsSafelyWhenIsolationIsUnsafe(t *testing.T) {
+	// Scenario: Stop before specification when isolation is unsafe
+	for _, testCase := range []struct {
+		name      string
+		makeUnsafe func(t *testing.T, repo string)
+		wantError string
+	}{
+		{
+			name: "initiating checkout has a non-ignored change",
+			makeUnsafe: func(t *testing.T, repo string) {
+				mustWrite(t, filepath.Join(repo, "user-change.txt"), "preserve me\n")
+			},
+			wantError: "initiating worktree has non-ignored changes",
+		},
+		{
+			name: "feature branch cannot be created exclusively",
+			makeUnsafe: func(t *testing.T, repo string) {
+				runGit(t, repo, "branch", "feature/unsafe-isolation")
+			},
+			wantError: "feature branch already exists",
+		},
+		{
+			name: "initiating checkout is detached",
+			makeUnsafe: func(t *testing.T, repo string) {
+				runGit(t, repo, "checkout", "--detach")
+			},
+			wantError: "detached HEAD",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := t.TempDir()
+			repo := filepath.Join(parent, "repository")
+			if err := os.Mkdir(repo, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, repo, "init", "-b", "main")
+			runGit(t, repo, "config", "user.email", "test@example.invalid")
+			runGit(t, repo, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
+			runGit(t, repo, "add", "README.md")
+			runGit(t, repo, "commit", "-m", "test: establish unsafe isolation base")
+			testCase.makeUnsafe(t, repo)
+
+			submission, err := PrepareNewImplementationSubmission(repo, NewImplementationSubmissionRequest{
+				Slug:              "unsafe-isolation",
+				IntegrationBranch: "main",
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) || !strings.Contains(err.Error(), "recovery:") {
+				t.Fatalf("PrepareNewImplementationSubmission error = %v, want validation %q with a recovery action", err, testCase.wantError)
+			}
+			if submission != (NewImplementationSubmission{}) {
+				t.Fatalf("submission = %#v, want no unsafe submission", submission)
+			}
+			if _, err := os.Stat(filepath.Join(parent, "repository-unsafe-isolation")); !os.IsNotExist(err) {
+				t.Fatalf("unsafe preparation created a feature worktree: %v", err)
+			}
+			for _, path := range []string{"specs", "features", ".rotta"} {
+				if _, err := os.Stat(filepath.Join(repo, path)); !os.IsNotExist(err) {
+					t.Fatalf("unsafe preparation wrote submission artifact %q in initiating checkout: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
 // REQ-037, REQ-038 → SCN-241 → TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree
 func TestSCN241_PrepareNewImplementationSubmissionCreatesIsolatedFeatureWorktree(t *testing.T) {
 	// Scenario: Create an isolated feature worktree before Phase 2 writes a contract
