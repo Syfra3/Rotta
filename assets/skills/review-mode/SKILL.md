@@ -30,22 +30,18 @@ A feature is acceptable only when the measurable evidence says it is acceptable.
 
 ## Preconditions
 
-Before any gate evaluation, verify:
-
-- [ ] `specs/.implementation-complete` exists.
-- [ ] All tests currently pass (run the suite now to confirm).
-- [ ] `features/*.feature` files are unchanged since approval.
-- [ ] `.rotta/tdd-log.md` exists and covers all approved SCN IDs.
-
-If any precondition fails, STOP and report. Do NOT evaluate gates against incomplete evidence.
+Before any gate evaluation, load and validate `.rotta/quality-gates.yaml`.
+The configured gates are the complete review plan: do not require a completion
+marker, TDD log, test result, or other gate evidence unless an enabled
+configured gate requires it.
 
 ---
 
 ## Quality Gates
 
-Review evaluates only the gates defined by `.rotta/quality-gates.yaml`. This
-canonical YAML is the sole authority for a gate's name, enabled status, and
-configured order.
+Review evaluates only the gates defined by `.rotta/quality-gates.yaml` that are
+enabled, in their configured order. This canonical YAML is the sole authority
+for a gate's name, enabled status, and configured order.
 
 For every configured gate in configured order:
 

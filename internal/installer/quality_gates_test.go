@@ -21,16 +21,18 @@ func TestInstallConfigGeneratesActionableCoverageAndMutationGates(t *testing.T) 
 
 	got := string(data)
 	for _, want := range []string{
-		"critical_path_statement_coverage: 0.95",
-		"- critical_path_statement_coverage",
+		"format: rotta.quality-gates/v1",
+		"gates:",
+		"- id: critical_path_statement_coverage",
+		"thresholds: { minimum: 0.95 }",
 		"CheckpointApprovedScenario",
 		"ContinueFromAutonomousScenarioCheckpoint",
 		"CompleteAutonomousPhase3Boundary",
-		"runner_command: go-mutesting",
-		"changed_module_target: ./<changed-module>",
+		"run: \"go-mutesting ./<changed-module>\"",
+		"changed_module: \"./<changed-module>\"",
 		"score_pattern: 'The mutation score is ([0-9]+(?:\\.[0-9]+)?)'",
-		"score_threshold: 0.80",
-		"critical_survivors_max: 0",
+		"thresholds: { minimum: 0.80 }",
+		"thresholds: { maximum: 0 }",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated quality gates missing %q:\n%s", want, got)
