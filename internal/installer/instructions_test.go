@@ -542,6 +542,9 @@ func TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes(t *testi
 	assertContainsAll(t, string(data), []string{
 		"resolved configuration identity or fingerprint",
 		"configured command outcomes sufficient to audit the decision",
+		"Persist review evidence to `.rotta/review-evidence.yaml`",
+		"configuration_fingerprint",
+		"command_outcomes",
 	})
 }
 
