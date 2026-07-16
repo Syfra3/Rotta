@@ -72,7 +72,11 @@ An explicitly empty critical-function list makes that coverage sub-gate
 ## Decision Report
 
 Emit review evidence and the decision using the configured reporting and
-remediation outcome for every evaluated gate. Include the resolved configuration identity or fingerprint and configured command outcomes sufficient to audit the decision.
+remediation outcome for every evaluated gate. Persist review evidence to `.rotta/review-evidence.yaml`. Include the resolved configuration identity or fingerprint. Record the resolved configuration fingerprint as
+`configuration_fingerprint` and, for every evaluated gate, record
+`command_outcomes` containing its configured command, target, applicability,
+exit status, and captured output or the reason it was not run. These configured
+command outcomes must be persisted; configured command outcomes sufficient to audit the decision are required.
 
 ---
 

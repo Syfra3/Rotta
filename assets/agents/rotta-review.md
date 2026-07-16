@@ -62,8 +62,12 @@ configured gate, execute its configured command against its configured target,
 parse only as configured, and determine the result from its configured
 thresholds. Apply only its configured severity and remediation to the verdict.
 
-Emit a compact verdict containing the configuration identity, each enabled gate
-in configured order, its command outcome, result, and configured remediation.
+Persist review evidence to `.rotta/review-evidence.yaml`. Record the resolved
+configuration fingerprint as `configuration_fingerprint`. For each enabled gate
+in configured order, record `command_outcomes` containing its configured
+command, target, applicability, exit status, and captured output or the reason
+it was not run, together with the result and configured remediation. Emit a
+compact verdict from this persisted evidence.
 
 ---
 
