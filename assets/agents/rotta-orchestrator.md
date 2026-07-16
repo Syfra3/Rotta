@@ -131,14 +131,16 @@ to the current human-approved policy. Do not launch the next `rotta-impl` call
 until the worktree is clean again. `rotta-impl` reports changed files; it does
 not decide how to persist or discard them.
 
-Before accepting a reported scenario result, verify required evidence, approved scope, and boundary cleanliness. Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario.
+Before accepting a reported scenario result, verify required evidence, approved scope, and boundary cleanliness. Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario. After validation, persist the scenario checkpoint evidence and accepted completed/remaining/next scenario state in durable current-submission artifacts before continuing.
 
 If checkpoint persistence and state persistence disagree, another process changes the worktree during delegation, contract drift is detected, approval becomes invalid, or a required gate fails, halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates.
 
 ### Phase 4 — Review → `rotta-review`
 ```
-Task("rotta-review", { approved_scn_ids, project, state_ref: "reports/judge_report.md" })
+Task("rotta-review", { project, state_ref: ".rotta/current/state.yaml + feature record + reports/judge_report.md" })
 ```
+
+Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
 
 **AI-generated code metrics gate**: `rotta-review` must load the active quality
 gate thresholds from the TUI-generated workflow file, not from hardcoded values
