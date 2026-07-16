@@ -610,14 +610,24 @@ func TestSCN350_ImplementationTaskReceivesOneApprovedScenarioAndStops(t *testing
 // REQ-007 → SCN-351 → TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing
 func TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing(t *testing.T) {
 	// Scenario: The orchestrator validates a scenario result before continuing
-	data, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	orchestrator, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
 	if err != nil {
 		t.Fatalf("read orchestrator asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
+	assertContainsAll(t, string(orchestrator), []string{
 		"verify required evidence, approved scope, and boundary cleanliness",
 		"Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario",
+		"persist the scenario checkpoint evidence and accepted completed/remaining/next scenario state in durable current-submission artifacts before continuing",
+	})
+
+	review, err := assets.FS.ReadFile("agents/rotta-review.md")
+	if err != nil {
+		t.Fatalf("read review asset: %v", err)
+	}
+
+	assertContainsAll(t, string(review), []string{
+		"Derive completed approved scope from durable current-submission state and the matching feature record",
 	})
 }
 
