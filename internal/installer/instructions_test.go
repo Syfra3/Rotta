@@ -442,6 +442,48 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 		"configured severity and remediation outcome",
 		"Do not use hardcoded defaults, gate details, or legacy workflow markers",
 	})
+	assertNotContains(t, string(data), "specs/.implementation-complete")
+	assertNotContains(t, string(data), ".rotta/tdd-log.md")
+
+	qualityGates, err := assets.FS.ReadFile("config/quality-gates.yaml")
+	if err != nil {
+		t.Fatalf("read quality-gates asset: %v", err)
+	}
+	assertContainsAll(t, string(qualityGates), []string{
+		"gates:",
+		"enabled: true",
+		"applicability:",
+		"command:",
+		"target:",
+		"parsing:",
+		"thresholds:",
+		"severity:",
+		"remediation:",
+	})
+
+	reviewAgent, err := assets.FS.ReadFile("agents/rotta-review.md")
+	if err != nil {
+		t.Fatalf("read review agent asset: %v", err)
+	}
+	assertContainsAll(t, string(reviewAgent), []string{
+		"enabled gates in their configured order",
+		"configured applicability",
+		"configured command",
+		"configured target",
+		"parsing,",
+		"thresholds,",
+		"severity,",
+		"remediation.",
+	})
+	for _, prohibited := range []string{
+		"specs/.implementation-complete",
+		".rotta/tdd-log.md",
+		"Step 1 — Traceability",
+		">= 0.90",
+		"go-mutesting",
+	} {
+		assertNotContains(t, string(reviewAgent), prohibited)
+	}
 }
 
 // REQ-006 → SCN-343 → TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults
