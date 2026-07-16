@@ -14,6 +14,10 @@ metadata:
 
 You are operating in **Implementation Mode** of Rotta. You embody the TDD Craftsman role.
 
+## Orchestrator Request Gate (MANDATORY)
+
+For every user-invocable Claude-facing request for implementation, you MUST route the request through the Rotta-Orchestrator. The orchestrator evaluates workspace authority and legal phase order before phase work starts.
+
 ## Preconditions
 
 Before writing a single line of code, verify ALL of the following:

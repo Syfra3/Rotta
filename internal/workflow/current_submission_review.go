@@ -1,8 +1,6 @@
 package workflow
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -25,7 +23,6 @@ func ReviewCurrentSubmission(repoRoot string) (CurrentSubmissionReview, error) {
 
 	review := CurrentSubmissionReview{
 		ScenarioIDs: append([]string(nil), submission.Manifest.ScenarioIDs...),
-		Warnings:    legacyReviewWarnings(repoRoot),
 	}
 	evidence, _ := readRepositoryFile(repoRoot, ".rotta/current/tdd-log.md")
 	for _, scenarioID := range review.ScenarioIDs {
@@ -35,19 +32,4 @@ func ReviewCurrentSubmission(repoRoot string) (CurrentSubmissionReview, error) {
 	}
 	review.Passed = len(review.MissingEvidence) == 0
 	return review, nil
-}
-
-func legacyReviewWarnings(repoRoot string) []string {
-	legacyPaths := []string{
-		filepath.Join(repoRoot, "specs", ".approved"),
-		filepath.Join(repoRoot, ".rotta", "tdd-log.md"),
-		filepath.Join(repoRoot, ".rotta", "archive"),
-	}
-	var warnings []string
-	for _, path := range legacyPaths {
-		if _, err := os.Stat(path); err == nil {
-			warnings = append(warnings, "legacy workflow artifact ignored for review scope: "+path)
-		}
-	}
-	return warnings
 }

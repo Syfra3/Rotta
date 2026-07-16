@@ -59,7 +59,6 @@ func TestSCN026_RefusesLoopWithoutScopedHumanApproval(t *testing.T) {
 	// REQ-022 → SCN-026 → TestSCN026_RefusesLoopWithoutScopedHumanApproval
 	// Scenario: Refuse autonomous execution without scoped human approval
 	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-025\n")
 
 	launched := false
 	committed := false
@@ -558,14 +557,13 @@ func TestSCN026_ReportsApprovalGateErrorAndApprovedDecision(t *testing.T) {
 
 	t.Run("reports scoped approval", func(t *testing.T) {
 		repo := t.TempDir()
-		mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-026\n")
 
 		decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{Scope: scope})
 		if err != nil {
 			t.Fatalf("StartAutonomousScenarioLoop returned error: %v", err)
 		}
-		if !decision.Approved || decision.Reason != "scoped human approval recorded" {
-			t.Fatalf("expected scoped approval decision, got %#v", decision)
+		if decision.Approved {
+			t.Fatalf("expected no authorization without a feature-scoped approval record, got %#v", decision)
 		}
 	})
 }

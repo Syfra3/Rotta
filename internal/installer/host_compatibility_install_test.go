@@ -25,7 +25,6 @@ func TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation(t *testi
 	}
 
 	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryHostConfig], filepath.Join(home, ".codex", "AGENTS.md"))
-	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "state-machine.yaml"))
 	assertStringListContains(t, result.ChangedFiles[FileChangeCategoryLifecycle], filepath.Join(projectPath, ".rotta", "quality-gates.yaml"))
 	if len(result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig]) != 0 {
 		t.Fatalf("expected no workspace host config changes for Codex-only install, got %#v", result.ChangedFiles[FileChangeCategoryWorkspaceHostConfig])
@@ -33,6 +32,27 @@ func TestSCN211_PreserveCleanWorktreeExpectationsDuringHostInstallation(t *testi
 	if result.LifecycleArtifactsRequireCommit {
 		t.Fatal("expected generated Rotta lifecycle artifacts not to require commits by default")
 	}
+}
+
+// REQ-002 → SCN-329 → TestSCN329_InstallationDoesNotCreateRetiredWorkflowAuthority
+func TestSCN329_InstallationDoesNotCreateRetiredWorkflowAuthority(t *testing.T) {
+	// Scenario: Installation does not recreate retired workflow authority
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	if _, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   projectPath,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	assertPathMissing(t, filepath.Join(projectPath, "specs", ".approved"))
+	assertPathMissing(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"))
 }
 
 func TestSCN212_StoreMemoryStateAsCompactPointersOnly(t *testing.T) {

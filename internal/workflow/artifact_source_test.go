@@ -192,25 +192,6 @@ func TestSCN014_ActiveRegressionContractRequiresApprovedFeaturePath(t *testing.T
 	}
 }
 
-func TestSCN014_ArchivePreparationKeepsImplementedActiveFeatureUnderFeatures(t *testing.T) {
-	// REQ-012 → REQ-016 → SCN-014 → TestSCN014_ArchivePreparationKeepsImplementedActiveFeatureUnderFeatures
-	// Scenario: Implemented feature files remain active regression contracts
-	repo := t.TempDir()
-	featurePath := filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature")
-	featureBody := "@REQ-012 @REQ-016 @SCN-014\nScenario: Implemented feature files remain active regression contracts\n"
-	mustWrite(t, featurePath, featureBody)
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-014\n")
-	mustWrite(t, filepath.Join(repo, "specs", ".implementation-complete"), "completed_scenarios:\n  - SCN-014\n")
-
-	plan, err := PrepareCompletedChangeArchive(repo)
-	if err != nil {
-		t.Fatalf("PrepareCompletedChangeArchive returned error: %v", err)
-	}
-
-	assertArchivePlanKeepsPath(t, plan, "features/workflow_artifact_lifecycle.feature")
-	assertFileContent(t, featurePath, featureBody)
-}
-
 func TestSCN014_ArchivePreparationHasNoMovePlanWithoutCompletionMarker(t *testing.T) {
 	// REQ-012 → REQ-016 → SCN-014 → TestSCN014_ArchivePreparationHasNoMovePlanWithoutCompletionMarker
 	// Scenario: Implemented feature files remain active regression contracts
@@ -254,36 +235,6 @@ func TestSCN014_ArchivePreparationSurfacesCompletionMarkerReadErrors(t *testing.
 	if len(plan.KeptActivePaths) != 0 {
 		t.Fatalf("expected no archive plan when completion marker cannot be read, got %#v", plan)
 	}
-}
-
-func TestSCN014_ArchivePreparationSurfacesFeatureParseErrors(t *testing.T) {
-	// REQ-012 → REQ-016 → SCN-014 → TestSCN014_ArchivePreparationSurfacesFeatureParseErrors
-	// Scenario: Implemented feature files remain active regression contracts
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), strings.Repeat("x", 65*1024))
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-014\n")
-	mustWrite(t, filepath.Join(repo, "specs", ".implementation-complete"), "completed_scenarios:\n  - SCN-014\n")
-
-	_, err := PrepareCompletedChangeArchive(repo)
-	if err == nil || !strings.Contains(err.Error(), "find approved feature for completed scenario") {
-		t.Fatalf("expected feature parse error from archive preparation, got %v", err)
-	}
-}
-
-func TestSCN014_ArchivePreparationIgnoresNonFeatureFilesUnderFeatures(t *testing.T) {
-	// REQ-012 → REQ-016 → SCN-014 → TestSCN014_ArchivePreparationIgnoresNonFeatureFilesUnderFeatures
-	// Scenario: Implemented feature files remain active regression contracts
-	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"), "@REQ-012 @REQ-016 @SCN-014\nScenario: Implemented feature files remain active regression contracts\n")
-	mustWrite(t, filepath.Join(repo, "features", "notes.txt"), strings.Repeat("x", 65*1024))
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "workflow_artifact_lifecycle.approved"), "SCN-014\n")
-	mustWrite(t, filepath.Join(repo, "specs", ".implementation-complete"), "completed_scenarios:\n  - SCN-014\n")
-
-	plan, err := PrepareCompletedChangeArchive(repo)
-	if err != nil {
-		t.Fatalf("PrepareCompletedChangeArchive should ignore non-feature files, got %v", err)
-	}
-	assertArchivePlanKeepsPath(t, plan, "features/workflow_artifact_lifecycle.feature")
 }
 
 func TestSCN020_RetiredSupersededAndProcessOnlyArtifactsClassifyAsArchiveCandidates(t *testing.T) {

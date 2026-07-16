@@ -169,7 +169,7 @@ func installConfig(projectPath string) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create .rotta dir: %w", err)
 	}
-	configs := map[string]string{"config/state-machine.yaml": filepath.Join(dir, "state-machine.yaml"), "config/quality-gates.yaml": filepath.Join(dir, "quality-gates.yaml")}
+	configs := map[string]string{"config/quality-gates.yaml": filepath.Join(dir, "quality-gates.yaml")}
 	var files []string
 	for src, dst := range configs {
 		data, err := assets.FS.ReadFile(src)

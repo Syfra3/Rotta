@@ -146,14 +146,6 @@ func assertStaleSettingsReplaced(t *testing.T, result *Result, home, projectPath
 	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta", "spec-mode", "SKILL.md"))
 	assertPathExists(t, filepath.Join(home, ".claude", "skills", "user-skill", "SKILL.md"))
 
-	stateMachine := filepath.Join(projectPath, ".rotta", "state-machine.yaml")
-	stateData, err := os.ReadFile(stateMachine)
-	if err != nil {
-		t.Fatalf("read fresh state machine: %v", err)
-	}
-	if string(stateData) == "stale: true\n" {
-		t.Fatal("expected stale generated project config to be replaced")
-	}
 }
 
 func TestSCN002_OpenCodeInstallMigratesLegacyBobAndCleanAgents(t *testing.T) {
