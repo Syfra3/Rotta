@@ -46,6 +46,8 @@ configured gate requires it.
 
 ## Quality Gates and Evidence
 
+Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
+
 Evaluate enabled gates in their configured order. For every gate, use only its
 configured applicability, configured command, configured target, configured
 parsing, configured thresholds, configured severity, and configured remediation.
