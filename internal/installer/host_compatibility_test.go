@@ -67,6 +67,93 @@ func TestSCN301_InstallGlobalClaudeOrchestratorAndHiddenPhaseAgents(t *testing.T
 	}
 }
 
+// REQ-008 → SCN-353 → TestSCN353_ClaudeArtifactInstallationRequiresNoLocalExecutable
+func TestSCN353_ClaudeArtifactInstallationRequiresNoLocalExecutable(t *testing.T) {
+	// Scenario: Installing Claude artifacts does not require a local Claude executable
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+
+	result, err := Install(Options{
+		Target:        "claude-code",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatalf("install Claude artifacts without claude executable: %v", err)
+	}
+	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Claude artifacts installed without a local executable, got %#v", result.Hosts["claude-code"])
+	}
+	assertFileContains(t, filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"), "Artifact installation does not require a local Claude executable and makes no runtime compatibility verification claim.")
+}
+
+// REQ-008 → SCN-354 → TestSCN354_CIRecordsClaudeVersionAndCompatibilityResult
+func TestSCN354_CIRecordsClaudeVersionAndCompatibilityResult(t *testing.T) {
+	// Scenario: CI records Claude version and compatibility verification
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"claude --version",
+		"GITHUB_STEP_SUMMARY",
+		"Claude compatibility verification: PASS",
+	})
+}
+
+// REQ-008 → SCN-355 → TestSCN355_UnverifiableClaudeCompatibilityClaimFailsCI
+func TestSCN355_UnverifiableClaudeCompatibilityClaimFailsCI(t *testing.T) {
+	// Scenario: An unverifiable Claude compatibility claim fails in CI
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workflow := string(data)
+	assertContainsAll(t, workflow, []string{
+		"set -euo pipefail",
+		`claude_version="$(claude --version)"`,
+		`echo "$claude_version"`,
+	})
+	if strings.Index(workflow, "Claude compatibility verification: PASS") < strings.Index(workflow, `echo "$claude_version"`) {
+		t.Fatal("CI reports Claude support as verified before version evidence is recorded")
+	}
+}
+
+// REQ-009 → SCN-356 → TestSCN356_SupportedHostsUseSharedWorkspaceControlledAuthority
+func TestSCN356_SupportedHostsUseSharedWorkspaceControlledAuthority(t *testing.T) {
+	// Scenario: Supported hosts use the same workspace-controlled workflow authority
+	home, options := setupCanonicalWorkflowInstall(t)
+	result, err := Install(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "agents", "rotta-orchestrator.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("%s was not installed: %#v", host, result.Hosts[host])
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s instructions: %v", host, err)
+		}
+		assertContainsAll(t, string(data), []string{
+			"shared workspace authority and the Rotta-Orchestrator",
+			"canonical approval gates and legal transitions",
+			"Retired legacy markers never authorize workflow activity",
+			"final_human_review semantics",
+		})
+	}
+}
+
 func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testing.T) {
 	// REQ-001, REQ-002 → SCN-202 → TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults
 	// Scenario: Install Rotta into all supported hosts with independent results
@@ -560,4 +647,32 @@ func TestSCN210_PreserveCommandBehaviorWithAdaptedHostInvocation(t *testing.T) {
 	if !strings.Contains(capability.Reason, "natural-language") || !strings.Contains(capability.Remediation, "same canonical Rotta commands") {
 		t.Fatalf("expected adapted command capability to document invocation path and mapping, got %#v", capability)
 	}
+}
+
+// REQ-005 → SCN-341 → TestSCN341_AdaptedHostPhaseRequestsRouteThroughOrchestrator
+func TestSCN341_AdaptedHostPhaseRequestsRouteThroughOrchestrator(t *testing.T) {
+	// Scenario: Host capability differences do not permit direct phase execution
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	_, err := Install(Options{
+		Target:        "codex",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+
+	assertContainsAll(t, string(data), []string{
+		"every user request for specification, implementation, or review MUST first route to the Rotta-Orchestrator decision point",
+		"Natural-language command adaptation never permits direct phase execution",
+	})
 }

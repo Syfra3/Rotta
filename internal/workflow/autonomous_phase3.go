@@ -78,9 +78,17 @@ func StartAutonomousScenarioLoop(repoRoot string, request AutonomousScenarioLoop
 		return AutonomousScenarioLoopDecision{}, err
 	}
 	if !gate.Approved {
+		if gate.Reason == "baseline confirmation is pending" {
+			return AutonomousScenarioLoopDecision{Reason: gate.Reason}, nil
+		}
 		return AutonomousScenarioLoopDecision{
 			Reason: fmt.Sprintf("explicit human Gherkin approval is required for %s#%s", request.Scope.FeaturePath, request.Scope.ScenarioID),
 		}, nil
+	}
+	if request.LaunchScenario != nil {
+		if err := request.LaunchScenario(); err != nil {
+			return AutonomousScenarioLoopDecision{}, err
+		}
 	}
 
 	return AutonomousScenarioLoopDecision{Approved: true, Reason: gate.Reason}, nil

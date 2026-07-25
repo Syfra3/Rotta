@@ -535,7 +535,6 @@ func TestSCN315_RefusesImplementationWithoutMatchingApprovedBaseline(t *testing.
 			name:       "no explicit feature-scoped approval record",
 			wantReason: "feature-scoped approval record is missing",
 			prepare: func(t *testing.T, repo string, state CurrentSubmissionState) {
-				mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-315\n")
 				if err := os.Remove(filepath.Join(repo, filepath.FromSlash(state.ApprovalRecordPath))); err != nil {
 					t.Fatal(err)
 				}
