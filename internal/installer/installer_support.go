@@ -91,7 +91,7 @@ func context7MCPCapability(host string) HostCapability {
 func selectedHosts(target string) []string {
 	switch target {
 	case "all":
-		return []string{"claude-code", "opencode", "codex"}
+		return []string{"claude-code", "opencode", "codex", "copilot-cli"}
 	case "both":
 		return []string{"claude-code", "opencode"}
 	case "claude-code", "opencode", "codex", "copilot-cli":
@@ -110,7 +110,7 @@ func isSupportedInstallTarget(target string) bool {
 
 func installAllHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
 	var installErr error
-	for _, host := range []string{"claude-code", "opencode", "codex"} {
+	for _, host := range selectedHosts("all") {
 		files, err := cleanAndInstallHost(opts, host, home)
 		if err != nil {
 			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
@@ -151,6 +151,8 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 			return nil, err
 		}
 		return installCodex(hostOpts, home)
+	case "copilot-cli":
+		return nil, nil
 	}
 	return nil, fmt.Errorf("unsupported host target %q", host)
 }

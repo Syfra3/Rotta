@@ -39,3 +39,25 @@ func TestSCN402_InstallsOnlyCopilotCLI(t *testing.T) {
 		}
 	}
 }
+
+// REQ-100 → REQ-104 → SCN-403 → TestSCN403_InstallsAndReportsEverySupportedHost
+func TestSCN403_InstallsAndReportsEverySupportedHost(t *testing.T) {
+	// Scenario: Select every supported host through an explicit aggregate label
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	result, err := Install(Options{Target: "all", ProjectPath: filepath.Join(home, "project")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantHosts := []string{"claude-code", "opencode", "codex", "copilot-cli"}
+	if len(result.Hosts) != len(wantHosts) {
+		t.Fatalf("expected one result for each supported host, got %#v", result.Hosts)
+	}
+	for _, host := range wantHosts {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("expected %s to be attempted and installed once, got %#v", host, result.Hosts[host])
+		}
+	}
+}

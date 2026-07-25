@@ -37,3 +37,24 @@ func TestSCN402_SelectsCopilotCLIAndPreviewsResolvedGlobalFiles(t *testing.T) {
 		}
 	}
 }
+
+// REQ-100 → REQ-104 → SCN-403 → TestSCN403_SelectsAllSupportedHostsWithoutBothLabel
+func TestSCN403_SelectsAllSupportedHostsWithoutBothLabel(t *testing.T) {
+	// Scenario: Select every supported host through an explicit aggregate label
+	model := New()
+	model.Screen = ScreenTargetSelect
+	model.TargetCursor = 4
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	selected := updated.(Model)
+	if selected.Target != "all" {
+		t.Fatalf("expected aggregate selection to set target %q, got %q", "all", selected.Target)
+	}
+
+	targetSelection := selected.viewTargetSelect()
+	if !strings.Contains(targetSelection, "All supported hosts") {
+		t.Fatalf("expected explicit aggregate label in target selection:\n%s", targetSelection)
+	}
+	if strings.Contains(targetSelection, "Both") {
+		t.Fatalf("aggregate label must not say Both:\n%s", targetSelection)
+	}
+}

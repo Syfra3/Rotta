@@ -183,8 +183,8 @@ func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testi
 		t.Fatal("expected partial result when one selected host fails")
 	}
 
-	if len(result.Hosts) != 3 {
-		t.Fatalf("expected exactly three host results, got %#v", result.Hosts)
+	if len(result.Hosts) != 4 {
+		t.Fatalf("expected exactly four host results, got %#v", result.Hosts)
 	}
 	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled {
 		t.Fatalf("expected Claude Code installed independently, got %#v", result.Hosts["claude-code"])
@@ -194,6 +194,9 @@ func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testi
 	}
 	if result.Hosts["codex"].Status != HostInstallStatusInstalled {
 		t.Fatalf("expected Codex installed independently, got %#v", result.Hosts["codex"])
+	}
+	if result.Hosts["copilot-cli"].Status != HostInstallStatusInstalled {
+		t.Fatalf("expected Copilot CLI installed independently, got %#v", result.Hosts["copilot-cli"])
 	}
 
 	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta"))
