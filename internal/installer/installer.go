@@ -56,12 +56,25 @@ type CopilotMCPHealthEvidence struct {
 	MCPListOutput             string
 	InteractiveMCPListOutput  string
 	InteractiveMCPShowOutputs map[string]CopilotMCPServerEvidence
+	ProofFailure              CopilotMCPProofFailure
 }
+
+// CopilotMCPProofFailure identifies deterministic missing or failed Copilot proof.
+type CopilotMCPProofFailure string
+
+const (
+	CopilotMCPProofFailureRootOrPathUnresolved    CopilotMCPProofFailure = "root_or_path_unresolved"
+	CopilotMCPProofFailureFixtureValidationFailed CopilotMCPProofFailure = "fixture_validation_failed"
+	CopilotMCPProofFailureServerUnavailable       CopilotMCPProofFailure = "server_unavailable"
+	CopilotMCPProofFailureCommandFailed           CopilotMCPProofFailure = "command_failed"
+	CopilotMCPProofFailureInitializationTimeout   CopilotMCPProofFailure = "initialization_timeout"
+)
 
 // CopilotMCPServerEvidence is the documented interactive diagnostic for one server.
 type CopilotMCPServerEvidence struct {
 	Output  string
 	Healthy bool
+	Failure CopilotMCPProofFailure
 }
 
 // MCPStatus reports a selected MCP's installation configuration or health state.

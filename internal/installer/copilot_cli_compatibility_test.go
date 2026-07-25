@@ -419,6 +419,164 @@ func TestSCN410_ReportsExactCopilotMCPHealthFromCapturedDiagnostics(t *testing.T
 	}
 }
 
+// REQ-102 → REQ-104 → SCN-411 → TestSCN411_DegradesOrFailsCopilotMCPWhenProofIsMissing
+func TestSCN411_DegradesOrFailsCopilotMCPWhenProofIsMissing(t *testing.T) {
+	// Scenario: Degrade rather than infer Copilot MCP configuration or health
+	for _, test := range []struct {
+		name            string
+		evidence        CopilotMCPHealthEvidence
+		proofFailure    CopilotMCPProofFailure
+		affectedServers []string
+		status          HostCapabilityStatus
+		reason          string
+		remediation     string
+	}{
+		{
+			name:            "active root or MCP path cannot be resolved safely",
+			evidence:        copilotHealthyMCPEvidence(),
+			proofFailure:    CopilotMCPProofFailureRootOrPathUnresolved,
+			affectedServers: []string{"ancora", "vela", "context7"},
+			status:          HostCapabilityStatusFailed,
+			reason:          "active global configuration root or MCP path",
+			remediation:     "Resolve the active global configuration root and MCP path safely",
+		},
+		{
+			name:            "fixture validation fails",
+			evidence:        copilotHealthyMCPEvidence(),
+			proofFailure:    CopilotMCPProofFailureFixtureValidationFailed,
+			affectedServers: []string{"ancora", "vela", "context7"},
+			status:          HostCapabilityStatusDegraded,
+			reason:          "interoperability fixture was not accepted",
+			remediation:     "Capture current Copilot CLI fixture acceptance",
+		},
+		{
+			name:            "version proof is missing",
+			evidence:        CopilotMCPHealthEvidence{ConfigurationAccepted: true},
+			affectedServers: []string{"ancora", "vela", "context7"},
+			status:          HostCapabilityStatusDegraded,
+			reason:          "copilot --version output is missing",
+			remediation:     "Capture successful copilot --version output",
+		},
+		{
+			name: "list or show diagnostics are missing",
+			evidence: CopilotMCPHealthEvidence{
+				ConfigurationAccepted: true,
+				VersionOutput:         "copilot 1.2.3",
+			},
+			affectedServers: []string{"ancora", "vela", "context7"},
+			status:          HostCapabilityStatusDegraded,
+			reason:          "MCP list or show diagnostics are missing",
+			remediation:     "Capture copilot mcp list and interactive /mcp list and /mcp show diagnostics",
+		},
+		{
+			name: "server is unavailable",
+			evidence: CopilotMCPHealthEvidence{
+				ConfigurationAccepted:    true,
+				VersionOutput:            "copilot 1.2.3",
+				MCPListOutput:            "ancora\nvela\ncontext7",
+				InteractiveMCPListOutput: "ancora healthy\nvela unavailable\ncontext7 healthy",
+				InteractiveMCPShowOutputs: map[string]CopilotMCPServerEvidence{
+					"ancora":   {Output: "ancora healthy", Healthy: true},
+					"vela":     {Output: "vela unavailable", Failure: CopilotMCPProofFailureServerUnavailable},
+					"context7": {Output: "context7 healthy", Healthy: true},
+				},
+			},
+			affectedServers: []string{"vela"},
+			status:          HostCapabilityStatusFailed,
+			reason:          "server is unavailable",
+			remediation:     "Make the server available",
+		},
+		{
+			name: "MCP command fails to start",
+			evidence: CopilotMCPHealthEvidence{
+				ConfigurationAccepted:    true,
+				VersionOutput:            "copilot 1.2.3",
+				MCPListOutput:            "ancora\nvela\ncontext7",
+				InteractiveMCPListOutput: "ancora healthy\nvela command failed\ncontext7 healthy",
+				InteractiveMCPShowOutputs: map[string]CopilotMCPServerEvidence{
+					"ancora":   {Output: "ancora healthy", Healthy: true},
+					"vela":     {Output: "vela command failed", Failure: CopilotMCPProofFailureCommandFailed},
+					"context7": {Output: "context7 healthy", Healthy: true},
+				},
+			},
+			affectedServers: []string{"vela"},
+			status:          HostCapabilityStatusFailed,
+			reason:          "configured MCP command could not start",
+			remediation:     "Repair the configured MCP command",
+		},
+		{
+			name: "MCP initialization times out",
+			evidence: CopilotMCPHealthEvidence{
+				ConfigurationAccepted:    true,
+				VersionOutput:            "copilot 1.2.3",
+				MCPListOutput:            "ancora\nvela\ncontext7",
+				InteractiveMCPListOutput: "ancora healthy\nvela timeout\ncontext7 healthy",
+				InteractiveMCPShowOutputs: map[string]CopilotMCPServerEvidence{
+					"ancora":   {Output: "ancora healthy", Healthy: true},
+					"vela":     {Output: "vela timeout", Failure: CopilotMCPProofFailureInitializationTimeout},
+					"context7": {Output: "context7 healthy", Healthy: true},
+				},
+			},
+			affectedServers: []string{"vela"},
+			status:          HostCapabilityStatusFailed,
+			reason:          "MCP initialization or tool discovery timed out",
+			remediation:     "Capture completed MCP initialization and tool-discovery evidence",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, "active-copilot-root")
+			t.Setenv("HOME", home)
+			t.Setenv("COPILOT_HOME", root)
+			t.Setenv("COPILOT_MCP_CONFIG", filepath.Join(root, "mcp-config.json"))
+			test.evidence.ProofFailure = test.proofFailure
+
+			result, err := Install(Options{
+				Target:                   "copilot-cli",
+				ProjectPath:              filepath.Join(home, "project"),
+				SetupAncora:              true,
+				SetupVela:                true,
+				SetupContext7:            true,
+				CopilotMCPHealthEvidence: test.evidence,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			host := result.Hosts["copilot-cli"]
+			for _, server := range test.affectedServers {
+				capability := host.Capabilities["mcp:"+server]
+				if capability.Status != test.status || capability.Status == HostCapabilityStatusExact {
+					t.Fatalf("expected %s to be %s rather than exact, got %#v", server, test.status, capability)
+				}
+				if !strings.Contains(capability.Reason, test.reason) || !strings.Contains(capability.Remediation, test.remediation) {
+					t.Fatalf("expected specific proof gap %q and remediation %q, got %#v", test.reason, test.remediation, capability)
+				}
+				if status := result.MCPStatuses["copilot-cli"][server]; status.Status == MCPStatusConfigured {
+					t.Fatalf("expected %s MCP status not to be configured from missing or failed proof, got %#v", server, status)
+				}
+			}
+			if host.Capabilities["lifecycle"].Status != HostCapabilityStatusExact {
+				t.Fatalf("expected canonical workflow gates to remain exact, got %#v", host.Capabilities["lifecycle"])
+			}
+		})
+	}
+}
+
+func copilotHealthyMCPEvidence() CopilotMCPHealthEvidence {
+	return CopilotMCPHealthEvidence{
+		ConfigurationAccepted:    true,
+		VersionOutput:            "copilot 1.2.3",
+		MCPListOutput:            "ancora\nvela\ncontext7",
+		InteractiveMCPListOutput: "ancora healthy\nvela healthy\ncontext7 healthy",
+		InteractiveMCPShowOutputs: map[string]CopilotMCPServerEvidence{
+			"ancora":   {Output: "ancora healthy", Healthy: true},
+			"vela":     {Output: "vela healthy", Healthy: true},
+			"context7": {Output: "context7 healthy", Healthy: true},
+		},
+	}
+}
+
 func assertCopilotAgentFixture(t *testing.T, path, role string) {
 	t.Helper()
 	data, err := os.ReadFile(path)

@@ -154,12 +154,35 @@ func recordCopilotMCPHealthEvidence(result *Result, opts Options) {
 	result.CopilotMCPHealthEvidence = evidence
 
 	host := result.Hosts["copilot-cli"]
-	if host.Status != HostInstallStatusInstalled || !evidence.ConfigurationAccepted || evidence.VersionOutput == "" {
+	if host.Status != HostInstallStatusInstalled {
 		return
 	}
+	if status, reason, remediation, missing := copilotMCPProofGap(evidence); missing {
+		for _, name := range selectedCopilotMCPNames(opts) {
+			host.Capabilities["mcp:"+name] = HostCapability{Name: "mcp:" + name, Status: status, Reason: reason, Remediation: remediation}
+		}
+		host.Capabilities["mcp"] = HostCapability{Name: "mcp", Status: status, Reason: reason, Remediation: remediation}
+		result.Hosts["copilot-cli"] = host
+		return
+	}
+
 	allHealthy := true
+	var failedCapability HostCapability
 	for _, name := range selectedCopilotMCPNames(opts) {
+		if status, reason, remediation, failed := copilotMCPServerProofFailure(evidence.InteractiveMCPShowOutputs[name].Failure); failed {
+			capability := HostCapability{Name: "mcp:" + name, Status: status, Reason: reason, Remediation: remediation}
+			host.Capabilities[capability.Name] = capability
+			failedCapability = capability
+			allHealthy = false
+			continue
+		}
 		if !evidence.provesHealthyServer(name) {
+			host.Capabilities["mcp:"+name] = HostCapability{
+				Name:        "mcp:" + name,
+				Status:      HostCapabilityStatusDegraded,
+				Reason:      "required /mcp show healthy diagnostic is missing for " + name + ".",
+				Remediation: "Capture interactive /mcp show " + name + " evidence before treating the server as healthy.",
+			}
 			allHealthy = false
 			continue
 		}
@@ -167,8 +190,44 @@ func recordCopilotMCPHealthEvidence(result *Result, opts Options) {
 	}
 	if allHealthy {
 		host.Capabilities["mcp"] = exactCapability("mcp")
+	} else if failedCapability.Name != "" {
+		host.Capabilities["mcp"] = HostCapability{Name: "mcp", Status: failedCapability.Status, Reason: failedCapability.Reason, Remediation: failedCapability.Remediation}
 	}
 	result.Hosts["copilot-cli"] = host
+}
+
+func copilotMCPProofGap(evidence CopilotMCPHealthEvidence) (HostCapabilityStatus, string, string, bool) {
+	switch evidence.ProofFailure {
+	case CopilotMCPProofFailureRootOrPathUnresolved:
+		return HostCapabilityStatusFailed, "active global configuration root or MCP path could not be resolved safely.", "Resolve the active global configuration root and MCP path safely before permitting MCP compatibility verification.", true
+	case CopilotMCPProofFailureFixtureValidationFailed:
+		return HostCapabilityStatusDegraded, "Copilot interoperability fixture was not accepted by the current CLI.", "Capture current Copilot CLI fixture acceptance before treating MCP configuration as proven.", true
+	}
+	if !evidence.ConfigurationAccepted && evidence.VersionOutput == "" && evidence.MCPListOutput == "" && evidence.InteractiveMCPListOutput == "" && evidence.InteractiveMCPShowOutputs == nil {
+		return "", "", "", false
+	}
+	if !evidence.ConfigurationAccepted {
+		return HostCapabilityStatusDegraded, "Copilot interoperability fixture was not accepted by the current CLI.", "Capture current Copilot CLI fixture acceptance before treating MCP configuration as proven.", true
+	}
+	if evidence.VersionOutput == "" {
+		return HostCapabilityStatusDegraded, "copilot --version output is missing.", "Capture successful copilot --version output before treating MCP health as proven.", true
+	}
+	if evidence.MCPListOutput == "" || evidence.InteractiveMCPListOutput == "" {
+		return HostCapabilityStatusDegraded, "required MCP list or show diagnostics are missing.", "Capture copilot mcp list and interactive /mcp list and /mcp show diagnostics before treating MCP health as proven.", true
+	}
+	return "", "", "", false
+}
+
+func copilotMCPServerProofFailure(failure CopilotMCPProofFailure) (HostCapabilityStatus, string, string, bool) {
+	switch failure {
+	case CopilotMCPProofFailureServerUnavailable:
+		return HostCapabilityStatusFailed, "Copilot reports the server is unavailable.", "Make the server available and capture its /mcp show evidence before treating it as healthy.", true
+	case CopilotMCPProofFailureCommandFailed:
+		return HostCapabilityStatusFailed, "configured MCP command could not start.", "Repair the configured MCP command and capture initialization proof before treating the server as healthy.", true
+	case CopilotMCPProofFailureInitializationTimeout:
+		return HostCapabilityStatusFailed, "MCP initialization or tool discovery timed out.", "Capture completed MCP initialization and tool-discovery evidence before treating the server as healthy.", true
+	}
+	return "", "", "", false
 }
 
 func (evidence CopilotMCPHealthEvidence) provesHealthyServer(name string) bool {
