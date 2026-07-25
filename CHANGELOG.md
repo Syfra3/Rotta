@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.10.0](https://github.com/Syfra3/Rotta/compare/v1.9.0...v1.10.0) (2026-07-15)
+
+
+### Features
+
+* archive terminal workflow state ([ea8ffb4](https://github.com/Syfra3/Rotta/commit/ea8ffb4e608e277ff44760402a70f1d1e4d22408))
+* automate clean feature worktree lifecycle ([769aff7](https://github.com/Syfra3/Rotta/commit/769aff79bb011ed592cc1f7315f7a56fd639889a))
+* checkpoint approved feature contracts ([6b45f57](https://github.com/Syfra3/Rotta/commit/6b45f5775df12d3fce920bd441b6f6091fe179b6))
+* checkpoint approved scenario boundaries ([9e36413](https://github.com/Syfra3/Rotta/commit/9e36413cb7076ddd9d5be54b7bcf2e48959e4678))
+* clean up eligible terminal worktrees ([bfea494](https://github.com/Syfra3/Rotta/commit/bfea49494ad673bc49acd28a83cabba88ae80ab1))
+* enforce host lifecycle parity ([b08b427](https://github.com/Syfra3/Rotta/commit/b08b42796bc0caf5a3e194038b6e139394ed9e3c))
+* install Claude orchestration agents ([3f14d2c](https://github.com/Syfra3/Rotta/commit/3f14d2cfa08f70e2a960a36ee038c2260771a7e6))
+* prepare worktree before specification ([744f38f](https://github.com/Syfra3/Rotta/commit/744f38f49f79cde62b286050eff2ad539b8a6082))
+* preserve safe scenario stops ([3251511](https://github.com/Syfra3/Rotta/commit/325151107abeb3379c2f7d60fee09edbd80cb821))
+* reject unsafe worktree cleanup ([12c64df](https://github.com/Syfra3/Rotta/commit/12c64dfbab0828f9626005ffdd0dca80ae6f2049))
+* report unsafe worktree recovery ([51e72f4](https://github.com/Syfra3/Rotta/commit/51e72f49b650a0f5a7b15afb22a68e31fad972d9))
+* specify Claude agent orchestration ([500d542](https://github.com/Syfra3/Rotta/commit/500d54275732c41b10c6746559463b006483987b))
+* transition final checkpoint to review ([9d10c9c](https://github.com/Syfra3/Rotta/commit/9d10c9c4e4f337da54cee2561a473968acd7cbb6))
+* validate approved contract baselines ([f63b8e9](https://github.com/Syfra3/Rotta/commit/f63b8e90ee798555004352903a844c8a6c9beb3e))
+* validate scenario delegation scope ([bb0728a](https://github.com/Syfra3/Rotta/commit/bb0728ad38369322df8e2c91f5be783f583b2063))
+
+
+### Bug Fixes
+
+* harden lifecycle baseline files ([84174fc](https://github.com/Syfra3/Rotta/commit/84174fc342fe8ac466d2026b7570243873c0146f))
+
 ## [1.9.0](https://github.com/Syfra3/Rotta/compare/v1.8.1...v1.9.0) (2026-07-15)
 
 
