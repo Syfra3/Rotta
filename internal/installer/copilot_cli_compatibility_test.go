@@ -359,6 +359,66 @@ func TestSCN409_RegistersSelectedMCPsAtResolvedFixturePath(t *testing.T) {
 	}
 }
 
+// REQ-102 → SCN-410 → TestSCN410_ReportsExactCopilotMCPHealthFromCapturedDiagnostics
+func TestSCN410_ReportsExactCopilotMCPHealthFromCapturedDiagnostics(t *testing.T) {
+	// Scenario: Report exact Copilot MCP health only from documented host evidence
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	mcpPath := filepath.Join(root, "mcp-config.json")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+
+	evidence := CopilotMCPHealthEvidence{
+		ConfigurationAccepted:    true,
+		VersionOutput:            "copilot 1.2.3",
+		MCPListOutput:            "ancora\nvela\ncontext7",
+		InteractiveMCPListOutput: "ancora healthy\nvela healthy\ncontext7 healthy",
+		InteractiveMCPShowOutputs: map[string]CopilotMCPServerEvidence{
+			"ancora":   {Output: "ancora healthy", Healthy: true},
+			"vela":     {Output: "vela healthy", Healthy: true},
+			"context7": {Output: "context7 healthy", Healthy: true},
+		},
+	}
+	result, err := Install(Options{
+		Target:                   "copilot-cli",
+		ProjectPath:              filepath.Join(home, "project"),
+		SetupAncora:              true,
+		SetupVela:                true,
+		SetupContext7:            true,
+		CopilotMCPHealthEvidence: evidence,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.CopilotGlobalConfigRoot != root || result.CopilotMCPConfigPath != mcpPath {
+		t.Fatalf("expected resolved Copilot root/path %q and %q, got %#v", root, mcpPath, result)
+	}
+	if result.CopilotMCPHealthEvidence.ConfigurationAccepted != evidence.ConfigurationAccepted ||
+		result.CopilotMCPHealthEvidence.VersionOutput != evidence.VersionOutput ||
+		result.CopilotMCPHealthEvidence.MCPListOutput != evidence.MCPListOutput ||
+		result.CopilotMCPHealthEvidence.InteractiveMCPListOutput != evidence.InteractiveMCPListOutput {
+		t.Fatalf("expected captured Copilot MCP evidence to be retained, got %#v", result.CopilotMCPHealthEvidence)
+	}
+	for _, name := range []string{"ancora", "vela", "context7"} {
+		if result.CopilotMCPHealthEvidence.InteractiveMCPShowOutputs[name] != evidence.InteractiveMCPShowOutputs[name] {
+			t.Fatalf("expected %s diagnostic evidence to be retained, got %#v", name, result.CopilotMCPHealthEvidence.InteractiveMCPShowOutputs[name])
+		}
+		capability := result.Hosts["copilot-cli"].Capabilities["mcp:"+name]
+		if capability.Status != HostCapabilityStatusExact {
+			t.Fatalf("expected documented diagnostic proof to report %s exact, got %#v", name, capability)
+		}
+		status := result.MCPStatuses["copilot-cli"][name]
+		if status.Status != MCPStatusConfigured || status.RuntimeFallback.State != MCPRuntimeFallbackNotObserved {
+			t.Fatalf("expected %s configuration to remain distinct from later runtime fallback, got %#v", name, status)
+		}
+	}
+	if result.Hosts["copilot-cli"].Capabilities["mcp"].Status != HostCapabilityStatusExact {
+		t.Fatalf("expected exact aggregate Copilot MCP health from captured diagnostics, got %#v", result.Hosts["copilot-cli"].Capabilities["mcp"])
+	}
+}
+
 func assertCopilotAgentFixture(t *testing.T, path, role string) {
 	t.Helper()
 	data, err := os.ReadFile(path)

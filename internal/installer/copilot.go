@@ -145,3 +145,50 @@ func selectedCopilotMCPFixture(opts Options) map[string]copilotMCPServer {
 	}
 	return fixture
 }
+
+func recordCopilotMCPHealthEvidence(result *Result, opts Options) {
+	if !includesCopilot(opts.Target) || !hasSelectedMCP(opts) {
+		return
+	}
+	evidence := opts.CopilotMCPHealthEvidence
+	result.CopilotMCPHealthEvidence = evidence
+
+	host := result.Hosts["copilot-cli"]
+	if host.Status != HostInstallStatusInstalled || !evidence.ConfigurationAccepted || evidence.VersionOutput == "" {
+		return
+	}
+	allHealthy := true
+	for _, name := range selectedCopilotMCPNames(opts) {
+		if !evidence.provesHealthyServer(name) {
+			allHealthy = false
+			continue
+		}
+		host.Capabilities["mcp:"+name] = exactMCPCapability("mcp:" + name)
+	}
+	if allHealthy {
+		host.Capabilities["mcp"] = exactCapability("mcp")
+	}
+	result.Hosts["copilot-cli"] = host
+}
+
+func (evidence CopilotMCPHealthEvidence) provesHealthyServer(name string) bool {
+	proof, ok := evidence.InteractiveMCPShowOutputs[name]
+	return ok && proof.Healthy &&
+		strings.Contains(evidence.MCPListOutput, name) &&
+		strings.Contains(evidence.InteractiveMCPListOutput, name) &&
+		strings.Contains(proof.Output, name)
+}
+
+func selectedCopilotMCPNames(opts Options) []string {
+	var names []string
+	if opts.SetupAncora {
+		names = append(names, "ancora")
+	}
+	if opts.SetupVela {
+		names = append(names, "vela")
+	}
+	if opts.SetupContext7 {
+		names = append(names, "context7")
+	}
+	return names
+}

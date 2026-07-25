@@ -12,18 +12,19 @@ import (
 
 // Options configures what and where to install.
 type Options struct {
-	Target          string // "claude-code" | "opencode" | "both"
-	ProjectPath     string // project root; config files land here under .rotta/
-	InstallSpec     bool
-	InstallImpl     bool
-	InstallReview   bool
-	UseDefaultGates bool
-	SetupAncora     bool // whether to install/configure Ancora memory
-	SetupVela       bool // whether to install/configure Vela graph intelligence
-	SetupContext7   bool // whether to configure Context7 documentation MCP
-	CommandStdin    io.Reader
-	CommandStdout   io.Writer
-	CommandStderr   io.Writer
+	Target                   string // "claude-code" | "opencode" | "both"
+	ProjectPath              string // project root; config files land here under .rotta/
+	InstallSpec              bool
+	InstallImpl              bool
+	InstallReview            bool
+	UseDefaultGates          bool
+	SetupAncora              bool // whether to install/configure Ancora memory
+	SetupVela                bool // whether to install/configure Vela graph intelligence
+	SetupContext7            bool // whether to configure Context7 documentation MCP
+	CommandStdin             io.Reader
+	CommandStdout            io.Writer
+	CommandStderr            io.Writer
+	CopilotMCPHealthEvidence CopilotMCPHealthEvidence
 }
 
 // Result describes what was installed.
@@ -44,6 +45,23 @@ type Result struct {
 	MCPStatuses                     map[string]map[string]MCPStatusResult
 	CopilotGlobalConfigRoot         string
 	CopilotMCPConfigPath            string
+	CopilotMCPHealthEvidence        CopilotMCPHealthEvidence
+}
+
+// CopilotMCPHealthEvidence is captured or synthetic documented Copilot MCP proof.
+// It deliberately does not execute the Copilot CLI during installation.
+type CopilotMCPHealthEvidence struct {
+	ConfigurationAccepted     bool
+	VersionOutput             string
+	MCPListOutput             string
+	InteractiveMCPListOutput  string
+	InteractiveMCPShowOutputs map[string]CopilotMCPServerEvidence
+}
+
+// CopilotMCPServerEvidence is the documented interactive diagnostic for one server.
+type CopilotMCPServerEvidence struct {
+	Output  string
+	Healthy bool
 }
 
 // MCPStatus reports a selected MCP's installation configuration or health state.
@@ -288,6 +306,7 @@ func finalizeInstall(result *Result, opts Options, projectPath string) {
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
+	recordCopilotMCPHealthEvidence(result, opts)
 	recordMCPStatuses(result, opts)
 	recordChangedFiles(result, projectPath)
 }
