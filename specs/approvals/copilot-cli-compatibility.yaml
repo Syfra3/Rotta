@@ -1,0 +1,73 @@
+format: rotta.feature-approval/v2
+contract_id: copilot-cli-compatibility
+status: approved
+approved_on: "2026-07-25"
+approval_source: explicit_human
+submission_worktree: /home/geen/Documents/personal/Rotta-copilot-cli-compatibility
+feature_branch: feature/copilot-cli-compatibility
+base_branch: main
+spec_path: specs/copilot_cli_compatibility_hard_spec.md
+feature_paths:
+  - features/copilot_cli_compatibility.feature
+approved_scenarios:
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-402
+    requirement_ids: [REQ-100]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-403
+    requirement_ids: [REQ-100, REQ-104]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-404
+    requirement_ids: [REQ-100, REQ-105]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-405
+    requirement_ids: [REQ-100]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-406
+    requirement_ids: [REQ-101]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-407
+    requirement_ids: [REQ-101, REQ-104]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-408
+    requirement_ids: [REQ-101, REQ-105]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-409
+    requirement_ids: [REQ-102]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-410
+    requirement_ids: [REQ-102]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-411
+    requirement_ids: [REQ-102, REQ-104]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-412
+    requirement_ids: [REQ-102, REQ-103]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-413
+    requirement_ids: [REQ-102, REQ-103]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-414
+    requirement_ids: [REQ-103]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-415
+    requirement_ids: [REQ-103]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-416
+    requirement_ids: [REQ-104]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-417
+    requirement_ids: [REQ-104]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-418
+    requirement_ids: [REQ-105]
+  - feature_path: features/copilot_cli_compatibility.feature
+    scenario_id: SCN-419
+    requirement_ids: [REQ-105]
+contract_fingerprints:
+  specs/copilot_cli_compatibility_hard_spec.md: f62fc87eae4e34e754469c5c115e362ac47b3e4f80ff34f5ab8a9c551380e1dc
+  features/copilot_cli_compatibility.feature: b68d5f61e62cd3a6b0f1abd93c2e7f357b01344654e44b4e3c90d3b6c1ae9a2b
+baseline_confirmation:
+  status: pending
+  baseline_commit: pending
+reviewed_commit: null
