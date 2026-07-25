@@ -1,8 +1,10 @@
 package installer
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,8 +101,15 @@ func configureCopilotMCPFixture(opts Options) (string, error) {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("cannot read Copilot MCP configuration: %w", err)
 		}
-	} else if err := json.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("cannot parse Copilot MCP configuration: %w", err)
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		if err := decoder.Decode(&config); err != nil {
+			return "", fmt.Errorf("cannot parse Copilot MCP configuration: %w", err)
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+			return "", fmt.Errorf("cannot parse Copilot MCP configuration: unexpected trailing data")
+		}
 	}
 	mcpServers, _ := config["mcpServers"].(map[string]interface{})
 	if mcpServers == nil {

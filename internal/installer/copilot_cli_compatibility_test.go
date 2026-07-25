@@ -563,6 +563,71 @@ func TestSCN411_DegradesOrFailsCopilotMCPWhenProofIsMissing(t *testing.T) {
 	}
 }
 
+// REQ-102 → REQ-103 → SCN-412 → TestSCN412_RerunPreservesUnrelatedCopilotConfiguration
+func TestSCN412_RerunPreservesUnrelatedCopilotConfiguration(t *testing.T) {
+	// Scenario: Rerun Copilot installation without changing unrelated configuration
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	mcpPath := filepath.Join(root, "mcp-config.json")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+	writeTestFile(t, mcpPath, []byte(`{"unrelatedLargeSetting":9007199254740993,"mcpServers":{"user-server":{"command":"user-mcp","args":["serve"]}}}`))
+	writeTestFile(t, filepath.Join(root, "agents", "user.agent.md"), []byte("user agent"))
+	writeTestFile(t, filepath.Join(root, "instructions", "user.instructions.md"), []byte("user instructions"))
+
+	opts := Options{
+		Target:        "copilot-cli",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	}
+	if _, err := Install(opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		t.Fatalf("read rerun Copilot MCP configuration: %v", err)
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse rerun Copilot MCP configuration: %v", err)
+	}
+	if got := string(config["unrelatedLargeSetting"]); got != "9007199254740993" {
+		t.Fatalf("expected unrelated root setting to be preserved, got %s", got)
+	}
+	var servers map[string]copilotMCPServer
+	if err := json.Unmarshal(config["mcpServers"], &servers); err != nil {
+		t.Fatalf("parse rerun Copilot MCP registrations: %v", err)
+	}
+	if len(servers) != 4 || servers["user-server"].Command != "user-mcp" {
+		t.Fatalf("expected selected and unrelated MCP registrations to be preserved once, got %#v", servers)
+	}
+	for _, name := range []string{"ancora", "vela", "context7"} {
+		if _, ok := servers[name]; !ok {
+			t.Fatalf("expected one managed %s MCP registration, got %#v", name, servers)
+		}
+	}
+	for _, name := range []string{"rotta-orchestrator", "rotta-spec", "rotta-impl", "rotta-review", "user"} {
+		if _, err := os.Stat(filepath.Join(root, "agents", name+".agent.md")); err != nil {
+			t.Fatalf("expected agent artifact %s to be preserved once: %v", name, err)
+		}
+	}
+	for _, name := range []string{"rotta.instructions.md", "user.instructions.md"} {
+		if _, err := os.Stat(filepath.Join(root, "instructions", name)); err != nil {
+			t.Fatalf("expected instruction artifact %s to be preserved: %v", name, err)
+		}
+	}
+}
+
 func copilotHealthyMCPEvidence() CopilotMCPHealthEvidence {
 	return CopilotMCPHealthEvidence{
 		ConfigurationAccepted:    true,
