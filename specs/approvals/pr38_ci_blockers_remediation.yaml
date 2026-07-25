@@ -29,6 +29,6 @@ contract_fingerprints:
   specs/pr38_ci_blockers_remediation_hard_spec.md: 6fe505676b243ad130d24f2702ce4f4df3225cae170fd18d4e4c05205baecea3
   features/pr38_ci_blockers_remediation.feature: 4e129f63c2db768b6c0e6cdaf1e37b35c1f7cb2ac89965ea1f9ae8dd0fb6134e
 baseline_confirmation:
-  status: pending
-  baseline_commit: pending
+  status: confirmed
+  baseline_commit: 5fd3852c47eef576edcfc5b527ed5de372d3481e
 reviewed_commit: null
