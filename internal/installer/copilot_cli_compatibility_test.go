@@ -794,6 +794,65 @@ func TestSCN415_RestoresCompletedCopilotBackupAfterRootChanges(t *testing.T) {
 	assertFileContains(t, orchestratorPath, "pre-failed-restore orchestrator")
 }
 
+// REQ-104 → SCN-416 → TestSCN416_AccountsForCopilotGlobalPathsAsHostConfiguration
+func TestSCN416_AccountsForCopilotGlobalPathsAsHostConfiguration(t *testing.T) {
+	// Scenario: Account for Copilot changes separately from workspace lifecycle artifacts
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	root := filepath.Join(projectPath, ".copilot-global")
+	mcpPath := filepath.Join(root, "mcp-config.json")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+
+	result, err := Install(Options{
+		Target:        "copilot-cli",
+		ProjectPath:   projectPath,
+		SetupAncora:   true,
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	copilotPaths := []string{
+		filepath.Join(root, "agents", "rotta-orchestrator.agent.md"),
+		filepath.Join(root, "agents", "rotta-spec.agent.md"),
+		filepath.Join(root, "agents", "rotta-impl.agent.md"),
+		filepath.Join(root, "agents", "rotta-review.agent.md"),
+		filepath.Join(root, "instructions", "rotta.instructions.md"),
+		mcpPath,
+	}
+	for _, path := range copilotPaths {
+		if countString(result.Hosts["copilot-cli"].Files, path) != 1 {
+			t.Fatalf("expected Copilot host result to report %q exactly once, got %#v", path, result.Hosts["copilot-cli"].Files)
+		}
+		if countString(result.Files, path) != 1 {
+			t.Fatalf("expected result files to report %q exactly once, got %#v", path, result.Files)
+		}
+		if countString(result.ChangedFiles[FileChangeCategoryHostConfig], path) != 1 {
+			t.Fatalf("expected %q to be host configuration exactly once, got %#v", path, result.ChangedFiles)
+		}
+		for _, category := range []FileChangeCategory{FileChangeCategoryWorkspaceHostConfig, FileChangeCategoryLifecycle} {
+			if containsString(result.ChangedFiles[category], path) {
+				t.Fatalf("Copilot global path %q must not be classified as %s, got %#v", path, category, result.ChangedFiles)
+			}
+		}
+	}
+}
+
+func countString(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

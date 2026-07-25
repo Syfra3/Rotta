@@ -479,6 +479,9 @@ func recordChangedFiles(result *Result, projectPath string) {
 	}
 	for _, file := range result.Files {
 		category := classifyChangedFile(file, projectPath)
+		if isCopilotHostConfigurationPath(result, file) {
+			category = FileChangeCategoryHostConfig
+		}
 		changed[category] = append(changed[category], file)
 	}
 	result.ChangedFiles = changed
@@ -496,6 +499,15 @@ func deduplicateStrings(values []string) []string {
 		unique = append(unique, value)
 	}
 	return unique
+}
+
+func isCopilotHostConfigurationPath(result *Result, path string) bool {
+	for _, copilotPath := range result.Hosts["copilot-cli"].Files {
+		if path == copilotPath {
+			return true
+		}
+	}
+	return false
 }
 
 func classifyChangedFile(path, projectPath string) FileChangeCategory {
