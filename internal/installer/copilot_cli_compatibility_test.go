@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -273,6 +274,88 @@ func TestSCN408_KeepsCopilotIntegrationGlobalAndOutOfRepositories(t *testing.T) 
 	}
 	if !strings.Contains(string(instructions), "Copilot integration is global-only") {
 		t.Fatal("expected global Copilot instructions to identify the integration as global-only")
+	}
+}
+
+// REQ-102 → SCN-409 → TestSCN409_RegistersSelectedMCPsAtResolvedFixturePath
+func TestSCN409_RegistersSelectedMCPsAtResolvedFixturePath(t *testing.T) {
+	// Scenario: Register selected MCPs through a validated active-root fixture
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	mcpPath := filepath.Join(root, "mcp-config.json")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+	writeTestFile(t, mcpPath, []byte(`{"userSetting":"preserve"}`))
+
+	result, err := Install(Options{
+		Target:        "copilot-cli",
+		ProjectPath:   filepath.Join(home, "project"),
+		SetupAncora:   true,
+		SetupVela:     true,
+		SetupContext7: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		t.Fatalf("read resolved Copilot MCP fixture: %v", err)
+	}
+	var config struct {
+		UserSetting string `json:"userSetting"`
+		MCPServers  map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse resolved Copilot MCP fixture: %v", err)
+	}
+	if config.UserSetting != "preserve" {
+		t.Fatalf("expected unrelated Copilot configuration to be preserved, got %#v", config)
+	}
+	want := map[string]struct {
+		command string
+		args    []string
+	}{
+		"ancora":   {command: "ancora", args: []string{"mcp"}},
+		"vela":     {command: "vela", args: []string{"mcp"}},
+		"context7": {command: "npx", args: []string{"-y", "@upstash/context7-mcp"}},
+	}
+	if len(config.MCPServers) != len(want) {
+		t.Fatalf("expected only selected Copilot MCP registrations, got %#v", config.MCPServers)
+	}
+	for name, expected := range want {
+		server, ok := config.MCPServers[name]
+		if !ok || server.Command != expected.command || !sameArguments(server.Args, expected.args) {
+			t.Fatalf("expected %s registration %#v, got %#v", name, expected, server)
+		}
+	}
+	reported := false
+	for _, path := range result.Files {
+		if path == mcpPath {
+			reported = true
+			break
+		}
+	}
+	if !reported {
+		t.Fatalf("expected result to report resolved Copilot MCP path %q, got %#v", mcpPath, result.Files)
+	}
+	if result.CopilotGlobalConfigRoot != root || result.CopilotMCPConfigPath != mcpPath {
+		t.Fatalf("expected result to report resolved Copilot root/path %q and %q, got %#v", root, mcpPath, result)
+	}
+	capability := result.Hosts["copilot-cli"].Capabilities["mcp"]
+	if capability.Status != HostCapabilityStatusDegraded || !strings.Contains(capability.Reason, "not a complete universal Copilot MCP schema") {
+		t.Fatalf("expected the fixture report to avoid a universal-schema or runtime-health claim, got %#v", capability)
+	}
+	for _, path := range []string{
+		filepath.Join(home, ".claude", "mcp", "context7.json"),
+		filepath.Join(home, ".config", "opencode", "opencode.json"),
+		filepath.Join(home, "project", ".vela", "graph.db"),
+	} {
+		assertPathMissing(t, path)
 	}
 }
 

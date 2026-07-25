@@ -45,7 +45,7 @@ func installHost(opts Options, host, home string) ([]string, error) {
 }
 
 func setupContext7(opts Options, result *Result, home, projectPath string) (bool, error) {
-	if !opts.SetupContext7 {
+	if !opts.SetupContext7 || opts.Target == "copilot-cli" {
 		return false, nil
 	}
 	context7Result, err := ConfigureContext7(opts, home)

@@ -42,6 +42,8 @@ type Result struct {
 	VelaBin                         string // resolved path to the vela binary
 	Context7                        Context7Result
 	MCPStatuses                     map[string]map[string]MCPStatusResult
+	CopilotGlobalConfigRoot         string
+	CopilotMCPConfigPath            string
 }
 
 // MCPStatus reports a selected MCP's installation configuration or health state.
@@ -128,6 +130,9 @@ func install(opts Options) (*Result, error) {
 		recordChangedFiles(result, projectPath)
 		return installResult, err
 	}
+	if err := recordCopilotFixtureResolution(result, opts, home); err != nil {
+		return result, err
+	}
 
 	if err := setupAncora(opts, result, home); err != nil {
 		recordAgentSetupFailure(result, err)
@@ -188,7 +193,7 @@ func failedCleanInstall(result *Result, opts Options, projectPath string, err er
 }
 
 func setupAncora(opts Options, result *Result, home string) error {
-	if !opts.SetupAncora {
+	if !opts.SetupAncora || opts.Target == "copilot-cli" {
 		return nil
 	}
 	ar, err := setupAncoraWithBackups(opts, home, result.AgentBackupDirs)
@@ -202,7 +207,7 @@ func setupAncora(opts Options, result *Result, home string) error {
 }
 
 func setupVela(opts Options, result *Result, home, projectPath string) error {
-	if !opts.SetupVela {
+	if !opts.SetupVela || opts.Target == "copilot-cli" {
 		return nil
 	}
 	vr, err := SetupVela(opts, home, projectPath)
@@ -311,6 +316,26 @@ func installTargetLabel(target string) string {
 		return "selected"
 	}
 	return target
+}
+
+func recordCopilotFixtureResolution(result *Result, opts Options, home string) error {
+	if !includesCopilot(opts.Target) {
+		return nil
+	}
+	root, err := resolveCopilotGlobalConfigRoot(home)
+	if err != nil {
+		return err
+	}
+	result.CopilotGlobalConfigRoot = root
+	if !hasSelectedMCP(opts) || os.Getenv("COPILOT_MCP_CONFIG") == "" {
+		return nil
+	}
+	path, err := resolveCopilotMCPConfigPath()
+	if err != nil {
+		return err
+	}
+	result.CopilotMCPConfigPath = path
+	return nil
 }
 
 func recordHostArtifactFailure(result *Result, host, artifactType string, opts Options) {
@@ -507,6 +532,14 @@ func instructionsCapability(host string) HostCapability {
 func mcpCapability(opts Options, host string) HostCapability {
 	if !opts.SetupAncora && !opts.SetupVela && !opts.SetupContext7 {
 		return HostCapability{Name: "mcp", Status: HostCapabilityStatusSkipped, Reason: "No MCP integrations were selected for this installation."}
+	}
+	if host == "copilot-cli" {
+		return HostCapability{
+			Name:        "mcp",
+			Status:      HostCapabilityStatusDegraded,
+			Reason:      "Copilot MCP entries are a minimal interoperability fixture, not a complete universal Copilot MCP schema or runtime health assertion.",
+			Remediation: "Validate the fixture with the current Copilot CLI before treating any selected MCP server as runtime-healthy.",
+		}
 	}
 	if host == "codex" && opts.SetupContext7 {
 		return HostCapability{

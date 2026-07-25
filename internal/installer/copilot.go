@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,15 @@ func installCopilotCLI(opts Options, home string) ([]string, error) {
 	if err := writePrivateFile(instructionsPath, []byte(instructions), 0o600); err != nil {
 		return nil, fmt.Errorf("cannot write %s: %w", instructionsPath, err)
 	}
-	return append(files, instructionsPath), nil
+	files = append(files, instructionsPath)
+	if !hasSelectedMCP(opts) || os.Getenv("COPILOT_MCP_CONFIG") == "" {
+		return files, nil
+	}
+	mcpPath, err := configureCopilotMCPFixture(opts)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, mcpPath), nil
 }
 
 func resolveCopilotGlobalConfigRoot(home string) (string, error) {
@@ -73,4 +82,66 @@ func copilotAdaptationInstructions() string {
 - Copilot role-agent and command support is adapted: custom agents select role guidance. It is not host-native hidden subagent delegation, automatic delegation, or direct phase bypass.
 
 `
+}
+
+type copilotMCPServer struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
+func configureCopilotMCPFixture(opts Options) (string, error) {
+	path, err := resolveCopilotMCPConfigPath()
+	if err != nil {
+		return "", err
+	}
+	config := map[string]interface{}{}
+	if data, err := readPrivateFile(path); err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("cannot read Copilot MCP configuration: %w", err)
+		}
+	} else if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("cannot parse Copilot MCP configuration: %w", err)
+	}
+	mcpServers, _ := config["mcpServers"].(map[string]interface{})
+	if mcpServers == nil {
+		mcpServers = map[string]interface{}{}
+	}
+	for name, server := range selectedCopilotMCPFixture(opts) {
+		mcpServers[name] = server
+	}
+	config["mcpServers"] = mcpServers
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("cannot marshal Copilot MCP configuration: %w", err)
+	}
+	if err := writePrivateFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("cannot write Copilot MCP configuration: %w", err)
+	}
+	return path, nil
+}
+
+func resolveCopilotMCPConfigPath() (string, error) {
+	path := os.Getenv("COPILOT_MCP_CONFIG")
+	if path == "" {
+		return "", fmt.Errorf("cannot resolve active Copilot MCP configuration path; set COPILOT_MCP_CONFIG to the active global MCP fixture path")
+	}
+	resolved, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve Copilot MCP configuration path: %w", err)
+	}
+	return resolved, nil
+}
+
+func selectedCopilotMCPFixture(opts Options) map[string]copilotMCPServer {
+	fixture := map[string]copilotMCPServer{}
+	if opts.SetupAncora {
+		fixture["ancora"] = copilotMCPServer{Command: "ancora", Args: []string{"mcp"}}
+	}
+	if opts.SetupVela {
+		fixture["vela"] = copilotMCPServer{Command: "vela", Args: []string{"mcp"}}
+	}
+	if opts.SetupContext7 {
+		fixture["context7"] = copilotMCPServer{Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"}}
+	}
+	return fixture
 }

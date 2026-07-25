@@ -100,6 +100,9 @@ func selectedHosts(target string) []string {
 	return nil
 }
 func targetsCodex(target string) bool { return target == "codex" || target == "all" }
+func includesCopilot(target string) bool {
+	return target == "copilot-cli" || target == "all"
+}
 func isSupportedInstallTarget(target string) bool {
 	switch target {
 	case "", "claude-code", "opencode", "codex", "copilot-cli", "both", "all":
