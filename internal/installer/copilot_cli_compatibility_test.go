@@ -3,6 +3,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,57 @@ func TestSCN403_InstallsAndReportsEverySupportedHost(t *testing.T) {
 		if result.Hosts[host].Status != HostInstallStatusInstalled {
 			t.Fatalf("expected %s to be attempted and installed once, got %#v", host, result.Hosts[host])
 		}
+	}
+}
+
+// REQ-100 → REQ-105 → SCN-404 → TestSCN404_PreservesLegacyBothWithoutCopilotSideEffects
+func TestSCN404_PreservesLegacyBothWithoutCopilotSideEffects(t *testing.T) {
+	// Scenario: Preserve the legacy two-host target string
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	copilotRoot := filepath.Join(home, "copilot-global")
+	copilotArtifact := filepath.Join(copilotRoot, "existing.md")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", copilotRoot)
+	writeTestFile(t, copilotArtifact, []byte("existing Copilot configuration"))
+
+	result, err := Install(Options{Target: "both", ProjectPath: projectPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantHosts := []string{"claude-code", "opencode"}
+	if len(result.Hosts) != len(wantHosts) {
+		t.Fatalf("expected legacy both target to report only Claude Code and OpenCode, got %#v", result.Hosts)
+	}
+	for _, host := range wantHosts {
+		if result.Hosts[host].Status != HostInstallStatusInstalled {
+			t.Fatalf("expected legacy both target to install %s, got %#v", host, result.Hosts[host])
+		}
+	}
+	if _, reported := result.Hosts["copilot-cli"]; reported {
+		t.Fatalf("legacy both target must not report Copilot CLI, got %#v", result.Hosts)
+	}
+
+	data, err := os.ReadFile(copilotArtifact)
+	if err != nil {
+		t.Fatalf("read existing Copilot artifact: %v", err)
+	}
+	if string(data) != "existing Copilot configuration" {
+		t.Fatalf("legacy both target must not clean Copilot artifacts, got %q", data)
+	}
+	assertPathMissing(t, filepath.Join(result.BackupDir, "files", "home", "copilot-global"))
+	for _, file := range result.Files {
+		if file == copilotRoot || strings.HasPrefix(file, copilotRoot+string(os.PathSeparator)) {
+			t.Fatalf("legacy both target must not report a Copilot artifact, got %#v", result.Files)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("read user-facing documentation: %v", err)
+	}
+	if !strings.Contains(string(readme), "`both` (legacy compatibility input)") || !strings.Contains(string(readme), "Claude Code and OpenCode") {
+		t.Fatalf("expected user-facing documentation to identify both as the legacy Claude Code and OpenCode compatibility input")
 	}
 }

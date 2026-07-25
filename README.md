@@ -51,7 +51,7 @@ Generated files are written for the selected target:
 |--------|-----------------------|
 | opencode | Agent entries in `~/.config/opencode/opencode.json` and skill files under `~/.config/opencode/skills/` |
 | Claude Code | Skills under `~/.claude/skills/rotta/` and MCP permissions in `~/.claude/settings.json` |
-| Both | Installs both integrations and the project config files |
+| `both` (legacy compatibility input) | Installs Claude Code and OpenCode integrations and the project config files |
 
 During the TUI setup, Ancora and Vela are independent choices. You can install neither, Ancora only, Vela only, or both.
 
