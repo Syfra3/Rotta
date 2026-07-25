@@ -736,6 +736,64 @@ func TestSCN414_RecoversSafelyAfterPartialCopilotGlobalWrite(t *testing.T) {
 	}
 }
 
+// REQ-103 → SCN-415 → TestSCN415_RestoresCompletedCopilotBackupAfterRootChanges
+func TestSCN415_RestoresCompletedCopilotBackupAfterRootChanges(t *testing.T) {
+	// Scenario: Restore Copilot configuration from a completed backup
+	home := t.TempDir()
+	previousRoot := filepath.Join(home, "previous-copilot-root")
+	currentRoot := filepath.Join(home, "current-copilot-root")
+	selectedBackupDir := filepath.Join(home, ".rotta", "backups", "20260725T234000Z")
+	orchestratorPath := filepath.Join(previousRoot, "agents", "rotta-orchestrator.agent.md")
+	instructionsPath := filepath.Join(previousRoot, "instructions", "rotta.instructions.md")
+	missingSpecPath := filepath.Join(previousRoot, "agents", "rotta-spec.agent.md")
+	mcpPath := filepath.Join(previousRoot, "mcp-config.json")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", currentRoot)
+	t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+
+	writeTestFile(t, backupDestination(selectedBackupDir, home, orchestratorPath), []byte("backup orchestrator\n"))
+	writeTestFile(t, backupDestination(selectedBackupDir, home, instructionsPath), []byte("backup instructions\n"))
+	writeTestFile(t, backupDestination(selectedBackupDir, home, mcpPath), []byte(`{"mcpServers":{"ancora":{"command":"ancora","args":["mcp"]}}}`))
+	writeTestFile(t, filepath.Join(selectedBackupDir, "manifest.json"), []byte(`{"version":1,"timestamp":"20260725T234000Z","project_path":"`+filepath.Join(home, "project")+`","target":"copilot-cli","selected_modes":{"spec":true,"implementation":false,"review":false},"optional_integrations":{"ancora":true,"vela":false,"context7":false},"backed_up_paths":["`+orchestratorPath+`","`+instructionsPath+`","`+mcpPath+`"],"missing_paths":["`+missingSpecPath+`"],"status":"complete"}`))
+
+	writeTestFile(t, orchestratorPath, []byte("current orchestrator\n"))
+	writeTestFile(t, instructionsPath, []byte("current instructions\n"))
+	writeTestFile(t, mcpPath, []byte(`{"mcpServers":{"ancora":{"command":"changed","args":[]}}}`))
+	writeTestFile(t, missingSpecPath, []byte("remove only because backup recorded it absent\n"))
+	writeTestFile(t, filepath.Join(previousRoot, "agents", "user.agent.md"), []byte("preserve user agent\n"))
+
+	result, err := RestoreBackup(selectedBackupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileContains(t, orchestratorPath, "backup orchestrator")
+	assertFileContains(t, instructionsPath, "backup instructions")
+	assertFileContains(t, mcpPath, `"command":"ancora"`)
+	assertPathMissing(t, missingSpecPath)
+	assertFileContains(t, filepath.Join(previousRoot, "agents", "user.agent.md"), "preserve user agent")
+	assertFileContains(t, backupDestination(result.PreRestoreBackupDir, home, orchestratorPath), "current orchestrator")
+	assertFileContains(t, backupDestination(result.PreRestoreBackupDir, home, instructionsPath), "current instructions")
+
+	writeTestFile(t, orchestratorPath, []byte("pre-failed-restore orchestrator\n"))
+	failedResult, restoreErr := restoreBackupWithHooks(selectedBackupDir, restoreHooks{
+		afterRestorePath: func(path string) error {
+			if path == orchestratorPath {
+				return errors.New("injected restore failure")
+			}
+			return nil
+		},
+	})
+	if restoreErr == nil || failedResult == nil || failedResult.PreRestoreBackupDir == "" {
+		t.Fatalf("expected selected restore failure with a pre-restore recovery backup, got result %#v and error %v", failedResult, restoreErr)
+	}
+	for _, expected := range []string{selectedBackupDir, "rollback to pre-restore state succeeded"} {
+		if !strings.Contains(restoreErr.Error(), expected) {
+			t.Fatalf("expected restore failure to report %q, got %v", expected, restoreErr)
+		}
+	}
+	assertFileContains(t, orchestratorPath, "pre-failed-restore orchestrator")
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

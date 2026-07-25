@@ -71,7 +71,8 @@ func restoreBackupWithHooks(backupDir string, hooks restoreHooks) (*RestoreResul
 	}
 
 	opts := optionsFromManifest(manifest)
-	preRestoreBackupDir, err := createInstallBackup(opts, home, manifest.ProjectPath)
+	preRestorePaths := append(append([]string{}, manifest.BackedUpPaths...), manifest.MissingPaths...)
+	preRestoreBackupDir, err := createBackup(opts, home, manifest.ProjectPath, preRestorePaths)
 	if err != nil {
 		return nil, fmt.Errorf("pre-restore safety backup: %w", err)
 	}
