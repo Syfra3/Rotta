@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -82,6 +84,23 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 	if m.Target == TargetCodex {
 		writeConfirmFile(b, "  ~/.codex/AGENTS.md  (Codex instructions)")
 	}
+	if m.Target == TargetCopilotCLI {
+		root := copilotGlobalConfigRoot()
+		writeConfirmFile(b, "  "+filepath.Join(root, "agents", "rotta-orchestrator.agent.md"))
+		writeSelectedConfirmFiles(b, m.SelectedModes, []string{
+			"  " + filepath.Join(root, "agents", "rotta-spec.agent.md"),
+			"  " + filepath.Join(root, "agents", "rotta-impl.agent.md"),
+			"  " + filepath.Join(root, "agents", "rotta-review.agent.md"),
+		})
+		writeConfirmFile(b, "  "+filepath.Join(root, "instructions", "rotta.instructions.md"))
+	}
+}
+
+func copilotGlobalConfigRoot() string {
+	if root := os.Getenv("COPILOT_HOME"); root != "" {
+		return root
+	}
+	return "~/.copilot"
 }
 
 func writeSelectedConfirmFiles(b *strings.Builder, selected [3]bool, files []string) {

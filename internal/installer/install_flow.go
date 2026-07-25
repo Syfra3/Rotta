@@ -37,6 +37,8 @@ func installHost(opts Options, host, home string) ([]string, error) {
 		return installOpenCode(opts, home)
 	case "codex":
 		return installCodex(opts, home)
+	case "copilot-cli":
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unsupported host target %q", host)
 	}

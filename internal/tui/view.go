@@ -180,6 +180,7 @@ func (m Model) viewTargetSelect() string {
 		{"Claude Code", "SKILL.md files → ~/.claude/skills/rotta/"},
 		{"OpenCode", "Agent entries + skill files for rotta-orchestrator, rotta-spec, rotta-impl, rotta-review"},
 		{"Codex", "Codex instructions → ~/.codex/AGENTS.md"},
+		{"Copilot CLI", "Resolved global Copilot agent and instruction files"},
 		{"Both", "Install for both tools"},
 	}
 
