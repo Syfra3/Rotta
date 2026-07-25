@@ -469,7 +469,19 @@ func recordHostCapabilityMatrix(result *Result, opts Options) {
 		hostResult.Capabilities["mcp"] = mcpCapability(opts, host)
 		hostResult.Capabilities["health_checks"] = healthCheckCapability(opts, host)
 		hostResult.Capabilities["lifecycle"] = exactCapability("lifecycle")
+		if host == "copilot-cli" {
+			hostResult.Capabilities["agents"] = copilotAgentCapability()
+		}
 		result.Hosts[host] = hostResult
+	}
+}
+
+func copilotAgentCapability() HostCapability {
+	return HostCapability{
+		Name:        "agents",
+		Status:      HostCapabilityStatusDegraded,
+		Reason:      "Copilot CLI runtime agent discovery and role selection were not verified during offline installation.",
+		Remediation: "Run the current Copilot CLI compatibility fixture to verify /agent and copilot --agent role selection before treating the generated agents as runtime-accepted.",
 	}
 }
 

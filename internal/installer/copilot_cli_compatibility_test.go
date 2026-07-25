@@ -159,3 +159,73 @@ func TestSCN405_RejectsUnsupportedTargetsBeforeConfigurationChanges(t *testing.T
 		})
 	}
 }
+
+// REQ-101 → SCN-406 → TestSCN406_GeneratesGlobalCopilotRoleDefinitionsForSelectedModes
+func TestSCN406_GeneratesGlobalCopilotRoleDefinitionsForSelectedModes(t *testing.T) {
+	// Scenario: Generate global Copilot Markdown role definitions for selected Rotta modes
+	for _, test := range []struct {
+		name          string
+		installSpec   bool
+		installImpl   bool
+		installReview bool
+		roles         []string
+	}{
+		{
+			name:          "all phases",
+			installSpec:   true,
+			installImpl:   true,
+			installReview: true,
+			roles:         []string{"rotta-orchestrator", "rotta-spec", "rotta-impl", "rotta-review"},
+		},
+		{
+			name:        "review omitted",
+			installSpec: true,
+			installImpl: true,
+			roles:       []string{"rotta-orchestrator", "rotta-spec", "rotta-impl"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, "active-copilot-root")
+			t.Setenv("HOME", home)
+			t.Setenv("COPILOT_HOME", root)
+
+			result, err := Install(Options{
+				Target:        "copilot-cli",
+				ProjectPath:   filepath.Join(home, "project"),
+				InstallSpec:   test.installSpec,
+				InstallImpl:   test.installImpl,
+				InstallReview: test.installReview,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, role := range test.roles {
+				assertCopilotAgentFixture(t, filepath.Join(root, "agents", role+".agent.md"), role)
+			}
+			if !test.installReview {
+				assertPathMissing(t, filepath.Join(root, "agents", "rotta-review.agent.md"))
+			}
+			assertFileContains(t, filepath.Join(root, "instructions", "rotta.instructions.md"), "Rotta")
+
+			capability := result.Hosts["copilot-cli"].Capabilities["agents"]
+			if capability.Status != HostCapabilityStatusDegraded || capability.Reason == "" || capability.Remediation == "" {
+				t.Fatalf("expected unavailable Copilot CLI role acceptance proof to be degraded with remediation, got %#v", capability)
+			}
+		})
+	}
+}
+
+func assertCopilotAgentFixture(t *testing.T, path, role string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read Copilot agent %s: %v", role, err)
+	}
+	content := string(data)
+	if !strings.HasPrefix(content, "---\n") || !strings.Contains(content, "\n---\n") {
+		t.Fatalf("expected Copilot agent %s to have YAML frontmatter, got %q", role, content)
+	}
+	assertContainsAll(t, content, []string{"name: " + role, "Rotta"})
+}

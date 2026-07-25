@@ -152,7 +152,7 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 		}
 		return installCodex(hostOpts, home)
 	case "copilot-cli":
-		return nil, nil
+		return installCopilotCLI(hostOpts, home)
 	}
 	return nil, fmt.Errorf("unsupported host target %q", host)
 }
