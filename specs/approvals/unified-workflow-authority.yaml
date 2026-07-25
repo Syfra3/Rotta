@@ -1,0 +1,154 @@
+format: rotta.feature-approval/v2
+contract_id: unified-workflow-authority
+status: approved
+approved_on: "2026-07-15"
+approval_source: explicit_human
+submission_worktree: /home/geen/Documents/personal/Rotta
+feature_branch: feature/unified-workflow-authority
+base_branch: main
+spec_path: specs/hard_spec.md
+feature_paths:
+  - features/unified-workflow-authority.feature
+approved_scenarios:
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-324
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-325
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-326
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-327
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-328
+    requirement_ids: [REQ-002]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-329
+    requirement_ids: [REQ-002]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-330
+    requirement_ids: [REQ-003]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-331
+    requirement_ids: [REQ-003]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-332
+    requirement_ids: [REQ-003]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-333
+    requirement_ids: [REQ-003]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-334
+    requirement_ids: [REQ-003]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-335
+    requirement_ids: [REQ-004]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-336
+    requirement_ids: [REQ-004]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-337
+    requirement_ids: [REQ-004]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-338
+    requirement_ids: [REQ-004]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-339
+    requirement_ids: [REQ-005]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-340
+    requirement_ids: [REQ-005]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-341
+    requirement_ids: [REQ-005]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-342
+    requirement_ids: [REQ-006]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-343
+    requirement_ids: [REQ-006]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-344
+    requirement_ids: [REQ-006]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-345
+    requirement_ids: [REQ-006]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-346
+    requirement_ids: [REQ-006]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-347
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-348
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-349
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-350
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-351
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-352
+    requirement_ids: [REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-353
+    requirement_ids: [REQ-008]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-354
+    requirement_ids: [REQ-008]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-355
+    requirement_ids: [REQ-008]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-356
+    requirement_ids: [REQ-009]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-357
+    requirement_ids: [REQ-009]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-358
+    requirement_ids: [REQ-009]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-359
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-360
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-361
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-362
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-363
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-364
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-365
+    requirement_ids: [REQ-001]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-366
+    requirement_ids: [REQ-001, REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-367
+    requirement_ids: [REQ-001, REQ-007]
+  - feature_path: features/unified-workflow-authority.feature
+    scenario_id: SCN-368
+    requirement_ids: [REQ-001]
+contract_fingerprints:
+  specs/hard_spec.md: 4ec0824270bbc950b357228829e5538f610f66b6f57a4ae53db6e4c325447db9
+  features/unified-workflow-authority.feature: ca8a8b33826a6e77a0e656667ee84ab2c3c3516dc7a7a959efb295d923cc4e4b
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: 8801bf810c730720f5e01e156bb66c3c3efc4be6
+reviewed_commit: null
