@@ -114,3 +114,48 @@ func TestSCN404_PreservesLegacyBothWithoutCopilotSideEffects(t *testing.T) {
 		t.Fatalf("expected user-facing documentation to identify both as the legacy Claude Code and OpenCode compatibility input")
 	}
 }
+
+// REQ-100 → SCN-405 → TestSCN405_RejectsUnsupportedTargetsBeforeConfigurationChanges
+func TestSCN405_RejectsUnsupportedTargetsBeforeConfigurationChanges(t *testing.T) {
+	// Scenario: Reject an unknown target before changing user configuration
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	unchanged := map[string]string{
+		filepath.Join(home, ".claude", "settings.json"):               "claude settings",
+		filepath.Join(home, ".config", "opencode", "instructions.md"): "opencode instructions",
+		filepath.Join(home, ".codex", "AGENTS.md"):                    "codex guidance",
+	}
+	for path, content := range unchanged {
+		writeTestFile(t, path, []byte(content))
+	}
+
+	for _, target := range []string{"copilot-vscode", "unsupported-target"} {
+		t.Run(target, func(t *testing.T) {
+			result, err := Install(Options{Target: target, ProjectPath: projectPath})
+			if err == nil {
+				t.Fatal("expected unsupported target to be rejected")
+			}
+			if result != nil {
+				t.Fatalf("expected no installation result for unsupported target, got %#v", result)
+			}
+			for path, want := range unchanged {
+				got, readErr := os.ReadFile(path)
+				if readErr != nil {
+					t.Fatalf("read unchanged host configuration %s: %v", path, readErr)
+				}
+				if string(got) != want {
+					t.Fatalf("expected %s to remain unchanged, got %q", path, got)
+				}
+			}
+			assertPathMissing(t, filepath.Join(home, ".rotta", "backups"))
+			assertPathMissing(t, filepath.Join(projectPath, ".rotta"))
+			for _, host := range []string{"Claude Code", "OpenCode", "Codex", "Copilot CLI"} {
+				if !strings.Contains(err.Error(), host) {
+					t.Fatalf("expected unsupported-target error to list %q, got %q", host, err)
+				}
+			}
+		})
+	}
+}

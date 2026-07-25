@@ -160,7 +160,7 @@ func Install(opts Options) (*Result, error) {
 
 func prepareInstall(opts Options) (*Result, string, string, error) {
 	if !isSupportedInstallTarget(opts.Target) {
-		return nil, "", "", fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
+		return nil, "", "", fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex, plus Copilot CLI", opts.Target)
 	}
 	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
 	home, err := os.UserHomeDir()
