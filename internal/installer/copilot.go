@@ -91,6 +91,27 @@ type copilotMCPServer struct {
 	Args    []string `json:"args"`
 }
 
+type copilotMCPConfigurationError struct {
+	path     string
+	blocking string
+	cause    error
+}
+
+func (err *copilotMCPConfigurationError) Error() string {
+	if err.cause != nil {
+		return fmt.Sprintf("Copilot MCP configuration %s: %s: %v", err.path, err.blocking, err.cause)
+	}
+	return fmt.Sprintf("Copilot MCP configuration %s: %s", err.path, err.blocking)
+}
+
+func (err *copilotMCPConfigurationError) Unwrap() error {
+	return err.cause
+}
+
+func unsafeCopilotMCPConfiguration(path, blocking string, cause error) error {
+	return &copilotMCPConfigurationError{path: path, blocking: blocking, cause: cause}
+}
+
 func configureCopilotMCPFixture(opts Options) (string, error) {
 	path, err := resolveCopilotMCPConfigPath()
 	if err != nil {
@@ -102,20 +123,29 @@ func configureCopilotMCPFixture(opts Options) (string, error) {
 			return "", fmt.Errorf("cannot read Copilot MCP configuration: %w", err)
 		}
 	} else {
+		var decoded interface{}
 		decoder := json.NewDecoder(bytes.NewReader(data))
 		decoder.UseNumber()
-		if err := decoder.Decode(&config); err != nil {
-			return "", fmt.Errorf("cannot parse Copilot MCP configuration: %w", err)
+		if err := decoder.Decode(&decoded); err != nil {
+			return "", unsafeCopilotMCPConfiguration(path, "malformed JSON", err)
 		}
 		if err := decoder.Decode(&struct{}{}); err != io.EOF {
-			return "", fmt.Errorf("cannot parse Copilot MCP configuration: unexpected trailing data")
+			return "", unsafeCopilotMCPConfiguration(path, "malformed JSON", fmt.Errorf("unexpected trailing data"))
+		}
+		var ok bool
+		config, ok = decoded.(map[string]interface{})
+		if !ok {
+			return "", unsafeCopilotMCPConfiguration(path, "incompatible configuration shape", nil)
 		}
 	}
-	mcpServers, _ := config["mcpServers"].(map[string]interface{})
-	if mcpServers == nil {
-		mcpServers = map[string]interface{}{}
+	mcpServers, err := existingCopilotMCPServers(config, path)
+	if err != nil {
+		return "", err
 	}
 	for name, server := range selectedCopilotMCPFixture(opts) {
+		if err := validateCopilotManagedMCPEntry(mcpServers, name, server, path); err != nil {
+			return "", err
+		}
 		mcpServers[name] = server
 	}
 	config["mcpServers"] = mcpServers
@@ -127,6 +157,54 @@ func configureCopilotMCPFixture(opts Options) (string, error) {
 		return "", fmt.Errorf("cannot write Copilot MCP configuration: %w", err)
 	}
 	return path, nil
+}
+
+func existingCopilotMCPServers(config map[string]interface{}, path string) (map[string]interface{}, error) {
+	raw, exists := config["mcpServers"]
+	if !exists {
+		return map[string]interface{}{}, nil
+	}
+	servers, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, unsafeCopilotMCPConfiguration(path, "mcpServers must be an object", nil)
+	}
+	return servers, nil
+}
+
+func validateCopilotManagedMCPEntry(servers map[string]interface{}, name string, expected copilotMCPServer, path string) error {
+	raw, exists := servers[name]
+	if !exists {
+		return nil
+	}
+	entry, ok := raw.(map[string]interface{})
+	if !ok || len(entry) != 2 {
+		return unsafeCopilotMCPConfiguration(path, "incompatible configuration shape for managed MCP "+name, nil)
+	}
+	command, commandOK := entry["command"].(string)
+	args, argsOK := copilotMCPArguments(entry["args"])
+	if !commandOK || !argsOK {
+		return unsafeCopilotMCPConfiguration(path, "incompatible configuration shape for managed MCP "+name, nil)
+	}
+	if command != expected.Command || !sameArguments(args, expected.Args) {
+		return unsafeCopilotMCPConfiguration(path, "same-named MCP entry is not proven Rotta-managed: "+name, nil)
+	}
+	return nil
+}
+
+func copilotMCPArguments(raw interface{}) ([]string, bool) {
+	values, ok := raw.([]interface{})
+	if !ok {
+		return nil, false
+	}
+	args := make([]string, len(values))
+	for index, value := range values {
+		arg, ok := value.(string)
+		if !ok {
+			return nil, false
+		}
+		args[index] = arg
+	}
+	return args, true
 }
 
 func resolveCopilotMCPConfigPath() (string, error) {

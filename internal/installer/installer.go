@@ -158,6 +158,10 @@ func install(opts Options) (*Result, error) {
 
 	installResult, err := installSelectedHosts(opts, result, home, projectPath)
 	if err != nil {
+		if recordCopilotMCPConfigurationFailure(result, opts, home, err) {
+			recordChangedFiles(result, projectPath)
+			return result, err
+		}
 		recordChangedFiles(result, projectPath)
 		return installResult, err
 	}
@@ -329,6 +333,41 @@ func recordSelectedHostFailure(result *Result, opts Options, err error) {
 		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
 	}
 	result.Error = err.Error()
+}
+
+func recordCopilotMCPConfigurationFailure(result *Result, opts Options, home string, installErr error) bool {
+	var configErr *copilotMCPConfigurationError
+	if !errors.As(installErr, &configErr) {
+		return false
+	}
+	root, err := resolveCopilotGlobalConfigRoot(home)
+	if err != nil {
+		return false
+	}
+	result.CopilotGlobalConfigRoot = root
+	result.CopilotMCPConfigPath = configErr.path
+	capabilities := map[string]HostCapability{}
+	for _, name := range selectedCopilotMCPNames(opts) {
+		capabilities["mcp:"+name] = HostCapability{
+			Name:        "mcp:" + name,
+			Status:      HostCapabilityStatusFailed,
+			Reason:      configErr.blocking,
+			Remediation: "Resolve the reported Copilot MCP configuration condition before retrying.",
+		}
+	}
+	capabilities["mcp"] = HostCapability{
+		Name:        "mcp",
+		Status:      HostCapabilityStatusFailed,
+		Reason:      configErr.blocking,
+		Remediation: "Resolve the reported Copilot MCP configuration condition before retrying.",
+	}
+	result.Hosts["copilot-cli"] = HostInstallResult{
+		Host:         "copilot-cli",
+		Status:       HostInstallStatusFailed,
+		Capabilities: capabilities,
+	}
+	result.Error = installErr.Error()
+	return true
 }
 
 func recordAgentSetupFailure(result *Result, err error) {

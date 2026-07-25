@@ -628,6 +628,61 @@ func TestSCN412_RerunPreservesUnrelatedCopilotConfiguration(t *testing.T) {
 	}
 }
 
+// REQ-102 → REQ-103 → SCN-413 → TestSCN413_RefusesUnsafeCopilotMCPConfigurationMutation
+func TestSCN413_RefusesUnsafeCopilotMCPConfigurationMutation(t *testing.T) {
+	// Scenario: Refuse unsafe active-root MCP configuration mutation
+	for _, test := range []struct {
+		name     string
+		config   string
+		blocking string
+	}{
+		{name: "malformed JSON", config: `{"mcpServers":`, blocking: "malformed JSON"},
+		{name: "non-object mcpServers", config: `{"mcpServers":[]}`, blocking: "mcpServers must be an object"},
+		{name: "incompatible shape", config: `[]`, blocking: "incompatible configuration shape"},
+		{name: "unproven managed entry", config: `{"mcpServers":{"ancora":{"command":"other-mcp","args":["serve"]}}}`, blocking: "not proven Rotta-managed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, "active-copilot-root")
+			mcpPath := filepath.Join(root, "mcp-config.json")
+			t.Setenv("HOME", home)
+			t.Setenv("COPILOT_HOME", root)
+			t.Setenv("COPILOT_MCP_CONFIG", mcpPath)
+			writeTestFile(t, mcpPath, []byte(test.config))
+
+			result, err := Install(Options{
+				Target:        "copilot-cli",
+				ProjectPath:   filepath.Join(home, "project"),
+				SetupAncora:   true,
+				SetupVela:     true,
+				SetupContext7: true,
+			})
+			if err == nil {
+				t.Fatal("expected unsafe Copilot MCP configuration to be refused")
+			}
+			if result == nil {
+				t.Fatal("expected the refusal result to report the resolved Copilot configuration path")
+			}
+			if result.CopilotGlobalConfigRoot != root || result.CopilotMCPConfigPath != mcpPath {
+				t.Fatalf("expected resolved Copilot root/path %q and %q, got %#v", root, mcpPath, result)
+			}
+			if !strings.Contains(result.Error, test.blocking) {
+				t.Fatalf("expected blocking condition %q, got %q", test.blocking, result.Error)
+			}
+			if host := result.Hosts["copilot-cli"]; host.Status != HostInstallStatusFailed || host.Capabilities["mcp"].Status == HostCapabilityStatusExact {
+				t.Fatalf("expected no successful Copilot MCP configuration, got %#v", host)
+			}
+			data, readErr := os.ReadFile(mcpPath)
+			if readErr != nil {
+				t.Fatalf("read unchanged Copilot MCP configuration: %v", readErr)
+			}
+			if string(data) != test.config {
+				t.Fatalf("expected unsafe Copilot MCP configuration to remain unchanged, got %q", data)
+			}
+		})
+	}
+}
+
 func copilotHealthyMCPEvidence() CopilotMCPHealthEvidence {
 	return CopilotMCPHealthEvidence{
 		ConfigurationAccepted:    true,
