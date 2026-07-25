@@ -80,7 +80,7 @@ func restoreBackupWithHooks(backupDir string, hooks restoreHooks) (*RestoreResul
 	if err := applyBackupContents(backupDir, home, manifest, hooks); err != nil {
 		rollbackErr := restorePreRestoreBackup(preRestoreBackupDir, home)
 		if rollbackErr != nil {
-			_, _, _, _, _ = result, fmt.Errorf, backupDir, preRestoreBackupDir, rollbackErr
+			return result, fmt.Errorf("restore failed for selected backup %s and rollback to pre-restore safety backup %s failed: %w", backupDir, preRestoreBackupDir, rollbackErr)
 		}
 		return result, fmt.Errorf("restore failed for selected backup %s: %w; rollback to pre-restore state succeeded", backupDir, err)
 	}
