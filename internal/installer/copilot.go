@@ -67,6 +67,7 @@ func copilotAgentMarkdown(name string, asset []byte) []byte {
 func copilotAdaptationInstructions() string {
 	return `## Copilot CLI Adaptation
 
+- Copilot integration is global-only; it does not create repository .github Copilot files, .mcp.json, AGENTS.md, or CLAUDE.md files.
 - Select ` + "`rotta-orchestrator`" + ` through ` + "`/agent rotta-orchestrator`" + ` or ` + "`copilot --agent rotta-orchestrator`" + ` before requesting phase work.
 - This routes phase work through the Rotta-Orchestrator decision point before phase execution; direct phase roles do not bypass it.
 - Copilot role-agent and command support is adapted: custom agents select role guidance. It is not host-native hidden subagent delegation, automatic delegation, or direct phase bypass.

@@ -244,6 +244,38 @@ func TestSCN407_RoutesCopilotPhaseRequestsThroughAdaptedOrchestration(t *testing
 	})
 }
 
+// REQ-101 → REQ-105 → SCN-408 → TestSCN408_KeepsCopilotIntegrationGlobalAndOutOfRepositories
+func TestSCN408_KeepsCopilotIntegrationGlobalAndOutOfRepositories(t *testing.T) {
+	// Scenario: Keep Copilot integration global and out of repositories
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	root := filepath.Join(home, "active-copilot-root")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	writeTestFile(t, filepath.Join(projectPath, "go.mod"), []byte("module project\n"))
+
+	if _, err := Install(Options{Target: "copilot-cli", ProjectPath: projectPath}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(projectPath, ".github"),
+		filepath.Join(projectPath, ".mcp.json"),
+		filepath.Join(projectPath, "AGENTS.md"),
+		filepath.Join(projectPath, "CLAUDE.md"),
+	} {
+		assertPathMissing(t, path)
+	}
+
+	instructions, err := os.ReadFile(filepath.Join(root, "instructions", "rotta.instructions.md"))
+	if err != nil {
+		t.Fatalf("read global Copilot instructions: %v", err)
+	}
+	if !strings.Contains(string(instructions), "Copilot integration is global-only") {
+		t.Fatal("expected global Copilot instructions to identify the integration as global-only")
+	}
+}
+
 func assertCopilotAgentFixture(t *testing.T, path, role string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
