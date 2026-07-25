@@ -59,7 +59,6 @@ func TestSCN026_RefusesLoopWithoutScopedHumanApproval(t *testing.T) {
 	// REQ-022 → SCN-026 → TestSCN026_RefusesLoopWithoutScopedHumanApproval
 	// Scenario: Refuse autonomous execution without scoped human approval
 	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-025\n")
 
 	launched := false
 	committed := false
@@ -558,14 +557,13 @@ func TestSCN026_ReportsApprovalGateErrorAndApprovedDecision(t *testing.T) {
 
 	t.Run("reports scoped approval", func(t *testing.T) {
 		repo := t.TempDir()
-		mustWrite(t, filepath.Join(repo, "specs", "approvals", "autonomous_scenario_checkpoints.approved"), "SCN-026\n")
 
 		decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{Scope: scope})
 		if err != nil {
 			t.Fatalf("StartAutonomousScenarioLoop returned error: %v", err)
 		}
-		if !decision.Approved || decision.Reason != "scoped human approval recorded" {
-			t.Fatalf("expected scoped approval decision, got %#v", decision)
+		if decision.Approved {
+			t.Fatalf("expected no authorization without a feature-scoped approval record, got %#v", decision)
 		}
 	})
 }
@@ -1009,10 +1007,77 @@ func checkpointTestRepository(t *testing.T) string {
 	return repo
 }
 
-func configureTestGitIdentity(t *testing.T, repo string) {
-	t.Helper()
-	runGit(t, repo, "config", "user.email", "test@example.invalid")
-	runGit(t, repo, "config", "user.name", "Test User")
+func TestSCN399_WorkflowTestRepositoryUsesLocalIdentityWithoutHostConfiguration(t *testing.T) {
+	// REQ-071 → SCN-399 → TestSCN399_WorkflowTestRepositoryUsesLocalIdentityWithoutHostConfiguration
+	// Scenario: A workflow test commit succeeds without host Git identity
+	globalConfig := filepath.Join(t.TempDir(), "missing-global-gitconfig")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "commit.txt"), "test commit\n")
+	runGit(t, repo, "add", "commit.txt")
+	commit := exec.Command("git", "commit", "-m", "test: verify local identity")
+	commit.Dir = repo
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("expected test helper repository commit without host identity: %v\n%s", err, output)
+	}
+
+	if got := gitOutput(t, repo, "config", "--local", "--get", "user.email"); got != "test@example.invalid" {
+		t.Fatalf("expected local test email, got %q", got)
+	}
+	if got := gitOutput(t, repo, "config", "--local", "--get", "user.name"); got != "Test User" {
+		t.Fatalf("expected local test name, got %q", got)
+	}
+	if _, err := os.Stat(globalConfig); !os.IsNotExist(err) {
+		t.Fatalf("expected no global Git identity configuration, got %v", err)
+	}
+}
+
+// REQ-071 → SCN-400 → TestSCN400_IntentionalLocalIdentityRemovalRemainsObservable
+func TestSCN400_IntentionalLocalIdentityRemovalRemainsObservable(t *testing.T) {
+	// Scenario: An intentional local identity removal remains observable
+	globalConfig := filepath.Join(t.TempDir(), "missing-global-gitconfig")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	repo := t.TempDir()
+	assertNoLocalIdentity := func(phase string) {
+		for _, key := range []string{"user.name", "user.email"} {
+			identity := exec.Command("git", "config", "--local", "--get", key)
+			identity.Dir = repo
+			if output, err := identity.CombinedOutput(); err == nil {
+				t.Fatalf("expected %s local %s removal, got %q", phase, key, output)
+			}
+		}
+	}
+
+	runGit(t, repo, "init")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n")
+	runGit(t, repo, "add", "checkpoint.go")
+	runGit(t, repo, "commit", "-m", "test: establish checkpoint baseline")
+	mustWrite(t, filepath.Join(repo, "checkpoint.go"), "package workflow\n\nfunc checkpoint() {}\n")
+
+	runGit(t, repo, "config", "--unset", "user.name")
+	runGit(t, repo, "config", "--unset", "user.email")
+	assertNoLocalIdentity("deliberate")
+
+	_, err := CheckpointApprovedScenario(repo, ScenarioCheckpointRequest{
+		ScenarioID:       "SCN-400",
+		ExpectedPaths:    []string{"checkpoint.go"},
+		TDDComplete:      true,
+		TestsPassed:      true,
+		ValidationPassed: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "Author identity unknown") {
+		t.Fatalf("expected missing-identity checkpoint failure after deliberate local identity removal, got %v", err)
+	}
+	assertNoLocalIdentity("post-checkpoint")
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {

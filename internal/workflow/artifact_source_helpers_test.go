@@ -17,6 +17,15 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
 	}
+	if len(args) > 0 && args[0] == "init" {
+		configureTestGitIdentity(t, dir)
+	}
+}
+
+func configureTestGitIdentity(t *testing.T, repo string) {
+	t.Helper()
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
 }
 
 func assertFileContent(t *testing.T, path, want string) {

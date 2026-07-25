@@ -318,6 +318,54 @@ func TestSCN009_RestoreFailureWithRollbackFailureProvidesManualRecoveryLocations
 	}
 }
 
+func TestSCN397_SelectedRestoreAndRollbackFailureReportsBothLocations(t *testing.T) {
+	// REQ-070 → SCN-397 → TestSCN397_SelectedRestoreAndRollbackFailureReportsBothLocations
+	// Scenario: A selected restore and its rollback both fail
+	home := t.TempDir()
+	projectPath := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+
+	selectedBackupDir := filepath.Join(home, ".rotta", "backups", "20260629T150000Z")
+	restoredOpenCodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
+
+	writeTestFile(t, backupDestination(selectedBackupDir, home, restoredOpenCodeConfig), []byte(`{"agent":{"restored":{"description":"from selected backup"}}}`))
+	writeTestFile(t, filepath.Join(selectedBackupDir, "manifest.json"), []byte(`{"version":1,"timestamp":"20260629T150000Z","project_path":"`+projectPath+`","target":"opencode","selected_modes":{"spec":true,"implementation":false,"review":false},"optional_integrations":{"ancora":false,"vela":false},"backed_up_paths":["`+restoredOpenCodeConfig+`"],"missing_paths":[],"status":"complete"}`))
+	writeTestFile(t, restoredOpenCodeConfig, []byte(`{"agent":{"current":{"description":"pre-restore"}}}`))
+
+	result, err := restoreBackupWithHooks(selectedBackupDir, restoreHooks{
+		afterRestorePath: func(path string) error {
+			if path != restoredOpenCodeConfig {
+				return nil
+			}
+			preRestoreBackupDir := newestBackupDirExcept(t, filepath.Dir(selectedBackupDir), selectedBackupDir)
+			writeTestFile(t, filepath.Join(preRestoreBackupDir, "manifest.json"), []byte(`not json`))
+			return os.ErrPermission
+		},
+	})
+	if err == nil {
+		t.Fatal("expected restore and rollback failure")
+	}
+	if result == nil || result.PreRestoreBackupDir == "" {
+		t.Fatalf("expected failed restore to report pre-restore safety backup, got %#v", result)
+	}
+	for _, expected := range []string{selectedBackupDir, result.PreRestoreBackupDir, "rollback", "failed"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("expected failure to identify %q, got %v", expected, err)
+		}
+	}
+	if strings.Contains(err.Error(), "rollback to pre-restore state succeeded") {
+		t.Fatalf("expected failure not to report successful rollback, got %v", err)
+	}
+}
+
+// REQ-070 → SCN-398 → TestSCN398_StrayTemporaryBackupSourceIsAbsent
+func TestSCN398_StrayTemporaryBackupSourceIsAbsent(t *testing.T) {
+	// Scenario: The stranded rollback behavior is restored without its temporary source file
+	if _, err := os.Stat("backup.go.tmp"); !os.IsNotExist(err) {
+		t.Fatalf("expected stray temporary backup source to be absent, got %v", err)
+	}
+}
+
 func TestSCN011_GeneratedArtifactsAndUserFacingTextAvoidExternalReferenceWording(t *testing.T) {
 	// REQ-009 → SCN-011 → TestSCN011_GeneratedArtifactsAndUserFacingTextAvoidExternalReferenceWording
 	// Scenario: Generated acceptance artifacts and user-facing text avoid external-reference wording

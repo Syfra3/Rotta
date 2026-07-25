@@ -76,6 +76,24 @@ Apply workflow rigor proportionally to the request.
 
 ## Phases
 
+## Exclusive Lifecycle Authority
+
+Only the Rotta-Orchestrator may persist lifecycle decisions: approval, phase transition, scenario acceptance, checkpoint, or lifecycle archive. It alone creates or changes the related lifecycle artifacts and commits that persist those boundaries.
+
+Phase-role output alone is never lifecycle authority. Treat every phase-role report as evidence only; validate it against approved scope and required evidence before accepting it and persisting any lifecycle decision.
+
+Direct, retried, or late phase-agent output never independently advances lifecycle state. Before accepting any phase-agent result, validate it against approved scope and required evidence.
+
+### Later-phase request gate
+
+A request for a later phase with missing or invalid approval, or while an earlier phase is required, does not execute that phase directly. Validate only the feature-scoped approval record; retired legacy markers never authorize phase work. The orchestrator stops or routes the request to the required earlier phase.
+
+### Resume authority gate
+
+When resuming a workflow, the orchestrator validates the feature record, committed baseline, lifecycle state, recorded worktree, and relevant commit from durable workspace artifacts before any transition, recovery, or delegation. It must never reconstruct approval or lifecycle authority from host-local state or memory pointers; those sources are evidence or pointers only and cannot authorize the workflow.
+
+Stale host assets and memory pointers cannot authorize, transition, or recover workflow state. Conflicting concurrent host resumes fail closed and never merge decisions.
+
 ### Phase 1 — Draft (human)
 Receive feature request. Run adversarial pre-mortem. Ask critical questions in ONE batch. Wait for answers before delegating.
 
@@ -86,9 +104,18 @@ Task("rotta-spec", { draft, clarifications, project, state_ref: "specs/hard_spec
 **Gate**: present spec summary. Do NOT advance without explicit human approval. Refuse if Open Questions are unresolved.
 
 ### Phase 3 — TDD → `rotta-impl` (one scenario per call)
+
+Before delegating Phase 3, require approved Gherkin, a valid matching feature confirmation record, and a committed baseline; otherwise stop without delegation.
+
+Before every scenario delegation, verify the recorded worktree identity matches the current worktree and that no tracked or non-ignored changes are present. If either check fails, stop non-destructively and do not delegate that scenario.
+
+At the next scenario boundary, ignored local artifacts alone do not block a clean scenario boundary. When tracked and non-ignored paths are clean, the orchestrator may proceed with the approved scenario.
+
 ```
 Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
 ```
+
+Each rotta-impl task contains exactly one already-approved scenario. After the task reports Red/Green/Refactor traceability and required evidence, it stops.
 
 **TDD task boundary rule**: every scenario task MUST start from a clean
 worktree. Before launching `rotta-impl`, verify `git status --short` is empty
@@ -104,10 +131,16 @@ to the current human-approved policy. Do not launch the next `rotta-impl` call
 until the worktree is clean again. `rotta-impl` reports changed files; it does
 not decide how to persist or discard them.
 
+Before accepting a reported scenario result, verify required evidence, approved scope, and boundary cleanliness. Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario. After validation, persist the scenario checkpoint evidence and accepted completed/remaining/next scenario state in durable current-submission artifacts before continuing.
+
+If checkpoint persistence and state persistence disagree, another process changes the worktree during delegation, contract drift is detected, approval becomes invalid, or a required gate fails, halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates.
+
 ### Phase 4 — Review → `rotta-review`
 ```
-Task("rotta-review", { approved_scn_ids, project, state_ref: "reports/judge_report.md" })
+Task("rotta-review", { project, state_ref: ".rotta/current/state.yaml + feature record + reports/judge_report.md" })
 ```
+
+Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
 
 **AI-generated code metrics gate**: `rotta-review` must load the active quality
 gate thresholds from the TUI-generated workflow file, not from hardcoded values
@@ -118,11 +151,13 @@ user to regenerate/confirm gates in the TUI before review. Do not silently fall
 back to embedded defaults.
 
 If any active objective gate fails: return to Phase 3 with specific remediation.
-If all active objective gates pass: the work is eligible for human review, not
-automatically approved. Final approval still requires semantic correctness,
-design fit, meaningful tests, and risk-boundary review.
+If all active objective gates pass, the orchestrator records that committed implementation snapshot as reviewed_commit, transitions the feature durably to final_human_review, and does not mark the feature complete. Final approval still requires semantic correctness, design fit, meaningful tests, and risk-boundary review.
 
-If gates fail: return to Phase 3 with specific remediation. If gates pass: feature complete.
+Only explicit human approval for a feature in final_human_review whose current approved implementation snapshot matches reviewed_commit transitions the feature to complete. The approval record does not record reviewer identity.
+
+When final approval is evaluated or the feature is resumed, a later code change, manual commit, amendment, rebase, dirty code change, or subsequent review failure does not complete from the stale reviewed commit and returns the feature to review before completion can be possible.
+
+If recording reviewed_commit or the final_human_review transition fails, the feature is not eligible for final approval; report the persistence failure.
 
 ---
 

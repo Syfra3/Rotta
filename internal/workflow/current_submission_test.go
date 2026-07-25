@@ -12,7 +12,6 @@ func TestSCN234_InitializeCurrentSubmissionUsesExplicitContractScope(t *testing.
 	// REQ-032 → SCN-234 → TestSCN234_InitializeCurrentSubmissionUsesExplicitContractScope
 	// Scenario: Create an isolated active submission
 	repo := t.TempDir()
-	mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-001\n")
 	mustWrite(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## SCN-002\n")
 	mustWrite(t, filepath.Join(repo, "specs", "workflow_lifecycle_hard_spec.md"), "# lifecycle\n")
 	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-234\n")
@@ -65,7 +64,6 @@ func TestSCN235_LoadCurrentSubmissionRejectsUnusableActiveState(t *testing.T) {
 		{
 			name: "missing manifest",
 			setup: func(t *testing.T, repo string) {
-				mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-001\n")
 				mustWrite(t, filepath.Join(repo, ".rotta", "archive", "old", "manifest.yaml"), "scenario_ids:\n  - SCN-002\n")
 			},
 			contains: "current submission state cannot be safely used",
@@ -257,7 +255,6 @@ func TestSCN237_ReviewCurrentSubmissionUsesOnlyManifestScenarioScope(t *testing.
 	mustWrite(t, filepath.Join(repo, "features", "workflow_lifecycle.feature"), "@SCN-237\n")
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), "submission_id: workflow-lifecycle\nspec_path: specs/workflow_lifecycle_hard_spec.md\nfeature_paths:\n  - features/workflow_lifecycle.feature\nscenario_ids:\n  - SCN-237\nworktree: "+repo+"\nstatus: in_progress\n")
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-237\n")
-	mustWrite(t, filepath.Join(repo, "specs", ".approved"), "SCN-001\n")
 	mustWrite(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## SCN-002\n")
 	mustWrite(t, filepath.Join(repo, ".rotta", "archive", "old", "tdd-log.md"), "## SCN-003\n")
 
@@ -274,8 +271,8 @@ func TestSCN237_ReviewCurrentSubmissionUsesOnlyManifestScenarioScope(t *testing.
 	if len(review.MissingEvidence) != 0 {
 		t.Fatalf("missing evidence = %v, want only manifest scenario evidence checked", review.MissingEvidence)
 	}
-	if len(review.Warnings) == 0 {
-		t.Fatal("expected legacy artifacts to be reported as non-blocking warnings")
+	if len(review.Warnings) != 0 {
+		t.Fatalf("review warnings = %v, want no legacy-artifact behavior", review.Warnings)
 	}
 }
 

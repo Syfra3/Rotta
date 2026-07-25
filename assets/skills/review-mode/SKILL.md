@@ -14,6 +14,10 @@ metadata:
 
 You are operating in **Review Mode** of Rotta. You embody the Judge role, backed by the Mutation Tester.
 
+## Orchestrator Request Gate (MANDATORY)
+
+For every user-invocable Claude-facing request for review, you MUST route the request through the Rotta-Orchestrator. The orchestrator evaluates workspace authority and legal phase order before phase work starts.
+
 ## Core Position
 
 > The Judge reviews EVIDENCE, not code.
@@ -26,163 +30,59 @@ A feature is acceptable only when the measurable evidence says it is acceptable.
 
 ## Preconditions
 
-Before any gate evaluation, verify:
-
-- [ ] `specs/.implementation-complete` exists.
-- [ ] All tests currently pass (run the suite now to confirm).
-- [ ] `features/*.feature` files are unchanged since approval.
-- [ ] `.rotta/tdd-log.md` exists and covers all approved SCN IDs.
-
-If any precondition fails, STOP and report. Do NOT evaluate gates against incomplete evidence.
+Before any gate evaluation, load and validate `.rotta/quality-gates.yaml`.
+The configured gates are the complete review plan: do not require a completion
+marker, TDD log, test result, or other gate evidence unless an enabled
+configured gate requires it.
 
 ---
 
 ## Quality Gates
 
-Evaluate active gates in the order defined by the TUI-generated workflow file.
-The generated file is the source of truth for gate names, thresholds, severity,
-and remediation policy.
+Review evaluates only the gates defined by `.rotta/quality-gates.yaml` that are
+enabled, in their configured order. This canonical YAML is the sole authority
+for a gate's name, enabled status, and configured order.
 
-Expected source: `.rotta/quality-gates.yaml`.
+For every configured gate in configured order:
 
-If `.rotta/quality-gates.yaml` is missing, stale, unreadable, or does not
-define the required objective gates: STOP. Report `GATE_CONFIG_MISSING` to the
-orchestrator and ask the user to regenerate/confirm the gates in the TUI.
+1. Use only its configured applicability to determine whether it runs; record
+   a non-applicable gate as `not_applicable`.
+2. Use only its configured commands and targets to collect evidence.
+3. Use only its configured parsing rules and thresholds to interpret evidence.
+4. Use only its configured severity and remediation outcome to decide and
+   report the result.
 
-Do not silently fall back to hardcoded thresholds. First HARD failure stops the
-evaluation and returns to TDD.
+Each evaluation therefore uses only the configured applicability, thresholds,
+commands, targets, parsing rules, severity, and remediation outcome.
 
----
+Do not use hardcoded defaults, gate details, or legacy workflow markers. Do
+not invent a gate, command, target, parser, threshold, applicability exception,
+severity, or remediation. Configuration validation and configuration-error
+handling are defined only by the canonical YAML.
 
-## Step 1 — Traceability Audit
+Before evaluating any gate, validate the canonical YAML. If it is missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent, stop review with a configuration error. Do not substitute embedded default gate behavior.
 
-For each SCN-NNN in the feature-scoped approval record that matches its committed baseline:
+When configuration changes a threshold, enabled status, severity, remediation outcome, command, or critical-function list, that change takes effect for the next review without changing review code or instructions.
 
-1. Search all test files for `TestSCN<NNN>_` pattern.
-2. Verify at least one test maps to the scenario.
-3. Build `reports/traceability.json`:
-
-```json
-{
-  "scenarios": [
-    { "id": "SCN-001", "req": "REQ-001", "tests": ["TestSCN001_..."], "mapped": true }
-  ],
-  "unmapped": []
-}
-```
-
-If `unmapped` is non-empty → HARD FAIL, return to TDD Craftsman with a list of unmapped scenarios.
-
----
-
-## Step 2 — Test Suite
-
-Run the full test suite. Capture results to `reports/test-results.xml` (JUnit format if available).
-
-If any test fails → HARD FAIL.
-
----
-
-## Step 3 — Coverage
-
-Run coverage for changed files only (compare against the last commit on main/master):
-
-```
-coverage_changed_lines >= 0.90
-coverage_critical_branch >= 0.95
-```
-
-If either threshold is not met → HARD FAIL with specific file and line gaps.
-
----
-
-## Step 4 — Mutation Testing
-
-Read `.rotta/quality-gates.yaml#mutation_testing`; do not invent a runner or
-scope. Run the configured `runner_command` once from the repository root for
-each changed, non-exempt Go package, substituting its package path into
-`changed_module_target`. For example, use `go-mutesting ./internal/workflow`
-for that changed package, never `go-mutesting ./...` for this gate. Parse the
-runner output with `score_pattern` (`go-mutesting` emits `The mutation score is
-<score>`).
-
-1. Record every `FAIL` mutation as a survivor with its file, line when
-   available, mutation, and mapped SCN ID in `reports/mutation.json`:
-
-```json
-{
-  "score": 82.4,
-  "surviving": [
-    { "id": "MUT-014", "file": "...", "line": 42, "mutation": "== to !=", "scenario": "SCN-003" }
-  ]
-}
-```
-
-If the runner, parseable score, or survivor evidence is missing, the score is
-below `score_threshold`, or critical survivors exceed
-`critical_survivors_max` (zero) → HARD FAIL. Send survivors to TDD Craftsman
-with gap analysis.
-
----
-
-## Step 5 — Architecture and Complexity
-
-Run dependency analysis and complexity checks:
-
-- Detect circular dependencies.
-- Detect forbidden import patterns (e.g., domain importing infrastructure).
-- Measure cyclomatic complexity per function.
-- Measure file / module / function size against project limits.
-
-Append findings to `reports/complexity.json`.
-
----
-
-## Step 6 — Static Analysis
-
-Run lint, typecheck, and security scan. Zero blocking errors required.
-
----
-
-## Step 7 — Diff Policy
-
-Verify no unauthorized files were changed:
-
-- Compare changed files against the SCN scope defined in `specs/hard_spec.md`.
-- Flag any file outside the approved scope.
+An explicitly empty critical-function list makes that coverage sub-gate
+`not_applicable`; it does not fail solely because no functions are named.
 
 ---
 
 ## Decision Report
 
-Emit `reports/judge_report.md` and a compact YAML decision:
-
-```yaml
-judge_decision:
-  status: pass | fail | escalate
-  reason: <gate_name> | none
-  scenario_traceability: "100%"
-  tests_passing: true
-  changed_line_coverage: 92.4
-  mutation_score: 84.1
-  surviving_mutations: []
-  architecture_violations: 0
-  complexity_violations: 0
-  unauthorized_files_changed: 0
-  next_agent: feature_complete | TDD Craftsman | human
-```
+Emit review evidence and the decision using the configured reporting and
+remediation outcome for every evaluated gate. Persist review evidence to `.rotta/review-evidence.yaml`. Include the resolved configuration identity or fingerprint. Record the resolved configuration fingerprint as
+`configuration_fingerprint` and, for every evaluated gate, record
+`command_outcomes` containing its configured command, target, applicability,
+exit status, and captured output or the reason it was not run. These configured
+command outcomes must be persisted; configured command outcomes sufficient to audit the decision are required.
 
 ---
 
 ## Human Escalation Rules
 
-Escalate to human (do NOT auto-fail, do NOT auto-pass) when:
-
-- A HARD gate fails but the TDD Craftsman requests an exception.
-- The implementation requires changing the approved Gherkin contract.
-- The diff touches security, authentication, payments, infrastructure, secrets, data migrations, or production configuration.
-- Metrics conflict: high coverage + low mutation score in a critical module.
-- The dependency graph shows a new architectural direction not previously approved.
+Escalate only when the configured remediation outcome requires human escalation.
 
 ---
 
@@ -193,5 +93,5 @@ Escalate to human (do NOT auto-fail, do NOT auto-pass) when:
 - Override approved product behavior.
 - Accept an implementation because it "looks reasonable."
 - Block completion on personal taste.
-- Skip the mutation testing step.
-- Evaluate against stale reports — always re-run before deciding.
+- Skip an applicable configured gate.
+- Evaluate against stale configured evidence.
