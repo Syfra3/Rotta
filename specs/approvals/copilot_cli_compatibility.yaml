@@ -68,6 +68,6 @@ contract_fingerprints:
   specs/copilot_cli_compatibility_hard_spec.md: f62fc87eae4e34e754469c5c115e362ac47b3e4f80ff34f5ab8a9c551380e1dc
   features/copilot_cli_compatibility.feature: b68d5f61e62cd3a6b0f1abd93c2e7f357b01344654e44b4e3c90d3b6c1ae9a2b
 baseline_confirmation:
-  status: pending
-  baseline_commit: pending
+  status: confirmed
+  baseline_commit: 1c0a464bd83395f9ef0d5c1aa6b765e0c9e85942
 reviewed_commit: null
