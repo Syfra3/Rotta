@@ -2,6 +2,7 @@ package installer
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -681,6 +682,67 @@ func TestSCN413_RefusesUnsafeCopilotMCPConfigurationMutation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// REQ-103 → SCN-414 → TestSCN414_RecoversSafelyAfterPartialCopilotGlobalWrite
+func TestSCN414_RecoversSafelyAfterPartialCopilotGlobalWrite(t *testing.T) {
+	// Scenario: Recover safely after a partial Copilot global write
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	completedArtifact := filepath.Join(root, "agents", "rotta-orchestrator.agent.md")
+	failingArtifact := filepath.Join(root, "instructions", "rotta.instructions.md")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	writeTestFile(t, completedArtifact, []byte("prior valid agent\n"))
+	writeTestFile(t, failingArtifact, []byte("prior valid instructions\n"))
+
+	result, err := Install(Options{
+		Target:      "copilot-cli",
+		ProjectPath: filepath.Join(home, "project"),
+		CopilotManagedFileWriter: func(path string, data []byte, perm os.FileMode) error {
+			if path == failingArtifact {
+				return errors.New("injected managed-file write failure")
+			}
+			return writePrivateFile(path, data, perm)
+		},
+	})
+	if err == nil {
+		t.Fatal("expected injected Copilot managed-file write to fail")
+	}
+	if result == nil {
+		t.Fatal("expected failed Copilot installation result")
+	}
+	if got, readErr := os.ReadFile(failingArtifact); readErr != nil || string(got) != "prior valid instructions\n" {
+		t.Fatalf("expected failing artifact to retain prior valid content, got %q (read error: %v)", got, readErr)
+	}
+	if !containsString(result.Files, completedArtifact) {
+		t.Fatalf("expected result to identify completed Copilot work %q, got %#v", completedArtifact, result.Files)
+	}
+	if result.CopilotGlobalConfigRoot != root || !strings.Contains(result.Error, failingArtifact) || result.BackupDir == "" {
+		t.Fatalf("expected result to identify resolved Copilot artifact, failure, and backup location, got %#v", result)
+	}
+	if result.Hosts["copilot-cli"].Status != HostInstallStatusFailed {
+		t.Fatalf("expected failed Copilot host rather than success, got %#v", result.Hosts["copilot-cli"])
+	}
+
+	manifest, manifestErr := loadBackupManifest(filepath.Join(result.BackupDir, "manifest.json"))
+	if manifestErr != nil {
+		t.Fatalf("read Copilot installation backup: %v", manifestErr)
+	}
+	for _, path := range []string{completedArtifact, failingArtifact} {
+		if !containsString(manifest.BackedUpPaths, path) {
+			t.Fatalf("expected eligible Copilot artifact %q to be backed up, got %#v", path, manifest.BackedUpPaths)
+		}
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func copilotHealthyMCPEvidence() CopilotMCPHealthEvidence {

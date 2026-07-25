@@ -10,6 +10,22 @@ import (
 	"strings"
 )
 
+// CopilotManagedFileWriter writes a Copilot artifact after its prior content is backed up.
+type CopilotManagedFileWriter func(path string, data []byte, perm os.FileMode) error
+
+type copilotManagedFileWriteError struct {
+	path  string
+	cause error
+}
+
+func (err *copilotManagedFileWriteError) Error() string {
+	return fmt.Sprintf("cannot write Copilot managed artifact %s: %v", err.path, err.cause)
+}
+
+func (err *copilotManagedFileWriteError) Unwrap() error {
+	return err.cause
+}
+
 func installCopilotCLI(opts Options, home string) ([]string, error) {
 	root, err := resolveCopilotGlobalConfigRoot(home)
 	if err != nil {
@@ -21,6 +37,10 @@ func installCopilotCLI(opts Options, home string) ([]string, error) {
 	}
 
 	var files []string
+	writer := opts.CopilotManagedFileWriter
+	if writer == nil {
+		writer = writeCopilotManagedFile
+	}
 	for _, agent := range rottaAgents {
 		if !agent.modeFlag(opts) {
 			continue
@@ -30,8 +50,8 @@ func installCopilotCLI(opts Options, home string) ([]string, error) {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
 		path := filepath.Join(agentsDir, agent.key+".agent.md")
-		if err := writePrivateFile(path, copilotAgentMarkdown(agent.key, data), 0o600); err != nil {
-			return nil, fmt.Errorf("cannot write %s: %w", path, err)
+		if err := writer(path, copilotAgentMarkdown(agent.key, data), 0o600); err != nil {
+			return files, &copilotManagedFileWriteError{path: path, cause: err}
 		}
 		files = append(files, path)
 	}
@@ -41,14 +61,14 @@ func installCopilotCLI(opts Options, home string) ([]string, error) {
 		return nil, fmt.Errorf("cannot create Copilot instructions directory: %w", err)
 	}
 	instructions := "# Rotta Copilot Instructions\n\n" + copilotAdaptationInstructions() + integrationInstructions(opts)
-	if err := writePrivateFile(instructionsPath, []byte(instructions), 0o600); err != nil {
-		return nil, fmt.Errorf("cannot write %s: %w", instructionsPath, err)
+	if err := writer(instructionsPath, []byte(instructions), 0o600); err != nil {
+		return files, &copilotManagedFileWriteError{path: instructionsPath, cause: err}
 	}
 	files = append(files, instructionsPath)
 	if !hasSelectedMCP(opts) || os.Getenv("COPILOT_MCP_CONFIG") == "" {
 		return files, nil
 	}
-	mcpPath, err := configureCopilotMCPFixture(opts)
+	mcpPath, err := configureCopilotMCPFixture(opts, writer)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +132,7 @@ func unsafeCopilotMCPConfiguration(path, blocking string, cause error) error {
 	return &copilotMCPConfigurationError{path: path, blocking: blocking, cause: cause}
 }
 
-func configureCopilotMCPFixture(opts Options) (string, error) {
+func configureCopilotMCPFixture(opts Options, writer CopilotManagedFileWriter) (string, error) {
 	path, err := resolveCopilotMCPConfigPath()
 	if err != nil {
 		return "", err
@@ -153,10 +173,31 @@ func configureCopilotMCPFixture(opts Options) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot marshal Copilot MCP configuration: %w", err)
 	}
-	if err := writePrivateFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("cannot write Copilot MCP configuration: %w", err)
+	if err := writer(path, data, 0o600); err != nil {
+		return "", &copilotManagedFileWriteError{path: path, cause: err}
 	}
 	return path, nil
+}
+
+func writeCopilotManagedFile(path string, data []byte, perm os.FileMode) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".rotta-copilot-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := file.Name()
+	defer os.Remove(temporaryPath)
+	if err := file.Chmod(perm); err != nil {
+		file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func existingCopilotMCPServers(config map[string]interface{}, path string) (map[string]interface{}, error) {

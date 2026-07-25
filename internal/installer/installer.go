@@ -25,6 +25,7 @@ type Options struct {
 	CommandStdout            io.Writer
 	CommandStderr            io.Writer
 	CopilotMCPHealthEvidence CopilotMCPHealthEvidence
+	CopilotManagedFileWriter CopilotManagedFileWriter
 }
 
 // Result describes what was installed.
@@ -158,7 +159,7 @@ func install(opts Options) (*Result, error) {
 
 	installResult, err := installSelectedHosts(opts, result, home, projectPath)
 	if err != nil {
-		if recordCopilotMCPConfigurationFailure(result, opts, home, err) {
+		if recordCopilotMCPConfigurationFailure(result, opts, home, err) || recordCopilotManagedFileWriteFailure(result, opts, home, err) {
 			recordChangedFiles(result, projectPath)
 			return result, err
 		}
@@ -365,6 +366,32 @@ func recordCopilotMCPConfigurationFailure(result *Result, opts Options, home str
 		Host:         "copilot-cli",
 		Status:       HostInstallStatusFailed,
 		Capabilities: capabilities,
+	}
+	result.Error = installErr.Error()
+	return true
+}
+
+func recordCopilotManagedFileWriteFailure(result *Result, opts Options, home string, installErr error) bool {
+	var writeErr *copilotManagedFileWriteError
+	if !errors.As(installErr, &writeErr) {
+		return false
+	}
+	root, err := resolveCopilotGlobalConfigRoot(home)
+	if err != nil {
+		return false
+	}
+	result.CopilotGlobalConfigRoot = root
+	result.Hosts["copilot-cli"] = HostInstallResult{
+		Host:   "copilot-cli",
+		Status: HostInstallStatusFailed,
+		Capabilities: map[string]HostCapability{
+			"installation": {
+				Name:        "installation",
+				Status:      HostCapabilityStatusFailed,
+				Reason:      "Copilot managed artifact write failed: " + writeErr.path,
+				Remediation: "Repair the reported Copilot artifact path, then safely rerun Rotta or recover from the backup directory.",
+			},
+		},
 	}
 	result.Error = installErr.Error()
 	return true

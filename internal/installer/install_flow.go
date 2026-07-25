@@ -21,6 +21,9 @@ func installNamedHosts(opts Options, result *Result, home string) error {
 	for _, host := range selectedHosts(opts.Target) {
 		files, err := installHost(opts, host, home)
 		if err != nil {
+			if host == "copilot-cli" {
+				result.Files = append(result.Files, files...)
+			}
 			return err
 		}
 		result.Files = append(result.Files, files...)

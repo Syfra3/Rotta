@@ -298,8 +298,31 @@ func backupScope(opts Options, home, projectPath string) []string {
 		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
 	}, filepath.Join(projectPath, ".vela", "graph.db"))
 	paths = append(paths, targetBackupPaths(opts.Target, home)...)
+	paths = append(paths, copilotManagedArtifactPaths(opts, home)...)
 	if opts.SetupContext7 {
 		paths = appendUniquePaths(paths, filepath.Join(home, ".config", "opencode", "opencode.json"), filepath.Join(home, ".claude", "mcp", "context7.json"))
+	}
+	return paths
+}
+
+func copilotManagedArtifactPaths(opts Options, home string) []string {
+	if !includesCopilot(opts.Target) {
+		return nil
+	}
+	root, err := resolveCopilotGlobalConfigRoot(home)
+	if err != nil {
+		return nil
+	}
+	paths := []string{filepath.Join(root, "instructions", "rotta.instructions.md")}
+	for _, agent := range rottaAgents {
+		if agent.modeFlag(opts) {
+			paths = append(paths, filepath.Join(root, "agents", agent.key+".agent.md"))
+		}
+	}
+	if hasSelectedMCP(opts) && os.Getenv("COPILOT_MCP_CONFIG") != "" {
+		if path, err := resolveCopilotMCPConfigPath(); err == nil {
+			paths = append(paths, path)
+		}
 	}
 	return paths
 }
