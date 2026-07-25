@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.10.1](https://github.com/Syfra3/Rotta/compare/v1.10.0...v1.10.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* resolve PR 38 verification blockers ([50e720c](https://github.com/Syfra3/Rotta/commit/50e720cc52670f701929e1d2930939a511fc4872))
+
+
+### Documentation
+
+* approve PR 38 CI remediation contract ([85db662](https://github.com/Syfra3/Rotta/commit/85db6621ce11147d6beccf6ca847e486d0b0618c))
+* confirm PR 38 remediation baseline ([ddd3df5](https://github.com/Syfra3/Rotta/commit/ddd3df537e1f1aae5d39d402e98ccb616cb78d94))
+* create PR 38 remediation baseline ([5fd3852](https://github.com/Syfra3/Rotta/commit/5fd3852c47eef576edcfc5b527ed5de372d3481e))
+
 ## [1.10.0](https://github.com/Syfra3/Rotta/compare/v1.9.0...v1.10.0) (2026-07-15)
 
 
