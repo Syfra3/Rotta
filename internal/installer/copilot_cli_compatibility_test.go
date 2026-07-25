@@ -217,6 +217,33 @@ func TestSCN406_GeneratesGlobalCopilotRoleDefinitionsForSelectedModes(t *testing
 	}
 }
 
+// REQ-101 → REQ-104 → SCN-407 → TestSCN407_RoutesCopilotPhaseRequestsThroughAdaptedOrchestration
+func TestSCN407_RoutesCopilotPhaseRequestsThroughAdaptedOrchestration(t *testing.T) {
+	// Scenario: Route Copilot phase requests through adapted orchestration
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+
+	if _, err := Install(Options{Target: "copilot-cli", ProjectPath: filepath.Join(home, "project")}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "instructions", "rotta.instructions.md"))
+	if err != nil {
+		t.Fatalf("read Copilot instructions: %v", err)
+	}
+	assertContainsAll(t, string(data), []string{
+		"/agent rotta-orchestrator",
+		"copilot --agent rotta-orchestrator",
+		"Rotta-Orchestrator decision point",
+		"specs/", "features/", ".rotta/",
+		"Phase 1 — Draft", "explicit human approval", "strict Red/Green/Refactor TDD", "Phase 4 — Review", "final_human_review",
+		"Copilot role-agent and command support is adapted",
+		"not host-native hidden subagent delegation",
+	})
+}
+
 func assertCopilotAgentFixture(t *testing.T, path, role string) {
 	t.Helper()
 	data, err := os.ReadFile(path)

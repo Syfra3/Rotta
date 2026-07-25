@@ -37,7 +37,7 @@ func installCopilotCLI(opts Options, home string) ([]string, error) {
 	if err := os.MkdirAll(filepath.Dir(instructionsPath), 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create Copilot instructions directory: %w", err)
 	}
-	instructions := "# Rotta Copilot Instructions\n\n" + integrationInstructions(opts)
+	instructions := "# Rotta Copilot Instructions\n\n" + copilotAdaptationInstructions() + integrationInstructions(opts)
 	if err := writePrivateFile(instructionsPath, []byte(instructions), 0o600); err != nil {
 		return nil, fmt.Errorf("cannot write %s: %w", instructionsPath, err)
 	}
@@ -62,4 +62,14 @@ func copilotAgentMarkdown(name string, asset []byte) []byte {
 		body = body[end+len("\n---\n"):]
 	}
 	return []byte("---\nname: " + name + "\n---\n\n" + body)
+}
+
+func copilotAdaptationInstructions() string {
+	return `## Copilot CLI Adaptation
+
+- Select ` + "`rotta-orchestrator`" + ` through ` + "`/agent rotta-orchestrator`" + ` or ` + "`copilot --agent rotta-orchestrator`" + ` before requesting phase work.
+- This routes phase work through the Rotta-Orchestrator decision point before phase execution; direct phase roles do not bypass it.
+- Copilot role-agent and command support is adapted: custom agents select role guidance. It is not host-native hidden subagent delegation, automatic delegation, or direct phase bypass.
+
+`
 }
