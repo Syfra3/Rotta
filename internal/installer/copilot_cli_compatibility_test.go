@@ -889,6 +889,92 @@ func TestSCN418_DescribesSupportedHostsAndCopilotBoundaries(t *testing.T) {
 	})
 }
 
+// REQ-105 → SCN-419 → TestSCN419_RecordsTimeBoundCopilotCompatibilityStatus
+func TestSCN419_RecordsTimeBoundCopilotCompatibilityStatus(t *testing.T) {
+	// Scenario: Record time-bound verification without making installation online-dependent
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+	t.Setenv("COPILOT_MCP_CONFIG", filepath.Join(root, "mcp-config.json"))
+
+	evidence := copilotHealthyMCPEvidence()
+	verification := CopilotCompatibilityVerification{
+		OfficialReleaseIdentity: "github/copilot-cli v1.2.3",
+		OfficialReleaseSource:   "https://github.com/github/copilot-cli/releases/tag/v1.2.3",
+		VerifiedAt:              "2026-07-25T00:00:00Z",
+	}
+	result, err := Install(Options{
+		Target:                           "copilot-cli",
+		ProjectPath:                      filepath.Join(home, "project"),
+		SetupAncora:                      true,
+		SetupVela:                        true,
+		SetupContext7:                    true,
+		CopilotMCPHealthEvidence:         evidence,
+		CopilotCompatibilityVerification: verification,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status := result.CopilotCompatibilityStatus
+	if status.Status != HostCapabilityStatusExact ||
+		status.OfficialReleaseIdentity != verification.OfficialReleaseIdentity ||
+		status.OfficialReleaseSource != verification.OfficialReleaseSource ||
+		status.VerifiedAt != verification.VerifiedAt ||
+		status.VersionOutput != evidence.VersionOutput ||
+		status.MCPDiagnostics.InteractiveMCPShowOutputs["ancora"] != evidence.InteractiveMCPShowOutputs["ancora"] {
+		t.Fatalf("expected time-bound release, version, and diagnostic verification status, got %#v", status)
+	}
+
+	for _, test := range []struct {
+		name     string
+		evidence CopilotMCPHealthEvidence
+	}{
+		{name: "missing version", evidence: CopilotMCPHealthEvidence{ConfigurationAccepted: true}},
+		{name: "fixture not accepted", evidence: CopilotMCPHealthEvidence{
+			VersionOutput:             evidence.VersionOutput,
+			MCPListOutput:             evidence.MCPListOutput,
+			InteractiveMCPListOutput:  evidence.InteractiveMCPListOutput,
+			InteractiveMCPShowOutputs: evidence.InteractiveMCPShowOutputs,
+		}},
+		{name: "runtime proof failure", evidence: CopilotMCPHealthEvidence{
+			ConfigurationAccepted:     true,
+			VersionOutput:             evidence.VersionOutput,
+			MCPListOutput:             evidence.MCPListOutput,
+			InteractiveMCPListOutput:  evidence.InteractiveMCPListOutput,
+			InteractiveMCPShowOutputs: evidence.InteractiveMCPShowOutputs,
+			ProofFailure:              CopilotMCPProofFailureInitializationTimeout,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Install(Options{
+				Target:                           "copilot-cli",
+				ProjectPath:                      filepath.Join(home, "project-"+test.name),
+				SetupAncora:                      true,
+				SetupVela:                        true,
+				SetupContext7:                    true,
+				CopilotMCPHealthEvidence:         test.evidence,
+				CopilotCompatibilityVerification: verification,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status := result.CopilotCompatibilityStatus; status.Status == HostCapabilityStatusExact || !strings.Contains(status.Reason, "unverified") {
+				t.Fatalf("expected unavailable version or runtime proof to remain unverified and degraded, got %#v", status)
+			}
+		})
+	}
+
+	ordinaryResult, err := Install(Options{Target: "copilot-cli", ProjectPath: filepath.Join(home, "ordinary-install")})
+	if err != nil {
+		t.Fatalf("expected ordinary offline installation without release resolution: %v", err)
+	}
+	if status := ordinaryResult.CopilotCompatibilityStatus; status.Status != HostCapabilityStatusDegraded || status.OfficialReleaseSource != "" {
+		t.Fatalf("expected ordinary installation to be offline-safe and compatibility to remain unverified, got %#v", status)
+	}
+}
+
 func countString(values []string, want string) int {
 	count := 0
 	for _, value := range values {

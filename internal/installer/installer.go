@@ -12,20 +12,21 @@ import (
 
 // Options configures what and where to install.
 type Options struct {
-	Target                   string // "claude-code" | "opencode" | "both"
-	ProjectPath              string // project root; config files land here under .rotta/
-	InstallSpec              bool
-	InstallImpl              bool
-	InstallReview            bool
-	UseDefaultGates          bool
-	SetupAncora              bool // whether to install/configure Ancora memory
-	SetupVela                bool // whether to install/configure Vela graph intelligence
-	SetupContext7            bool // whether to configure Context7 documentation MCP
-	CommandStdin             io.Reader
-	CommandStdout            io.Writer
-	CommandStderr            io.Writer
-	CopilotMCPHealthEvidence CopilotMCPHealthEvidence
-	CopilotManagedFileWriter CopilotManagedFileWriter
+	Target                           string // "claude-code" | "opencode" | "both"
+	ProjectPath                      string // project root; config files land here under .rotta/
+	InstallSpec                      bool
+	InstallImpl                      bool
+	InstallReview                    bool
+	UseDefaultGates                  bool
+	SetupAncora                      bool // whether to install/configure Ancora memory
+	SetupVela                        bool // whether to install/configure Vela graph intelligence
+	SetupContext7                    bool // whether to configure Context7 documentation MCP
+	CommandStdin                     io.Reader
+	CommandStdout                    io.Writer
+	CommandStderr                    io.Writer
+	CopilotMCPHealthEvidence         CopilotMCPHealthEvidence
+	CopilotCompatibilityVerification CopilotCompatibilityVerification
+	CopilotManagedFileWriter         CopilotManagedFileWriter
 }
 
 // Result describes what was installed.
@@ -47,6 +48,27 @@ type Result struct {
 	CopilotGlobalConfigRoot         string
 	CopilotMCPConfigPath            string
 	CopilotMCPHealthEvidence        CopilotMCPHealthEvidence
+	CopilotCompatibilityStatus      CopilotCompatibilityStatus
+}
+
+// CopilotCompatibilityVerification is release provenance captured by a separate verification run.
+// Installation only records this supplied evidence; it never resolves releases online.
+type CopilotCompatibilityVerification struct {
+	OfficialReleaseIdentity string
+	OfficialReleaseSource   string
+	VerifiedAt              string
+}
+
+// CopilotCompatibilityStatus reports the bounded evidence for one Copilot CLI verification.
+type CopilotCompatibilityStatus struct {
+	Status                  HostCapabilityStatus
+	Reason                  string
+	Remediation             string
+	OfficialReleaseIdentity string
+	OfficialReleaseSource   string
+	VerifiedAt              string
+	VersionOutput           string
+	MCPDiagnostics          CopilotMCPHealthEvidence
 }
 
 // CopilotMCPHealthEvidence is captured or synthetic documented Copilot MCP proof.
@@ -325,6 +347,7 @@ func finalizeInstall(result *Result, opts Options, projectPath string) {
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
 	recordCopilotMCPHealthEvidence(result, opts)
+	recordCopilotCompatibilityStatus(result, opts)
 	recordMCPStatuses(result, opts)
 	recordChangedFiles(result, projectPath)
 }

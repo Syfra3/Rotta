@@ -327,6 +327,50 @@ func recordCopilotMCPHealthEvidence(result *Result, opts Options) {
 	result.Hosts["copilot-cli"] = host
 }
 
+func recordCopilotCompatibilityStatus(result *Result, opts Options) {
+	if !includesCopilot(opts.Target) {
+		return
+	}
+	verification := opts.CopilotCompatibilityVerification
+	evidence := opts.CopilotMCPHealthEvidence
+	status := CopilotCompatibilityStatus{
+		Status:                  HostCapabilityStatusDegraded,
+		OfficialReleaseIdentity: verification.OfficialReleaseIdentity,
+		OfficialReleaseSource:   verification.OfficialReleaseSource,
+		VerifiedAt:              verification.VerifiedAt,
+		VersionOutput:           evidence.VersionOutput,
+		MCPDiagnostics:          evidence,
+	}
+	status.Reason = "Copilot compatibility verification is unverified: official release identity, source, and timestamp plus version and runtime diagnostics are required."
+	status.Remediation = "Run a separate compatibility verification and record official release provenance, copilot --version output, and observed MCP diagnostics."
+	if hasCopilotCompatibilityProof(verification, evidence, selectedCopilotMCPNames(opts)) {
+		status.Status = HostCapabilityStatusExact
+		status.Reason = ""
+		status.Remediation = ""
+	}
+	result.CopilotCompatibilityStatus = status
+}
+
+func hasCopilotCompatibilityProof(verification CopilotCompatibilityVerification, evidence CopilotMCPHealthEvidence, selectedServers []string) bool {
+	return hasCopilotReleaseProvenance(verification) && hasCopilotRuntimeProof(evidence, selectedServers)
+}
+
+func hasCopilotRuntimeProof(evidence CopilotMCPHealthEvidence, selectedServers []string) bool {
+	if !evidence.ConfigurationAccepted || evidence.ProofFailure != "" || evidence.VersionOutput == "" || evidence.MCPListOutput == "" || evidence.InteractiveMCPListOutput == "" || len(selectedServers) == 0 {
+		return false
+	}
+	for _, name := range selectedServers {
+		if !evidence.provesHealthyServer(name) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasCopilotReleaseProvenance(verification CopilotCompatibilityVerification) bool {
+	return verification.OfficialReleaseIdentity != "" && verification.OfficialReleaseSource != "" && verification.VerifiedAt != ""
+}
+
 func copilotMCPProofGap(evidence CopilotMCPHealthEvidence) (HostCapabilityStatus, string, string, bool) {
 	switch evidence.ProofFailure {
 	case CopilotMCPProofFailureRootOrPathUnresolved:
