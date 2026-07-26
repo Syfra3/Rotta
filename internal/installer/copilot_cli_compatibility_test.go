@@ -843,6 +843,36 @@ func TestSCN416_AccountsForCopilotGlobalPathsAsHostConfiguration(t *testing.T) {
 	}
 }
 
+// REQ-104 → SCN-417 → TestSCN417_PreservesCanonicalLifecycleAuthorityInCopilotGuidance
+func TestSCN417_PreservesCanonicalLifecycleAuthorityInCopilotGuidance(t *testing.T) {
+	// Scenario: Preserve canonical lifecycle authority in Copilot guidance
+	home := t.TempDir()
+	root := filepath.Join(home, "active-copilot-root")
+	t.Setenv("HOME", home)
+	t.Setenv("COPILOT_HOME", root)
+
+	if _, err := Install(Options{
+		Target:        "copilot-cli",
+		ProjectPath:   filepath.Join(home, "project"),
+		InstallSpec:   true,
+		InstallImpl:   true,
+		InstallReview: true,
+		SetupAncora:   true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	instructions, err := os.ReadFile(filepath.Join(root, "instructions", "rotta.instructions.md"))
+	if err != nil {
+		t.Fatalf("read Copilot lifecycle guidance: %v", err)
+	}
+	assertContainsAll(t, string(instructions), []string{
+		"workspace specs, features, and .rotta artifacts are the durable source of truth",
+		"Copilot configuration, MCP state, and Ancora memory are not approval or lifecycle authority",
+		"direct phase roles must not advance approval, baseline, checkpoint, review, or completion state",
+	})
+}
+
 func countString(values []string, want string) int {
 	count := 0
 	for _, value := range values {

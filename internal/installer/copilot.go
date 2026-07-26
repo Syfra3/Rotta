@@ -102,6 +102,9 @@ func copilotAdaptationInstructions() string {
 - Select ` + "`rotta-orchestrator`" + ` through ` + "`/agent rotta-orchestrator`" + ` or ` + "`copilot --agent rotta-orchestrator`" + ` before requesting phase work.
 - This routes phase work through the Rotta-Orchestrator decision point before phase execution; direct phase roles do not bypass it.
 - Copilot role-agent and command support is adapted: custom agents select role guidance. It is not host-native hidden subagent delegation, automatic delegation, or direct phase bypass.
+- workspace specs, features, and .rotta artifacts are the durable source of truth.
+- Copilot configuration, MCP state, and Ancora memory are not approval or lifecycle authority.
+- direct phase roles must not advance approval, baseline, checkpoint, review, or completion state.
 
 `
 }
