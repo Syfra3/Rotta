@@ -873,6 +873,22 @@ func TestSCN417_PreservesCanonicalLifecycleAuthorityInCopilotGuidance(t *testing
 	})
 }
 
+// REQ-105 → SCN-418 → TestSCN418_DescribesSupportedHostsAndCopilotBoundaries
+func TestSCN418_DescribesSupportedHostsAndCopilotBoundaries(t *testing.T) {
+	// Scenario: Describe all actual supported hosts and corrected Copilot boundaries
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("read user-facing documentation: %v", err)
+	}
+
+	assertContainsAll(t, string(readme), []string{
+		"Claude Code", "OpenCode", "Codex", "GitHub Copilot CLI",
+		"All supported hosts", "resolved active global configuration root", ".agent.md",
+		"adapted orchestration", "global-only MCP scope", "offline-safe verification",
+		"VS Code", "JetBrains", "repository-local", "`.github`", "`.mcp.json`",
+	})
+}
+
 func countString(values []string, want string) int {
 	count := 0
 	for _, value := range values {

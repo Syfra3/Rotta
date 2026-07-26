@@ -29,7 +29,7 @@ export ROTTA_INSTALL_DIR="$HOME/.local/bin"
 curl -sSL https://raw.githubusercontent.com/Syfra3/Rotta/main/scripts/install-rotta.sh | bash
 ```
 
-After installing generated opencode or Claude Code config, restart the coding agent so it reloads agents, skills, and MCP permissions.
+After installing generated host configuration, restart the selected coding agent so it reloads its instructions and MCP configuration.
 
 ## What It Installs
 
@@ -49,8 +49,11 @@ Generated files are written for the selected target:
 
 | Target | Generated integration |
 |--------|-----------------------|
-| opencode | Agent entries in `~/.config/opencode/opencode.json` and skill files under `~/.config/opencode/skills/` |
+| OpenCode | Agent entries in `~/.config/opencode/opencode.json` and skill files under `~/.config/opencode/skills/` |
 | Claude Code | Skills under `~/.claude/skills/rotta/` and MCP permissions in `~/.claude/settings.json` |
+| Codex | Adapted instructions in `~/.codex/AGENTS.md` and selected MCP configuration in `~/.codex/config.toml` |
+| GitHub Copilot CLI | Global Copilot role and instruction artifacts under its resolved active configuration root |
+| `all` (`All supported hosts`) | Installs Claude Code, OpenCode, Codex, and GitHub Copilot CLI |
 | `both` (legacy compatibility input) | Installs Claude Code and OpenCode integrations and the project config files |
 
 During the TUI setup, Ancora and Vela are independent choices. You can install neither, Ancora only, Vela only, or both.
@@ -68,10 +71,20 @@ Vela setup initializes project graph storage but does not assume graph data is a
 
 It ships first-class installation paths for:
 
-- opencode
+- OpenCode
 - Claude Code
+- Codex
+- GitHub Copilot CLI
 
-Other agents can still use the workflow by reading the generated instructions in `assets/agents/` and `assets/skills/`, then following the same phase contracts and file gates.
+### GitHub Copilot CLI boundaries
+
+GitHub Copilot CLI is a supported global integration, alongside Claude Code, OpenCode, and Codex. `~/.copilot` is only the historical/default candidate: before a Copilot mutation, Rotta resolves the active global configuration root and reports the resolved active global configuration root and selected MCP configuration path.
+
+At that root, Rotta writes `agents/*.agent.md` role artifacts and `instructions/rotta.instructions.md`. Copilot orchestration is adapted orchestration: select `rotta-orchestrator` before phase work; this is not host-native hidden-subagent delegation or a direct phase bypass.
+
+Copilot has a global-only MCP scope. Selected MCP entries use a minimal active-global interoperability fixture, preserve unrelated configuration, and do not claim a universal Copilot schema. The offline-safe verification boundary means ordinary installation does not require a Copilot executable or a network lookup.
+
+VS Code and JetBrains Copilot integrations are excluded. Rotta does not create repository-local Copilot integration files, including `.github` and `.mcp.json`.
 
 ## Workflow Steps
 
