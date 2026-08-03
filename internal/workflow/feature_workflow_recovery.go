@@ -11,8 +11,9 @@ import (
 // FeatureWorkflowResume identifies the sole feature slice selected from a
 // verified feature-local recovery boundary.
 type FeatureWorkflowResume struct {
-	FeatureID       string
-	ScenarioOrSlice string
+	FeatureID        string
+	ScenarioOrSlice  string
+	RetiredArtifacts []string
 }
 
 type featureWorkflowManifest struct {
@@ -63,7 +64,11 @@ func ResumeFeatureWorkflow(repoRoot string) (FeatureWorkflowResume, error) {
 	if err := verifyFeatureWorkflowRecoveryBoundary(actualWorktree, manifestContents, manifest, state); err != nil {
 		return FeatureWorkflowResume{}, err
 	}
-	return FeatureWorkflowResume{FeatureID: manifest.FeatureID, ScenarioOrSlice: state.ScenarioOrSlice}, nil
+	return FeatureWorkflowResume{
+		FeatureID:        manifest.FeatureID,
+		ScenarioOrSlice:  state.ScenarioOrSlice,
+		RetiredArtifacts: findRetiredFeatureWorkflowArtifacts(actualWorktree),
+	}, nil
 }
 
 // ArchiveTerminalFeatureRuntime moves exactly the verified worktree's current
@@ -125,6 +130,9 @@ func verifyFeatureWorkflowRecoveryBoundary(actualWorktree string, manifestConten
 	}
 	if fmt.Sprintf("%x", sha256.Sum256(manifestContents)) != state.ManifestFingerprint {
 		return fmt.Errorf("feature workflow recovery boundary manifest fingerprint does not match")
+	}
+	if manifest.PolicyPath != featureWorkflowPolicyPath {
+		return fmt.Errorf("feature workflow recovery boundary policy path is not feature-local")
 	}
 	if err := verifyFeatureWorkflowFingerprint(actualWorktree, manifest.PolicyPath, manifest.PolicyFingerprint); err != nil {
 		return err
