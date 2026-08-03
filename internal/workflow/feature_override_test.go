@@ -224,3 +224,74 @@ func TestSCN612_InvalidOverrideIsRejectedOnDriftOrExpiry(t *testing.T) {
 		})
 	}
 }
+
+// REQ-084 → SCN-613 → TestSCN613_NonWaivableIntegrityFailureProvidesSafeRecovery
+func TestSCN613_NonWaivableIntegrityFailureProvidesSafeRecovery(t *testing.T) {
+	// Scenario: Non-waivable integrity failure provides safe recovery
+	repo := t.TempDir()
+	paths := []string{
+		".rotta/current/manifest.yaml",
+		"specs/approvals/workflow-ergonomics.yaml",
+		".rotta/current/evidence/blocked-operation.yaml",
+	}
+	for _, path := range paths {
+		fullPath := filepath.Join(repo, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("create preserved path parent %q: %v", path, err)
+		}
+		if err := os.WriteFile(fullPath, []byte("preserve\n"), 0o600); err != nil {
+			t.Fatalf("write preserved path %q: %v", path, err)
+		}
+	}
+
+	for _, testCase := range []struct {
+		name      string
+		safeguard NonWaivableIntegritySafeguard
+		invariant string
+		recovery  string
+	}{
+		{
+			name:      "malformed or inconsistent manifest or approval authority",
+			safeguard: NonWaivableManifestOrApprovalAuthority,
+			invariant: "manifest or approval authority",
+			recovery:  "repair",
+		},
+		{
+			name:      "unknown or destructive cleanup target",
+			safeguard: NonWaivableCleanupTarget,
+			invariant: "cleanup target",
+			recovery:  "handoff",
+		},
+		{
+			name:      "incorrect or missing recorded worktree identity",
+			safeguard: NonWaivableWorktreeIdentity,
+			invariant: "worktree identity",
+			recovery:  "verified terminal archive",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			refusal := RefuseNonWaivableOverride(NonWaivableOverrideRequest{
+				Safeguard:      testCase.safeguard,
+				PreservedPaths: paths,
+			})
+			if !refusal.Refused {
+				t.Fatal("non-waivable integrity override was not refused")
+			}
+			if !strings.Contains(refusal.FailedInvariant, testCase.invariant) {
+				t.Fatalf("failed invariant = %q, want %q", refusal.FailedInvariant, testCase.invariant)
+			}
+			if !reflect.DeepEqual(refusal.PreservedPaths, paths) {
+				t.Fatalf("preserved paths = %#v, want %#v", refusal.PreservedPaths, paths)
+			}
+			if !strings.Contains(refusal.Recovery, testCase.recovery) {
+				t.Fatalf("recovery = %q, want safe %q alternative", refusal.Recovery, testCase.recovery)
+			}
+			for _, path := range paths {
+				contents, err := os.ReadFile(filepath.Join(repo, path))
+				if err != nil || string(contents) != "preserve\n" {
+					t.Fatalf("preserved path %q was changed by refusal: %q, %v", path, contents, err)
+				}
+			}
+		})
+	}
+}

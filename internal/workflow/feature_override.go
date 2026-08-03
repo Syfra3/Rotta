@@ -76,6 +76,56 @@ type OverrideEvaluation struct {
 	Remediation string
 }
 
+// NonWaivableIntegritySafeguard identifies integrity conditions that an
+// override can never authorize.
+type NonWaivableIntegritySafeguard string
+
+const (
+	NonWaivableManifestOrApprovalAuthority NonWaivableIntegritySafeguard = "manifest_or_approval_authority"
+	NonWaivableCleanupTarget               NonWaivableIntegritySafeguard = "cleanup_target"
+	NonWaivableWorktreeIdentity            NonWaivableIntegritySafeguard = "worktree_identity"
+)
+
+// NonWaivableOverrideRequest identifies preserved feature paths while a
+// requested override is refused for an integrity safeguard.
+type NonWaivableOverrideRequest struct {
+	Safeguard      NonWaivableIntegritySafeguard
+	PreservedPaths []string
+}
+
+// NonWaivableOverrideRefusal gives the failed invariant and a human-directed
+// recovery alternative. It never performs cleanup.
+type NonWaivableOverrideRefusal struct {
+	Refused         bool
+	FailedInvariant string
+	PreservedPaths  []string
+	Recovery        string
+}
+
+// RefuseNonWaivableOverride refuses integrity-bypassing overrides without
+// changing any preserved path or performing destructive cleanup.
+func RefuseNonWaivableOverride(request NonWaivableOverrideRequest) NonWaivableOverrideRefusal {
+	refusal := NonWaivableOverrideRefusal{
+		Refused:        true,
+		PreservedPaths: append([]string(nil), request.PreservedPaths...),
+	}
+	switch request.Safeguard {
+	case NonWaivableManifestOrApprovalAuthority:
+		refusal.FailedInvariant = "manifest or approval authority is malformed or inconsistent"
+		refusal.Recovery = "repair the manifest or approval authority, then resume from the preserved feature worktree"
+	case NonWaivableCleanupTarget:
+		refusal.FailedInvariant = "cleanup target is unknown or destructive"
+		refusal.Recovery = "handoff the preserved paths and verify target ownership before any cleanup"
+	case NonWaivableWorktreeIdentity:
+		refusal.FailedInvariant = "recorded worktree identity is missing or incorrect"
+		refusal.Recovery = "repair the recorded worktree identity or use a verified terminal archive after ownership is proven"
+	default:
+		refusal.FailedInvariant = "integrity safeguard is unrecognized"
+		refusal.Recovery = "handoff the preserved paths for human verification before retrying"
+	}
+	return refusal
+}
+
 func NewDisplayedOverrideAction(input DisplayedOverrideActionInput) *DisplayedOverrideAction {
 	return &DisplayedOverrideAction{input: input}
 }
