@@ -135,7 +135,7 @@ func verifyFeatureWorkflowRecoveryBoundary(actualWorktree string, manifestConten
 		return fmt.Errorf("feature workflow recovery boundary policy path is not feature-local")
 	}
 	if err := verifyFeatureWorkflowFingerprint(actualWorktree, manifest.PolicyPath, manifest.PolicyFingerprint); err != nil {
-		return err
+		return fmt.Errorf("policy remediation: restore the manifest-bound feature-local policy %q: %w", manifest.PolicyPath, err)
 	}
 	if err := verifyFeatureWorkflowFingerprint(actualWorktree, state.ApprovalPath, state.ApprovalFingerprint); err != nil {
 		return err

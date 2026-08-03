@@ -3,6 +3,7 @@ package workflow
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,6 +54,61 @@ func TestSCN606_ContinuationAndReviewUseOnlyFeatureLocalPolicyAndEvidence(t *tes
 			}
 			if review.BaselineSHA != baseline {
 				t.Fatalf("review baseline = %q, want %q", review.BaselineSHA, baseline)
+			}
+		})
+	}
+}
+
+// REQ-082 → SCN-607 → TestSCN607_InvalidFeatureLocalPolicyBlocksWithoutFallback
+func TestSCN607_InvalidFeatureLocalPolicyBlocksWithoutFallback(t *testing.T) {
+	// Scenario: Missing or drifted feature-local policy blocks rather than falls back
+	for _, testCase := range []struct {
+		name       string
+		invalidate func(t *testing.T, repo string)
+	}{
+		{
+			name: "missing",
+			invalidate: func(t *testing.T, repo string) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(repo, ".rotta", "quality-gates.yaml")); err != nil {
+					t.Fatalf("remove feature-local policy: %v", err)
+				}
+			},
+		},
+		{
+			name: "unreadable",
+			invalidate: func(t *testing.T, repo string) {
+				t.Helper()
+				policyPath := filepath.Join(repo, ".rotta", "quality-gates.yaml")
+				if err := os.Remove(policyPath); err != nil {
+					t.Fatalf("remove feature-local policy: %v", err)
+				}
+				if err := os.Mkdir(policyPath, 0o700); err != nil {
+					t.Fatalf("make feature-local policy unreadable: %v", err)
+				}
+			},
+		},
+		{
+			name: "fingerprint drifted",
+			invalidate: func(t *testing.T, repo string) {
+				t.Helper()
+				mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ndrifted: true\n")
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo, _ := prepareSCN606FeatureWorkflow(t)
+			initiatingCheckout := filepath.Join(t.TempDir(), "initiating")
+			runGit(t, repo, "worktree", "add", "-b", "feature/initiating", initiatingCheckout)
+			siblingWorktree := filepath.Join(t.TempDir(), "sibling")
+			runGit(t, repo, "worktree", "add", "-b", "feature/sibling", siblingWorktree)
+			testCase.invalidate(t, repo)
+
+			if _, err := ResumeFeatureWorkflow(repo); err == nil || !strings.Contains(err.Error(), "policy remediation") {
+				t.Fatalf("ResumeFeatureWorkflow error = %v, want policy remediation without fallback", err)
+			}
+			if _, err := ReviewFeatureWorkflow(repo); err == nil || !strings.Contains(err.Error(), "policy remediation") {
+				t.Fatalf("ReviewFeatureWorkflow error = %v, want policy remediation without fallback", err)
 			}
 		})
 	}
