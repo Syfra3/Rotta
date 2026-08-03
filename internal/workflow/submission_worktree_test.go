@@ -67,6 +67,102 @@ func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) 
 	}
 }
 
+// REQ-081 → SCN-602 → TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated
+func TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated(t *testing.T) {
+	// Scenario: Parallel feature worktrees keep mutable workflow state isolated
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish isolated runtime base")
+	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+
+	first, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "first-isolated",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/first-isolated_hard_spec.md",
+		FeaturePath:    "features/first-isolated.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("bootstrap first worktree: %v", err)
+	}
+	second, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "second-isolated",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/second-isolated_hard_spec.md",
+		FeaturePath:    "features/second-isolated.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("bootstrap second worktree: %v", err)
+	}
+
+	firstProgress := FeatureProgressRecord{FeatureID: "first-isolated", WorktreePath: first.WorktreePath, CheckpointState: "first checkpoint", Evidence: "first evidence"}
+	secondProgress := FeatureProgressRecord{FeatureID: "second-isolated", WorktreePath: second.WorktreePath, CheckpointState: "second checkpoint", Evidence: "second evidence"}
+	if err := RecordFeatureProgress(first.WorktreePath, firstProgress); err != nil {
+		t.Fatalf("record first initial progress: %v", err)
+	}
+	if err := RecordFeatureProgress(second.WorktreePath, secondProgress); err != nil {
+		t.Fatalf("record second initial progress: %v", err)
+	}
+
+	secondStatePath := filepath.Join(second.WorktreePath, ".rotta", "current", "state.yaml")
+	secondEvidencePath := filepath.Join(second.WorktreePath, ".rotta", "current", "tdd-log.md")
+	beforeSecondState, err := os.ReadFile(secondStatePath)
+	if err != nil {
+		t.Fatalf("read second state: %v", err)
+	}
+	beforeSecondEvidence, err := os.ReadFile(secondEvidencePath)
+	if err != nil {
+		t.Fatalf("read second evidence: %v", err)
+	}
+
+	firstProgress.CheckpointState = "first progressed checkpoint"
+	firstProgress.Evidence = "first progressed evidence"
+	if err := RecordFeatureProgress(first.WorktreePath, firstProgress); err != nil {
+		t.Fatalf("record first progress: %v", err)
+	}
+	firstState, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "state.yaml"))
+	if err != nil || !strings.Contains(string(firstState), "first progressed checkpoint") {
+		t.Fatalf("first state did not record progressed checkpoint: %q, %v", firstState, err)
+	}
+	firstEvidence, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "tdd-log.md"))
+	if err != nil || !strings.Contains(string(firstEvidence), "first progressed evidence") {
+		t.Fatalf("first evidence did not record progressed evidence: %q, %v", firstEvidence, err)
+	}
+	if err := RecordFeatureProgress(second.WorktreePath, firstProgress); err == nil || !strings.Contains(err.Error(), "feature runtime identity does not match current manifest") {
+		t.Fatalf("second worktree accepted first manifest, worktree, or checkpoint state: %v", err)
+	}
+	if err := RecordFeatureProgress(first.WorktreePath, secondProgress); err == nil || !strings.Contains(err.Error(), "feature runtime identity does not match current manifest") {
+		t.Fatalf("first worktree accepted second manifest, worktree, or checkpoint state: %v", err)
+	}
+
+	afterSecondState, err := os.ReadFile(secondStatePath)
+	if err != nil || string(afterSecondState) != string(beforeSecondState) {
+		t.Fatalf("second state changed after first progress: %q, %v", afterSecondState, err)
+	}
+	afterSecondEvidence, err := os.ReadFile(secondEvidencePath)
+	if err != nil || string(afterSecondEvidence) != string(beforeSecondEvidence) {
+		t.Fatalf("second evidence changed after first progress: %q, %v", afterSecondEvidence, err)
+	}
+	afterFirstState, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "state.yaml"))
+	if err != nil || string(afterFirstState) != string(firstState) {
+		t.Fatalf("first state changed after second progress: %q, %v", afterFirstState, err)
+	}
+	afterFirstEvidence, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "tdd-log.md"))
+	if err != nil || string(afterFirstEvidence) != string(firstEvidence) {
+		t.Fatalf("first evidence changed after second progress: %q, %v", afterFirstEvidence, err)
+	}
+}
+
 // REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree
 func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree(t *testing.T) {
 	// Scenario: Prepare the isolated feature worktree before specification writes
