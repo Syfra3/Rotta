@@ -163,6 +163,99 @@ func TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated(t *testing.T) {
 	}
 }
 
+// REQ-081 → SCN-603 → TestSCN603_UnsafeWorktreePreparationPreservesInitiatingCheckout
+func TestSCN603_UnsafeWorktreePreparationPreservesInitiatingCheckout(t *testing.T) {
+	// Scenario: Unsafe worktree preparation preserves the initiating checkout
+	for _, testCase := range []struct {
+		name       string
+		configure  func(t *testing.T, repo, featureWorktree string)
+		baseSHA    func(string) string
+		wantReason string
+	}{
+		{
+			name: "non-ignored initiating-checkout change",
+			configure: func(t *testing.T, repo, _ string) {
+				mustWrite(t, filepath.Join(repo, "user-change.txt"), "preserve me\n")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "initiating worktree has non-ignored changes",
+		},
+		{
+			name: "existing remote feature branch collision",
+			configure: func(t *testing.T, repo, _ string) {
+				runGit(t, repo, "update-ref", "refs/remotes/origin/feature/unsafe-preparation", "HEAD")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "feature branch already exists",
+		},
+		{
+			name: "existing feature worktree path collision",
+			configure: func(t *testing.T, _, featureWorktree string) {
+				mustWrite(t, filepath.Join(featureWorktree, "preserve-me.txt"), "collision\n")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "worktree path collision",
+		},
+		{
+			name: "detached initiating HEAD",
+			configure: func(t *testing.T, repo, _ string) {
+				runGit(t, repo, "checkout", "--detach")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "detached HEAD",
+		},
+		{
+			name:       "unresolved explicit base SHA",
+			configure:  func(*testing.T, string, string) {},
+			baseSHA:    func(string) string { return strings.Repeat("f", 40) },
+			wantReason: "resolve integration branch",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := t.TempDir()
+			initiatingWorktree := filepath.Join(parent, "repository")
+			if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, initiatingWorktree, "init", "-b", "main")
+			runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+			runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+			mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+			runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+			runGit(t, initiatingWorktree, "commit", "-m", "test: establish unsafe preparation base")
+			baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+			featureWorktree := filepath.Join(parent, "repository-unsafe-preparation")
+			testCase.configure(t, initiatingWorktree, featureWorktree)
+
+			bootstrap, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+				FeatureID:      "unsafe-preparation",
+				BaseSHA:        testCase.baseSHA(baseSHA),
+				SpecPath:       "specs/unsafe-preparation_hard_spec.md",
+				FeaturePath:    "features/unsafe-preparation.feature",
+				CheckpointMode: "strict_per_scenario",
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantReason) || !strings.Contains(err.Error(), "recovery: preserve the initiating checkout") {
+				t.Fatalf("BootstrapFullWorkflow error = %v, want %q with non-destructive recovery", err, testCase.wantReason)
+			}
+			if bootstrap != (FullWorkflowBootstrap{}) {
+				t.Fatalf("bootstrap = %#v, want no unsafe bootstrap", bootstrap)
+			}
+			for _, path := range []string{"specs", "features", ".rotta/current"} {
+				if _, statErr := os.Stat(filepath.Join(initiatingWorktree, filepath.FromSlash(path))); !os.IsNotExist(statErr) {
+					t.Fatalf("unsafe preparation began specification or implementation with %q: %v", path, statErr)
+				}
+			}
+			if _, branchErr := gitSubmissionOutput(initiatingWorktree, "show-ref", "--verify", "--quiet", "refs/heads/feature/unsafe-preparation"); branchErr == nil {
+				t.Fatal("unsafe preparation created the feature branch")
+			}
+			if worktrees := runGitOutput(t, initiatingWorktree, "worktree", "list", "--porcelain"); strings.Contains(worktrees, "worktree "+featureWorktree) {
+				t.Fatal("unsafe preparation created the feature worktree")
+			}
+		})
+	}
+}
+
 // REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree
 func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree(t *testing.T) {
 	// Scenario: Prepare the isolated feature worktree before specification writes
@@ -369,6 +462,7 @@ func installSCN313GitFailure(t *testing.T, failure, repoRoot string) {
 		"  'symbolic-ref --short refs/remotes/origin/HEAD') " + failureCase("default", failure, "exit 1", "printf '%s\\n' origin/main") + ";;\n" +
 		"  'rev-parse --verify main^{commit}') " + failureCase("base", failure, "exit 1", "exit 0") + ";;\n" +
 		"  'branch --list --format=%(refname:short) feature/unsafe-isolation') " + failureCase("branch", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'for-each-ref --format=%(refname) refs/remotes') exit 0;;\n" +
 		"  'worktree list --porcelain') " + failureCase("worktrees", failure, "exit 1", "exit 0") + ";;\n" +
 		"  'worktree add -b feature/unsafe-isolation '* ) " + failureCase("add", failure, "exit 1", "exec \""+git+"\" \"$@\"") + ";;\n" +
 		"  *) exec \"" + git + "\" \"$@\";;\nesac\n"
