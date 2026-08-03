@@ -118,7 +118,13 @@ func installAllHosts(opts Options, result *Result, home, projectPath string) (*R
 			continue
 		}
 		result.Files = append(result.Files, files...)
-		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+		hostResult, err := installedHostResult(opts, host, home, files)
+		if err != nil {
+			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
+			installErr = fmt.Errorf("%s host configuration: %w", host, err)
+			continue
+		}
+		result.Hosts[host] = hostResult
 	}
 	files, err := installConfig(projectPath)
 	if err != nil {
@@ -142,7 +148,7 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 		}
 		return installClaudeCode(hostOpts, home)
 	case "opencode":
-		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
+		if err := cleanPreviousOpenCodeInstallation(hostOpts, home); err != nil {
 			return nil, err
 		}
 		return installOpenCode(hostOpts, home)
@@ -186,7 +192,7 @@ func installConfig(projectPath string) ([]string, error) {
 
 func cleanPreviousInstallation(opts Options, home, projectPath string) error {
 	if opts.Target != "all" {
-		if err := cleanSelectedHosts(opts.Target, home); err != nil {
+		if err := cleanSelectedHosts(opts, home); err != nil {
 			return err
 		}
 	}
@@ -203,18 +209,22 @@ func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) e
 	}
 	return nil
 }
-func cleanSelectedHosts(target, home string) error {
-	for _, host := range selectedHosts(target) {
-		if err := cleanHostInstallation(host, home); err != nil {
+func cleanSelectedHosts(opts Options, home string) error {
+	for _, host := range selectedHosts(opts.Target) {
+		if err := cleanHostInstallationWithOptions(opts, host, home); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 func cleanHostInstallation(host, home string) error {
+	return cleanHostInstallationWithOptions(Options{Target: host}, host, home)
+}
+
+func cleanHostInstallationWithOptions(opts Options, host, home string) error {
 	switch host {
 	case "opencode":
-		return cleanPreviousOpenCodeInstallation(home)
+		return cleanPreviousOpenCodeInstallation(opts, home)
 	case "claude-code":
 		return cleanPreviousClaudeCodeInstallation(home)
 	case "codex":

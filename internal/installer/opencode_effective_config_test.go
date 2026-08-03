@@ -1,0 +1,180 @@
+package installer
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestMain(m *testing.M) {
+	previous, wasSet := os.LookupEnv("XDG_CONFIG_HOME")
+	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	exitCode := m.Run()
+	if wasSet {
+		_ = os.Setenv("XDG_CONFIG_HOME", previous)
+	}
+	os.Exit(exitCode)
+}
+
+// REQ-089 → SCN-622 → TestSCN622_InstallerSelectsDocumentedEffectiveOpenCodeConfig
+func TestSCN622_InstallerSelectsDocumentedEffectiveOpenCodeConfig(t *testing.T) {
+	// Scenario: The installer selects the documented effective OpenCode JSON or JSONC config
+	const (
+		globalSource   = "XDG global configuration"
+		overrideSource = "OPENCODE_CONFIG override"
+		projectSource  = "documented project configuration"
+	)
+	precedence := []string{globalSource, overrideSource, projectSource}
+
+	tests := []struct {
+		name           string
+		setup          func(t *testing.T, home, project string) string
+		wantSource     string
+		wantFormat     string
+		wantTheme      string
+		wantUserMarker string
+	}{
+		{
+			name: "XDG global JSON",
+			setup: func(t *testing.T, home, _ string) string {
+				t.Setenv("OPENCODE_CONFIG", "")
+				path := filepath.Join(home, ".config", "opencode", "opencode.json")
+				writeTestFile(t, path, []byte(`{"$schema":"https://opencode.ai/config.json","theme":"global","agent":{"user-agent":{"description":"keep global"},"build":{"description":"keep built-in"}}}`))
+				return path
+			},
+			wantSource: globalSource, wantFormat: "JSON", wantTheme: "global", wantUserMarker: "keep global",
+		},
+		{
+			name: "OPENCODE_CONFIG override JSONC",
+			setup: func(t *testing.T, home, _ string) string {
+				global := filepath.Join(home, ".config", "opencode", "opencode.json")
+				writeTestFile(t, global, []byte(`{"theme":"inactive global","agent":{"user-agent":{"description":"keep inactive"}}}`))
+				path := filepath.Join(home, "custom", "opencode.jsonc")
+				writeTestFile(t, path, []byte("// keep this user comment\n{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"theme\": \"override\",\n  \"agent\": {\"user-agent\": {\"description\": \"keep override\"}, \"build\": {\"description\": \"keep built-in\"}},\n}\n"))
+				t.Setenv("OPENCODE_CONFIG", path)
+				return path
+			},
+			wantSource: overrideSource, wantFormat: "JSONC", wantTheme: "override", wantUserMarker: "keep override",
+		},
+		{
+			name: "documented project JSONC",
+			setup: func(t *testing.T, home, project string) string {
+				t.Setenv("OPENCODE_CONFIG", "")
+				global := filepath.Join(home, ".config", "opencode", "opencode.json")
+				writeTestFile(t, global, []byte(`{"theme":"inactive global","agent":{"user-agent":{"description":"keep inactive"}}}`))
+				path := filepath.Join(project, "opencode.jsonc")
+				writeTestFile(t, path, []byte("/* keep this project comment */\n{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"theme\": \"project\",\n  \"agent\": {\"user-agent\": {\"description\": \"keep project\"}, \"build\": {\"description\": \"keep built-in\"}},\n}\n"))
+				return path
+			},
+			wantSource: projectSource, wantFormat: "JSONC", wantTheme: "project", wantUserMarker: "keep project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			project := filepath.Join(home, "project")
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			effectivePath := tt.setup(t, home, project)
+			globalPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+			inactiveBefore, err := os.ReadFile(globalPath)
+			if err != nil && effectivePath != globalPath {
+				t.Fatalf("read inactive global config: %v", err)
+			}
+
+			resolution, err := resolveOpenCodeConfig(Options{ProjectPath: project}, home)
+			if err != nil {
+				t.Fatalf("resolveOpenCodeConfig() error = %v", err)
+			}
+			if resolution.Path != effectivePath || resolution.Source != tt.wantSource || resolution.Format != tt.wantFormat || !reflect.DeepEqual(resolution.Precedence, precedence) {
+				t.Fatalf("resolution = %#v, want path=%q source=%q format=%q precedence=%#v", resolution, effectivePath, tt.wantSource, tt.wantFormat, precedence)
+			}
+
+			result, err := Install(Options{Target: "opencode", ProjectPath: project})
+			if err != nil {
+				t.Fatalf("Install() error = %v", err)
+			}
+			if got := result.Hosts["opencode"].OpenCodeConfig; !reflect.DeepEqual(got, resolution) {
+				t.Fatalf("reported OpenCode config = %#v, want %#v", got, resolution)
+			}
+
+			data, err := os.ReadFile(effectivePath)
+			if err != nil {
+				t.Fatalf("read effective config: %v", err)
+			}
+			got := string(data)
+			for _, want := range []string{"\"rotta-orchestrator\"", "\"theme\": \"" + tt.wantTheme + "\"", tt.wantUserMarker, "keep built-in"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("effective config missing %q:\n%s", want, got)
+				}
+			}
+			if tt.wantFormat == "JSONC" && !strings.Contains(got, "comment") {
+				t.Errorf("JSONC user comment was not preserved:\n%s", got)
+			}
+			if effectivePath != globalPath {
+				inactiveAfter, err := os.ReadFile(globalPath)
+				if err != nil {
+					t.Fatalf("read inactive global config after install: %v", err)
+				}
+				if !reflect.DeepEqual(inactiveAfter, inactiveBefore) {
+					t.Errorf("inactive global config was modified:\n%s", inactiveAfter)
+				}
+			}
+		})
+	}
+}
+
+// REQ-089 → SCN-622 → TestSCN622_InstallerUsesNonDefaultXDGConfigHome
+func TestSCN622_InstallerUsesNonDefaultXDGConfigHome(t *testing.T) {
+	// Scenario: The installer selects the documented effective OpenCode JSON or JSONC config
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	xdgConfigHome := filepath.Join(home, "custom-xdg")
+	effectivePath := filepath.Join(xdgConfigHome, "opencode", "opencode.json")
+	defaultPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("OPENCODE_CONFIG", "")
+	writeTestFile(t, effectivePath, []byte(`{"$schema":"https://opencode.ai/config.json","theme":"xdg","agent":{"user-agent":{"description":"keep xdg"},"build":{"description":"keep built-in"}}}`))
+	writeTestFile(t, defaultPath, []byte(`{"theme":"default must stay untouched","agent":{"user-agent":{"description":"keep default"}}}`))
+	defaultBefore, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read default config before install: %v", err)
+	}
+
+	resolution, err := resolveOpenCodeConfig(Options{ProjectPath: project}, home)
+	if err != nil {
+		t.Fatalf("resolveOpenCodeConfig() error = %v", err)
+	}
+	if resolution.Path != effectivePath || resolution.Source != openCodeGlobalConfigSource || resolution.Format != "JSON" {
+		t.Fatalf("resolution = %#v, want non-default XDG JSON configuration %q", resolution, effectivePath)
+	}
+
+	result, err := Install(Options{Target: "opencode", ProjectPath: project})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := result.Hosts["opencode"].OpenCodeConfig; !reflect.DeepEqual(got, resolution) {
+		t.Fatalf("reported OpenCode config = %#v, want %#v", got, resolution)
+	}
+
+	effective, err := os.ReadFile(effectivePath)
+	if err != nil {
+		t.Fatalf("read effective XDG config after install: %v", err)
+	}
+	for _, want := range []string{"\"rotta-orchestrator\"", "\"theme\": \"xdg\"", "keep xdg", "keep built-in"} {
+		if !strings.Contains(string(effective), want) {
+			t.Errorf("effective XDG config missing %q:\n%s", want, effective)
+		}
+	}
+	defaultAfter, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read default config after install: %v", err)
+	}
+	if !reflect.DeepEqual(defaultAfter, defaultBefore) {
+		t.Errorf("default home config was modified:\n%s", defaultAfter)
+	}
+}
