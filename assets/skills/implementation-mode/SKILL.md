@@ -22,7 +22,7 @@ For every user-invocable Claude-facing request for implementation, you MUST rout
 
 Before writing a single line of code, verify ALL of the following:
 
-- [ ] A matching feature-scoped approval record and committed baseline include the scenario ID being implemented; `specs/.approved` is not approval authority.
+- [ ] A matching feature-scoped approval record and committed baseline include the scenario ID being implemented.
 - [ ] `features/*.feature` files exist and are parseable.
 - [ ] The test suite is currently GREEN (all existing tests pass).
 - [ ] No uncommitted changes exist in the working tree.
@@ -102,7 +102,7 @@ The Judge validates this traceability. Missing IDs = traceability gate failure.
 
 ## Logging
 
-Append every cycle log to `.rotta/tdd-log.md`:
+Append every cycle log to `.rotta/current/tdd-log.md`:
 
 ```markdown
 ## SCN-001 — <scenario title>
@@ -140,9 +140,4 @@ When the assigned SCN-NNN scenario has passed the full Red/Green/Refactor cycle:
    owns cleanup/checkpointing so the next TDD task can start from a clean
    worktree.
 
-When ALL approved SCN-NNN scenarios have passed the full Red/Green/Refactor cycle:
-
-1. Run the full test suite one final time.
-2. Confirm 100% pass.
-3. Write `specs/.implementation-complete` with scenario list and timestamp.
-4. Signal the workflow to advance to Review Mode.
+When the assigned scenario has passed, return its evidence to the Rotta-Orchestrator. Do not create completion artifacts or advance the workflow.
