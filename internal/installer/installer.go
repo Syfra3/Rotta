@@ -170,15 +170,19 @@ func install(opts Options) (*Result, error) {
 		recordChangedFiles(result, projectPath)
 		return result, err
 	}
-	if err := setupVela(opts, result, home, projectPath); err != nil {
-		return nil, err
-	}
-
 	if keepResult, err := setupContext7(opts, result, home, projectPath); err != nil {
 		if keepResult {
 			return result, err
 		}
 		return nil, err
+	}
+	velaTransaction, err := beginSelectedOpenCodeVelaTransaction(opts, result, home)
+	if err != nil {
+		recordChangedFiles(result, projectPath)
+		return result, err
+	}
+	if err := setupVelaWithTransaction(opts, result, home, projectPath, velaTransaction); err != nil {
+		return recoverSelectedOpenCodeVelaFailure(result, opts, projectPath, velaTransaction, err)
 	}
 
 	if err := setupCodexMCP(opts, result, home, projectPath); err != nil {
@@ -189,6 +193,53 @@ func install(opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func beginSelectedOpenCodeVelaTransaction(opts Options, result *Result, home string) (*openCodeVelaTransaction, error) {
+	if !opts.SetupVela || !targetsOpenCode(opts.Target) {
+		return nil, nil
+	}
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return nil, fmt.Errorf("begin Vela scoped transaction: %w", err)
+	}
+	transaction, err := beginOpenCodeVelaTransaction(result.BackupDir, resolution.Path)
+	if err != nil {
+		return nil, err
+	}
+	return transaction, nil
+}
+
+func recoverSelectedOpenCodeVelaFailure(result *Result, opts Options, projectPath string, transaction *openCodeVelaTransaction, setupErr error) (*Result, error) {
+	if transaction != nil {
+		if _, err := transaction.recover(setupErr); err != nil {
+			setupErr = err
+		}
+	}
+	recordVelaSetupFailure(result, opts, setupErr)
+	recordMCPStatuses(result, opts)
+	if err := recordMCPStatusEvidence(result); err != nil {
+		return result, err
+	}
+	recordChangedFiles(result, projectPath)
+	result.Error = setupErr.Error()
+	return result, setupErr
+}
+
+func recordVelaSetupFailure(result *Result, opts Options, setupErr error) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult := result.Hosts[host]
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		hostResult.Capabilities["mcp:vela"] = HostCapability{
+			Name:        "mcp:vela",
+			Status:      HostCapabilityStatusFailed,
+			Reason:      setupErr.Error(),
+			Remediation: "Repair the Vela setup failure and rerun Rotta; successful selected-host integrations remain configured.",
+		}
+		result.Hosts[host] = hostResult
+	}
 }
 
 // Install runs the full installation and returns a summary.
@@ -240,6 +291,10 @@ func setupAncora(opts Options, result *Result, home string) error {
 }
 
 func setupVela(opts Options, result *Result, home, projectPath string) error {
+	return setupVelaWithTransaction(opts, result, home, projectPath, nil)
+}
+
+func setupVelaWithTransaction(opts Options, result *Result, home, projectPath string, transaction *openCodeVelaTransaction) error {
 	if !opts.SetupVela {
 		return nil
 	}
@@ -253,7 +308,11 @@ func setupVela(opts Options, result *Result, home, projectPath string) error {
 	if len(vr.MCPAvailability) != 0 {
 		markBackedUpVelaConfigurations(vr, result.BackupDir, home)
 		if velaConfigurationNeedsRestore(vr) {
-			if _, err := RestoreBackup(result.BackupDir); err != nil {
+			if transaction != nil {
+				if _, err := transaction.recover(fmt.Errorf("Vela configuration was not newly validated")); err != nil {
+					return err
+				}
+			} else if _, err := RestoreBackup(result.BackupDir); err != nil {
 				return fmt.Errorf("restore previous Vela configuration: %w", err)
 			}
 		}
