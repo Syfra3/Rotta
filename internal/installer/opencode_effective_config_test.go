@@ -178,3 +178,168 @@ func TestSCN622_InstallerUsesNonDefaultXDGConfigHome(t *testing.T) {
 		t.Errorf("default home config was modified:\n%s", defaultAfter)
 	}
 }
+
+// REQ-089 → SCN-623 → TestSCN623_AmbiguousOrSchemaInvalidConfigIsNotModified
+func TestSCN623_AmbiguousOrSchemaInvalidConfigIsNotModified(t *testing.T) {
+	// Scenario: Ambiguous or schema-invalid OpenCode configuration is not modified
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T, home, project string) []string
+		wantBlocker string
+	}{
+		{
+			name: "ambiguous documented project candidates",
+			setup: func(t *testing.T, home, project string) []string {
+				t.Setenv("OPENCODE_CONFIG", "")
+				jsonPath := filepath.Join(project, "opencode.json")
+				jsoncPath := filepath.Join(project, "opencode.jsonc")
+				writeTestFile(t, jsonPath, []byte(`{"theme":"project JSON"}`))
+				writeTestFile(t, jsoncPath, []byte("// competing documented candidate\n{\"theme\": \"project JSONC\"}\n"))
+				return []string{jsonPath, jsoncPath}
+			},
+			wantBlocker: "effective-config resolution blocked",
+		},
+		{
+			name: "schema-invalid documented configuration",
+			setup: func(t *testing.T, home, _ string) []string {
+				path := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+				writeTestFile(t, path, []byte("// agent must be an object in the documented OpenCode configuration\n{\n  \"agent\": \"not an object\",\n}\n"))
+				t.Setenv("OPENCODE_CONFIG", path)
+				return []string{path}
+			},
+			wantBlocker: "schema validation blocked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			project := filepath.Join(home, "project")
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			configPaths := tt.setup(t, home, project)
+			writeTestFile(t, filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions":{"allow":["mcp__rotta__spec_mode"]},"user":"unchanged"}`))
+
+			configsBefore := map[string][]byte{}
+			for _, configPath := range configPaths {
+				config, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatalf("read OpenCode config before install: %v", err)
+				}
+				configsBefore[configPath] = config
+			}
+			claudeSettingsPath := filepath.Join(home, ".claude", "settings.json")
+			claudeBefore, err := os.ReadFile(claudeSettingsPath)
+			if err != nil {
+				t.Fatalf("read unrelated Claude settings before install: %v", err)
+			}
+
+			result, err := Install(Options{Target: "both", ProjectPath: project, InstallSpec: true})
+			if err == nil {
+				t.Fatal("Install() error = nil, want blocked OpenCode installation")
+			}
+			if !strings.Contains(err.Error(), tt.wantBlocker) || !strings.Contains(result.Error, tt.wantBlocker) {
+				t.Fatalf("blocked installation report = error %q, result %q, want %q", err, result.Error, tt.wantBlocker)
+			}
+
+			for configPath, configBefore := range configsBefore {
+				configAfter, err := os.ReadFile(configPath)
+				if err != nil {
+					t.Fatalf("read OpenCode config after install: %v", err)
+				}
+				if !reflect.DeepEqual(configAfter, configBefore) {
+					t.Errorf("OpenCode config %s was modified despite %s:\n%s", configPath, tt.wantBlocker, configAfter)
+				}
+			}
+			claudeAfter, err := os.ReadFile(claudeSettingsPath)
+			if err != nil {
+				t.Fatalf("read unrelated Claude settings after install: %v", err)
+			}
+			if !reflect.DeepEqual(claudeAfter, claudeBefore) {
+				t.Errorf("unrelated Claude installation was modified:\n%s", claudeAfter)
+			}
+		})
+	}
+}
+
+// REQ-089 → SCN-623 → TestSCN623_AllHostInstallFailsClosedBeforeOpenCodeMutation
+func TestSCN623_AllHostInstallFailsClosedBeforeOpenCodeMutation(t *testing.T) {
+	// Scenario: Ambiguous or schema-invalid OpenCode configuration is not modified
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("OPENCODE_CONFIG", "")
+
+	openCodeConfigPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	openCodeBefore := []byte(`{"agent":"not an object"}`)
+	writeTestFile(t, openCodeConfigPath, openCodeBefore)
+	claudeSettingsPath := filepath.Join(home, ".claude", "settings.json")
+	claudeBefore := []byte(`{"user":"keep Claude unchanged"}`)
+	writeTestFile(t, claudeSettingsPath, claudeBefore)
+	codexInstructionsPath := filepath.Join(home, ".codex", "AGENTS.md")
+	codexBefore := []byte("keep Codex unchanged\n")
+	writeTestFile(t, codexInstructionsPath, codexBefore)
+
+	result, err := Install(Options{Target: "all", ProjectPath: project, InstallSpec: true})
+	if err == nil {
+		t.Fatal("Install() error = nil, want schema validation blocked")
+	}
+	if !strings.Contains(err.Error(), "schema validation blocked") || !strings.Contains(result.Error, "schema validation blocked") {
+		t.Fatalf("blocked installation report = error %q, result %q, want schema validation blocked", err, result.Error)
+	}
+	for path, before := range map[string][]byte{
+		openCodeConfigPath:    openCodeBefore,
+		claudeSettingsPath:    claudeBefore,
+		codexInstructionsPath: codexBefore,
+	} {
+		after, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read %s after blocked all-host install: %v", path, readErr)
+		}
+		if !reflect.DeepEqual(after, before) {
+			t.Errorf("%s was modified despite schema validation block:\n%s", path, after)
+		}
+	}
+}
+
+// REQ-089 → SCN-623 → TestSCN623_AllHostInstallBlocksMalformedOpenCodeConfiguration
+func TestSCN623_AllHostInstallBlocksMalformedOpenCodeConfiguration(t *testing.T) {
+	// Scenario: Ambiguous or schema-invalid OpenCode configuration is not modified
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("OPENCODE_CONFIG", "")
+
+	openCodeConfigPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	openCodeBefore := []byte(`{"agent":`)
+	writeTestFile(t, openCodeConfigPath, openCodeBefore)
+	claudeSettingsPath := filepath.Join(home, ".claude", "settings.json")
+	claudeBefore := []byte(`{"user":"keep Claude unchanged"}`)
+	writeTestFile(t, claudeSettingsPath, claudeBefore)
+	codexInstructionsPath := filepath.Join(home, ".codex", "AGENTS.md")
+	codexBefore := []byte("keep Codex unchanged\n")
+	writeTestFile(t, codexInstructionsPath, codexBefore)
+
+	result, err := Install(Options{Target: "all", ProjectPath: project, InstallSpec: true})
+	if err == nil {
+		t.Fatal("Install() error = nil, want schema validation blocked")
+	}
+	if !strings.Contains(err.Error(), "schema validation blocked") || !strings.Contains(result.Error, "schema validation blocked") {
+		t.Fatalf("blocked installation report = error %q, result %q, want schema validation blocked", err, result.Error)
+	}
+	for path, before := range map[string][]byte{
+		openCodeConfigPath:    openCodeBefore,
+		claudeSettingsPath:    claudeBefore,
+		codexInstructionsPath: codexBefore,
+	} {
+		after, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read %s after blocked all-host install: %v", path, readErr)
+		}
+		if !reflect.DeepEqual(after, before) {
+			t.Errorf("%s was modified despite schema validation block:\n%s", path, after)
+		}
+	}
+}

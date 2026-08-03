@@ -119,6 +119,10 @@ func install(opts Options) (*Result, error) {
 	if err != nil {
 		return result, err
 	}
+	if err := validateSelectedOpenCodeConfiguration(opts, home); err != nil {
+		recordSelectedHostFailure(result, opts, err)
+		return result, err
+	}
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
 		return failedCleanInstall(result, opts, projectPath, err)
