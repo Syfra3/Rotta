@@ -10,6 +10,63 @@ import (
 	"time"
 )
 
+// REQ-081 → SCN-601 → TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree
+func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) {
+	// Scenario: A new feature is bootstrapped only in its explicit-base worktree
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish explicit bootstrap base")
+	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+
+	bootstrap, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "isolated-bootstrap",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/isolated-bootstrap_hard_spec.md",
+		FeaturePath:    "features/isolated-bootstrap.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("BootstrapFullWorkflow returned error: %v", err)
+	}
+
+	wantWorktree := filepath.Join(parent, "repository-isolated-bootstrap")
+	if bootstrap.WorktreePath != wantWorktree || bootstrap.FeatureBranch != "feature/isolated-bootstrap" || bootstrap.BaseSHA != baseSHA {
+		t.Fatalf("bootstrap = %#v, want worktree %q, branch feature/isolated-bootstrap, base %q", bootstrap, wantWorktree, baseSHA)
+	}
+	if got := runGitOutput(t, bootstrap.WorktreePath, "rev-parse", "HEAD"); got != baseSHA {
+		t.Fatalf("feature worktree HEAD = %q, want explicit base %q", got, baseSHA)
+	}
+	if got := runGitOutput(t, bootstrap.WorktreePath, "branch", "--show-current"); got != "feature/isolated-bootstrap" {
+		t.Fatalf("feature worktree branch = %q, want feature/isolated-bootstrap", got)
+	}
+
+	for _, path := range []string{"specs/isolated-bootstrap_hard_spec.md", "features/isolated-bootstrap.feature", ".rotta/current/manifest.yaml", ".rotta/quality-gates.yaml"} {
+		if _, err := os.Stat(filepath.Join(bootstrap.WorktreePath, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("feature worktree is missing %q: %v", path, err)
+		}
+	}
+	if manifests, err := filepath.Glob(filepath.Join(bootstrap.WorktreePath, ".rotta", "current", "manifest*.yaml")); err != nil || len(manifests) != 1 {
+		t.Fatalf("feature worktree manifests = %v, %v; want exactly one", manifests, err)
+	}
+	if policy, err := os.ReadFile(filepath.Join(bootstrap.WorktreePath, ".rotta", "quality-gates.yaml")); err != nil || string(policy) != "format: rotta.quality-gates/v2\n" {
+		t.Fatalf("feature-local policy = %q, %v; want copied policy", policy, err)
+	}
+	for _, path := range []string{"specs", "features", ".rotta/current", "specs/approvals"} {
+		if _, err := os.Stat(filepath.Join(initiatingWorktree, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("initiating checkout received submission artifact %q: %v", path, err)
+		}
+	}
+}
+
 // REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree
 func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree(t *testing.T) {
 	// Scenario: Prepare the isolated feature worktree before specification writes
