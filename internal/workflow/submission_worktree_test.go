@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,75 @@ import (
 	"testing"
 	"time"
 )
+
+// REQ-081 → SCN-604 → TestSCN604_ResumeAndArchiveRetainVerifiedFeatureRecoveryBoundary
+func TestSCN604_ResumeAndArchiveRetainVerifiedFeatureRecoveryBoundary(t *testing.T) {
+	// Scenario: Resume and archive retain a verified feature recovery boundary
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "checkout", "-b", "feature/recovery-boundary")
+	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	mustWrite(t, filepath.Join(repo, "specs", "recovery-boundary_hard_spec.md"), "# approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "recovery-boundary.feature"), "@SCN-604\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "recovery-boundary.yaml"), "status: approved\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "test: establish recovery baseline")
+	baselineSHA := runGitOutput(t, repo, "rev-parse", "HEAD")
+
+	policy, err := os.ReadFile(filepath.Join(repo, ".rotta", "quality-gates.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := os.ReadFile(filepath.Join(repo, "specs", "approvals", "recovery-boundary.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf("format: rotta.workflow-manifest/v1\nfeature_id: recovery-boundary\nworktree: %s\nbranch: feature/recovery-boundary\nbase_sha: %s\npolicy_path: .rotta/quality-gates.yaml\npolicy_fingerprint: %x\nspec_path: specs/recovery-boundary_hard_spec.md\nfeature_path: features/recovery-boundary.feature\ncheckpoint_mode: strict_per_scenario\n", repo, baselineSHA, sha256.Sum256(policy))
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), manifest)
+
+	state := func(status string) string {
+		return fmt.Sprintf("format: rotta.feature-runtime-state/v1\nfeature_id: recovery-boundary\nworktree: %s\nbranch: feature/recovery-boundary\nbaseline_sha: %s\nmanifest_fingerprint: %x\napproval_path: specs/approvals/recovery-boundary.yaml\napproval_fingerprint: %x\nscenario_or_slice: SCN-604\nstatus: %s\n", repo, baselineSHA, sha256.Sum256([]byte(manifest)), sha256.Sum256(approval), status)
+	}
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), state("checkpointed"))
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-604\n")
+
+	otherWorktree := t.TempDir()
+	mustWrite(t, filepath.Join(otherWorktree, ".rotta", "current", "preserve-me"), "other feature runtime\n")
+
+	resumed, err := ResumeFeatureWorkflow(repo)
+	if err != nil {
+		t.Fatalf("ResumeFeatureWorkflow returned error: %v", err)
+	}
+	if resumed.FeatureID != "recovery-boundary" || resumed.ScenarioOrSlice != "SCN-604" {
+		t.Fatalf("resumed=%#v, want only recovery-boundary at SCN-604", resumed)
+	}
+
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), state("terminal"))
+	if err := ArchiveTerminalFeatureRuntime(repo); err != nil {
+		t.Fatalf("ArchiveTerminalFeatureRuntime returned error: %v", err)
+	}
+
+	archive := filepath.Join(repo, ".rotta", "archive", "recovery-boundary", baselineSHA)
+	if _, err := os.Stat(filepath.Join(archive, "manifest.yaml")); err != nil {
+		t.Fatalf("archive is missing this feature runtime: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current")); !os.IsNotExist(err) {
+		t.Fatalf("active runtime remains after archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(otherWorktree, ".rotta", "current", "preserve-me")); err != nil {
+		t.Fatalf("archive touched another worktree runtime: %v", err)
+	}
+	for _, path := range []string{"specs/recovery-boundary_hard_spec.md", "features/recovery-boundary.feature", "specs/approvals/recovery-boundary.yaml", ".rotta/quality-gates.yaml"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("inspectable feature artifact %q is missing: %v", path, err)
+		}
+	}
+	if branch := runGitOutput(t, repo, "branch", "--show-current"); branch != "feature/recovery-boundary" {
+		t.Fatalf("feature branch = %q, want retained feature/recovery-boundary", branch)
+	}
+}
 
 // REQ-081 → SCN-601 → TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree
 func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) {
