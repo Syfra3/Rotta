@@ -66,17 +66,17 @@ func ExecuteCompactSlice(request CompactSliceRequest) (CompactSliceReport, error
 		return CompactSliceReport{}, err
 	}
 	if err := validateCompactSliceEvidence(worktree, request.ScenarioEvidence); err != nil {
-		return CompactSliceReport{}, err
+		return CompactSliceReport{}, compactSliceStopError(request.SliceID, "affected scenario", err, "restoring the affected scenario evidence and rerunning the slice")
 	}
 	capsuleDecisionPath, err := validateCompactSliceCapsuleDecision(worktree, request.CapsuleDecisionPath)
 	if err != nil {
 		return CompactSliceReport{}, err
 	}
 	if err := request.RunFullValidation(); err != nil {
-		return CompactSliceReport{}, fmt.Errorf("compact slice full validation: %w", err)
+		return CompactSliceReport{}, compactSliceStopError(request.SliceID, "slice", err, "correcting the failure and rerunning the slice")
 	}
 	if err := validateCompactSliceChanges(worktree, request.ExpectedChangedPaths); err != nil {
-		return CompactSliceReport{}, err
+		return CompactSliceReport{}, compactSliceStopError(request.SliceID, "slice scope", err, "resolving the scope drift and rerunning the slice")
 	}
 	if err := stageScenarioChanges(worktree, request.ExpectedChangedPaths); err != nil {
 		return CompactSliceReport{}, err
@@ -94,6 +94,10 @@ func ExecuteCompactSlice(request CompactSliceRequest) (CompactSliceReport, error
 		CapsuleDecisionPath: capsuleDecisionPath,
 		Checkpoint:          checkpoint,
 	}, nil
+}
+
+func compactSliceStopError(sliceID, affected string, cause error, resumeAction string) error {
+	return fmt.Errorf("compact slice %q stopped at %s: %w; preserved local changes and evidence; resume by %s, handoff the preserved worktree and evidence, or use recovery guidance", sliceID, affected, cause, resumeAction)
 }
 
 func validateCompactSliceRequest(request CompactSliceRequest) error {
@@ -177,7 +181,27 @@ func validateCompactSliceEvidence(worktree string, scenarios []CompactSliceScena
 			if err := requireRegularFile(path); err != nil {
 				return fmt.Errorf("compact slice %s evidence: %w", scenario.ScenarioID, err)
 			}
+			if evidencePath == scenario.FocusedTestEvidencePath {
+				if err := validateFocusedTestEvidence(path); err != nil {
+					return fmt.Errorf("compact slice %s focused test failed: %w", scenario.ScenarioID, err)
+				}
+			}
 		}
+	}
+	return nil
+}
+
+func validateFocusedTestEvidence(path string) error {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var result struct {
+		ExitStatus *int `json:"exit_status"`
+		TimedOut   bool `json:"timed_out"`
+	}
+	if json.Unmarshal(contents, &result) == nil && (result.TimedOut || (result.ExitStatus != nil && *result.ExitStatus != 0)) {
+		return fmt.Errorf("recorded non-passing command result")
 	}
 	return nil
 }
