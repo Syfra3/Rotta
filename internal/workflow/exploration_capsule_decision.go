@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,9 +12,17 @@ import (
 
 const (
 	CapsuleDecisionNoneRequired = "none-required"
+	CapsuleDecisionCreated      = "created"
 	maxFocusedLocalActions      = 8
 	maxLocalScopeComponents     = 2
 	maxLocalScopeDependents     = 5
+	maxCapsuleLines             = 120
+	maxCapsuleBytes             = 12 * 1024
+	maxCapsuleFiles             = 12
+	maxCapsuleSymbols           = 20
+	maxCapsuleTestCommands      = 5
+	capsuleFingerprintPrefix    = "- Capsule fingerprint: "
+	capsuleMetadataPrefix       = "<!-- rotta-capsule/v1 "
 )
 
 // LocalScopeDelegationRequest contains only the completed local-inspection
@@ -35,6 +45,76 @@ type LocalScopeDelegationReport struct {
 	ScenarioOrSlice string
 	CapsuleDecision string
 	DecisionPath    string
+}
+
+// ExplorationCapsuleRequest contains the bounded local-inspection facts and
+// the selected capsule content needed to delegate cross-component work.
+type ExplorationCapsuleRequest struct {
+	FeatureWorktree       string
+	CapsuleID             string
+	ScenarioOrSlice       string
+	FocusedActions        int
+	OwnerResolved         bool
+	InvariantResolved     bool
+	TopLevelComponents    []string
+	DirectDependents      []string
+	Objective             string
+	InScope               []string
+	OutOfScope            []string
+	Files                 []string
+	Symbols               []string
+	Invariants            []string
+	TestCommands          []string
+	Risks                 []string
+	UnresolvedBlockers    []string
+	ManifestFingerprint   string
+	ContractFingerprint   string
+	PolicyFingerprint     string
+	RequiredEvidencePaths []string
+	BoundExhausted        bool
+	Delegate              func(ImplementationCapsuleInput) error
+}
+
+// ImplementationCapsuleInput is the complete exploration context an
+// implementation delegate may receive.
+type ImplementationCapsuleInput struct {
+	CapsulePath           string
+	ScenarioOrSlice       string
+	RequiredEvidencePaths []string
+}
+
+// ExplorationCapsuleReport identifies a persisted, fingerprint-bound capsule.
+type ExplorationCapsuleReport struct {
+	CapsuleID          string
+	CapsulePath        string
+	CapsuleFingerprint string
+	ScenarioOrSlice    string
+	DecisionPath       string
+}
+
+// ExplorationCapsuleResumeRequest supplies only the current bindings and
+// required evidence needed to safely reuse a persisted capsule.
+type ExplorationCapsuleResumeRequest struct {
+	CapsulePath           string
+	ScenarioOrSlice       string
+	ManifestFingerprint   string
+	ContractFingerprint   string
+	PolicyFingerprint     string
+	RequiredEvidencePaths []string
+	Delegate              func(ImplementationCapsuleInput) error
+}
+
+type explorationCapsuleDecision struct {
+	CapsuleDecision       string   `json:"capsule_decision"`
+	CapsuleID             string   `json:"capsule_id"`
+	CapsuleFingerprint    string   `json:"capsule_fingerprint"`
+	ScenarioOrSlice       string   `json:"scenario_or_slice"`
+	StatePath             string   `json:"state_path"`
+	RequiredEvidencePaths []string `json:"required_evidence_paths"`
+}
+
+type explorationCapsuleMetadata struct {
+	ScenarioOrSlice string `json:"scenario_or_slice"`
 }
 
 type localScopeCapsuleDecision struct {
@@ -103,6 +183,291 @@ func DelegateLocalApprovedWork(request LocalScopeDelegationRequest) (LocalScopeD
 		CapsuleDecision: CapsuleDecisionNoneRequired,
 		DecisionPath:    decisionPath,
 	}, nil
+}
+
+// CreateExplorationCapsule records a bounded capsule, links it to the current
+// execution evidence, and delegates only its path, scenario, and evidence.
+func CreateExplorationCapsule(request ExplorationCapsuleRequest) (ExplorationCapsuleReport, error) {
+	if err := validateExplorationCapsuleRequest(request); err != nil {
+		return ExplorationCapsuleReport{}, err
+	}
+	worktree, err := filepath.Abs(request.FeatureWorktree)
+	if err != nil {
+		return ExplorationCapsuleReport{}, fmt.Errorf("resolve feature worktree: %w", err)
+	}
+	statePath := filepath.Join(worktree, ".rotta", "current", "state.yaml")
+	currentScenarioOrSlice, err := readCurrentScenarioOrSlice(statePath)
+	if err != nil {
+		return ExplorationCapsuleReport{}, err
+	}
+	if currentScenarioOrSlice != request.ScenarioOrSlice {
+		return ExplorationCapsuleReport{}, fmt.Errorf("current state scenario or slice %q does not match requested %q", currentScenarioOrSlice, request.ScenarioOrSlice)
+	}
+	evidencePaths, err := requiredCapsuleEvidencePaths(worktree, request.RequiredEvidencePaths)
+	if err != nil {
+		return ExplorationCapsuleReport{}, err
+	}
+
+	capsuleContents, fingerprint, err := renderExplorationCapsule(request)
+	if err != nil {
+		return ExplorationCapsuleReport{}, err
+	}
+	capsulePath := filepath.Join(worktree, ".rotta", "current", "capsules", request.CapsuleID+".md")
+	if err := os.MkdirAll(filepath.Dir(capsulePath), 0o700); err != nil {
+		return ExplorationCapsuleReport{}, fmt.Errorf("create capsule directory: %w", err)
+	}
+	if err := os.WriteFile(capsulePath, []byte(capsuleContents), 0o600); err != nil {
+		return ExplorationCapsuleReport{}, fmt.Errorf("write exploration capsule: %w", err)
+	}
+
+	decisionPath := filepath.Join(worktree, ".rotta", "current", "evidence", "capsule-decision-"+request.CapsuleID+".json")
+	decision, err := json.Marshal(explorationCapsuleDecision{
+		CapsuleDecision:       CapsuleDecisionCreated,
+		CapsuleID:             request.CapsuleID,
+		CapsuleFingerprint:    fingerprint,
+		ScenarioOrSlice:       request.ScenarioOrSlice,
+		StatePath:             statePath,
+		RequiredEvidencePaths: evidencePaths,
+	})
+	if err != nil {
+		return ExplorationCapsuleReport{}, fmt.Errorf("serialize exploration capsule decision: %w", err)
+	}
+	if err := os.WriteFile(decisionPath, decision, 0o600); err != nil {
+		return ExplorationCapsuleReport{}, fmt.Errorf("write exploration capsule decision: %w", err)
+	}
+
+	report := ExplorationCapsuleReport{
+		CapsuleID:          request.CapsuleID,
+		CapsulePath:        capsulePath,
+		CapsuleFingerprint: fingerprint,
+		ScenarioOrSlice:    request.ScenarioOrSlice,
+		DecisionPath:       decisionPath,
+	}
+	if request.BoundExhausted {
+		return report, fmt.Errorf("exploration capsule bound exhausted: %s", strings.Join(request.UnresolvedBlockers, "; "))
+	}
+	if err := request.Delegate(ImplementationCapsuleInput{
+		CapsulePath:           capsulePath,
+		ScenarioOrSlice:       request.ScenarioOrSlice,
+		RequiredEvidencePaths: evidencePaths,
+	}); err != nil {
+		return ExplorationCapsuleReport{}, err
+	}
+	return report, nil
+}
+
+func validateExplorationCapsuleRequest(request ExplorationCapsuleRequest) error {
+	if request.CapsuleID == "" || filepath.Base(request.CapsuleID) != request.CapsuleID {
+		return fmt.Errorf("exploration capsule requires a safe capsule ID")
+	}
+	if request.ScenarioOrSlice == "" {
+		return fmt.Errorf("exploration capsule requires a current scenario or slice")
+	}
+	if request.FocusedActions < 0 || request.FocusedActions > maxFocusedLocalActions {
+		return fmt.Errorf("exploration capsule requires at most eight focused actions")
+	}
+	if request.OwnerResolved && request.InvariantResolved && len(request.TopLevelComponents) <= maxLocalScopeComponents && len(request.DirectDependents) <= maxLocalScopeDependents {
+		return fmt.Errorf("exploration capsule requires unresolved ownership or invariants, more than two components, or more than five direct dependents")
+	}
+	if request.Objective == "" || len(request.InScope) == 0 || len(request.OutOfScope) == 0 || len(request.Invariants) == 0 || len(request.Risks) == 0 || request.ManifestFingerprint == "" || request.ContractFingerprint == "" || request.PolicyFingerprint == "" {
+		return fmt.Errorf("exploration capsule requires objective, scope, invariants, risks, and fingerprints")
+	}
+	if len(request.Files) > maxCapsuleFiles || len(request.Symbols) > maxCapsuleSymbols || len(request.TestCommands) > maxCapsuleTestCommands {
+		return fmt.Errorf("exploration capsule exceeds bounded files, symbols, or test commands")
+	}
+	if len(request.RequiredEvidencePaths) == 0 {
+		return fmt.Errorf("exploration capsule requires local inspection evidence")
+	}
+	if request.BoundExhausted && len(request.UnresolvedBlockers) == 0 {
+		return fmt.Errorf("bound-exhausted exploration capsule requires an unresolved blocker")
+	}
+	if request.Delegate == nil {
+		return fmt.Errorf("exploration capsule requires an implementation delegate")
+	}
+	return nil
+}
+
+func requiredCapsuleEvidencePaths(worktree string, requestedPaths []string) ([]string, error) {
+	paths := make([]string, 0, len(requestedPaths))
+	for _, requestedPath := range requestedPaths {
+		path, err := localScopeEvidencePath(worktree, requestedPath)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireRegularFile(path); err != nil {
+			return nil, fmt.Errorf("exploration capsule evidence: %w", err)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
+func renderExplorationCapsule(request ExplorationCapsuleRequest) (string, string, error) {
+	metadata, err := json.Marshal(explorationCapsuleMetadata{ScenarioOrSlice: request.ScenarioOrSlice})
+	if err != nil {
+		return "", "", fmt.Errorf("serialize exploration capsule metadata: %w", err)
+	}
+	var capsule strings.Builder
+	capsule.WriteString("# Exploration capsule: ")
+	capsule.WriteString(request.CapsuleID)
+	capsule.WriteString("\n")
+	capsule.WriteString(capsuleMetadataPrefix)
+	capsule.Write(metadata)
+	capsule.WriteString(" -->\n\n## Objective\n")
+	capsule.WriteString(request.Objective)
+	capsule.WriteString("\n\n## In scope\n")
+	writeCapsuleList(&capsule, request.InScope)
+	capsule.WriteString("\n## Out of scope\n")
+	writeCapsuleList(&capsule, request.OutOfScope)
+	capsule.WriteString("\n## Files\n")
+	writeCapsuleList(&capsule, request.Files)
+	capsule.WriteString("\n## Symbols\n")
+	writeCapsuleList(&capsule, request.Symbols)
+	capsule.WriteString("\n## Invariants\n")
+	writeCapsuleList(&capsule, request.Invariants)
+	capsule.WriteString("\n## Test commands\n")
+	writeCapsuleList(&capsule, request.TestCommands)
+	capsule.WriteString("\n## Risks\n")
+	writeCapsuleList(&capsule, request.Risks)
+	capsule.WriteString("\n## Unresolved blockers\n")
+	writeCapsuleList(&capsule, request.UnresolvedBlockers)
+	if request.BoundExhausted {
+		capsule.WriteString("- Bound exhausted: true\n")
+	}
+	capsule.WriteString("\n## Bindings\n")
+	fmt.Fprintf(&capsule, "- Manifest fingerprint: %s\n- Contract fingerprint: %s\n- Policy fingerprint: %s\n", request.ManifestFingerprint, request.ContractFingerprint, request.PolicyFingerprint)
+
+	contents := capsule.String()
+	fingerprintBytes := sha256.Sum256([]byte(contents))
+	fingerprint := hex.EncodeToString(fingerprintBytes[:])
+	contents += capsuleFingerprintPrefix + fingerprint + "\n"
+	if len(contents) > maxCapsuleBytes || len(strings.Split(strings.TrimSuffix(contents, "\n"), "\n")) > maxCapsuleLines {
+		return "", "", fmt.Errorf("exploration capsule exceeds %d lines or %d bytes", maxCapsuleLines, maxCapsuleBytes)
+	}
+	return contents, fingerprint, nil
+}
+
+// ResumeExplorationCapsule reuses a capsule only when its persisted bindings
+// remain current; stale and bound-exhausted capsules stop before delegation.
+func ResumeExplorationCapsule(request ExplorationCapsuleResumeRequest) error {
+	if request.CapsulePath == "" || request.ScenarioOrSlice == "" || request.ManifestFingerprint == "" || request.ContractFingerprint == "" || request.PolicyFingerprint == "" || request.Delegate == nil {
+		return fmt.Errorf("resume exploration capsule requires path, current bindings, scenario or slice, and delegate")
+	}
+	capsulePath, worktree, err := featureWorktreeForCapsulePath(request.CapsulePath)
+	if err != nil {
+		return err
+	}
+	contents, err := os.ReadFile(capsulePath)
+	if err != nil {
+		return fmt.Errorf("read exploration capsule: %w", err)
+	}
+	if err := verifyCapsuleFingerprint(string(contents)); err != nil {
+		return err
+	}
+	metadata, err := readCapsuleMetadata(string(contents))
+	if err != nil {
+		return err
+	}
+	currentScenarioOrSlice, err := readCurrentScenarioOrSlice(filepath.Join(worktree, ".rotta", "current", "state.yaml"))
+	if err != nil {
+		return err
+	}
+	if metadata.ScenarioOrSlice != request.ScenarioOrSlice || currentScenarioOrSlice != metadata.ScenarioOrSlice {
+		return fmt.Errorf("exploration capsule is stale: scenario or slice does not match current feature-local state")
+	}
+	if strings.Contains(string(contents), "- Bound exhausted: true\n") {
+		return fmt.Errorf("exploration capsule bound exhausted; unresolved blocker recorded")
+	}
+	if err := verifyCapsuleBindings(string(contents), request); err != nil {
+		return err
+	}
+	for _, evidencePath := range request.RequiredEvidencePaths {
+		if err := requireRegularFile(evidencePath); err != nil {
+			return fmt.Errorf("resume exploration capsule evidence: %w", err)
+		}
+	}
+	return request.Delegate(ImplementationCapsuleInput{
+		CapsulePath:           capsulePath,
+		ScenarioOrSlice:       request.ScenarioOrSlice,
+		RequiredEvidencePaths: append([]string(nil), request.RequiredEvidencePaths...),
+	})
+}
+
+func featureWorktreeForCapsulePath(capsulePath string) (string, string, error) {
+	absCapsulePath, err := filepath.Abs(capsulePath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve exploration capsule path: %w", err)
+	}
+	capsulesDirectory := filepath.Dir(absCapsulePath)
+	currentDirectory := filepath.Dir(capsulesDirectory)
+	rottaDirectory := filepath.Dir(currentDirectory)
+	if filepath.Base(capsulesDirectory) != "capsules" || filepath.Base(currentDirectory) != "current" || filepath.Base(rottaDirectory) != ".rotta" {
+		return "", "", fmt.Errorf("exploration capsule is stale: path is outside feature-local capsules")
+	}
+	return absCapsulePath, filepath.Dir(rottaDirectory), nil
+}
+
+func readCapsuleMetadata(contents string) (explorationCapsuleMetadata, error) {
+	for _, line := range strings.Split(contents, "\n") {
+		if !strings.HasPrefix(line, capsuleMetadataPrefix) {
+			continue
+		}
+		metadataJSON, found := strings.CutSuffix(strings.TrimPrefix(line, capsuleMetadataPrefix), " -->")
+		if !found {
+			break
+		}
+		var metadata explorationCapsuleMetadata
+		if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil || metadata.ScenarioOrSlice == "" {
+			break
+		}
+		return metadata, nil
+	}
+	return explorationCapsuleMetadata{}, fmt.Errorf("exploration capsule is stale: scenario or slice binding is missing")
+}
+
+func verifyCapsuleFingerprint(contents string) error {
+	fingerprintOffset := strings.LastIndex(contents, capsuleFingerprintPrefix)
+	if fingerprintOffset < 0 {
+		return fmt.Errorf("exploration capsule is stale: capsule fingerprint is missing")
+	}
+	recordedFingerprint := strings.TrimPrefix(contents[fingerprintOffset:], capsuleFingerprintPrefix)
+	if !strings.HasSuffix(recordedFingerprint, "\n") {
+		return fmt.Errorf("exploration capsule is stale: capsule fingerprint does not match")
+	}
+	recordedFingerprint = strings.TrimSuffix(recordedFingerprint, "\n")
+	actualFingerprint := sha256.Sum256([]byte(contents[:fingerprintOffset]))
+	if recordedFingerprint != hex.EncodeToString(actualFingerprint[:]) {
+		return fmt.Errorf("exploration capsule is stale: capsule fingerprint does not match")
+	}
+	return nil
+}
+
+func verifyCapsuleBindings(contents string, request ExplorationCapsuleResumeRequest) error {
+	for _, binding := range []struct {
+		name  string
+		value string
+	}{
+		{"Manifest", request.ManifestFingerprint},
+		{"Contract", request.ContractFingerprint},
+		{"Policy", request.PolicyFingerprint},
+	} {
+		if !strings.Contains(contents, "- "+binding.name+" fingerprint: "+binding.value+"\n") {
+			return fmt.Errorf("exploration capsule is stale: %s fingerprint does not match", strings.ToLower(binding.name))
+		}
+	}
+	return nil
+}
+
+func writeCapsuleList(capsule *strings.Builder, values []string) {
+	if len(values) == 0 {
+		capsule.WriteString("- none\n")
+		return
+	}
+	for _, value := range values {
+		capsule.WriteString("- ")
+		capsule.WriteString(value)
+		capsule.WriteByte('\n')
+	}
 }
 
 func validateLocalScope(request LocalScopeDelegationRequest) error {
