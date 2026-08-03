@@ -101,6 +101,47 @@ func readResolvedOpenCodeConfig(resolution OpenCodeConfigResolution) (openCodeCo
 	return document, nil
 }
 
+// validateSelectedOpenCodeConfiguration performs documented OpenCode
+// configuration checks before a selected OpenCode installation can clean hosts.
+func validateSelectedOpenCodeConfiguration(opts Options, home string) error {
+	if !targetsOpenCode(opts.Target) {
+		return nil
+	}
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return fmt.Errorf("effective-config resolution blocked: %w", err)
+	}
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return fmt.Errorf("schema validation blocked: %w", err)
+	}
+	if err := validateOpenCodeConfigurationShape(document.config); err != nil {
+		return fmt.Errorf("schema validation blocked: %w", err)
+	}
+	return nil
+}
+
+func targetsOpenCode(target string) bool {
+	return target == "opencode" || target == "both" || target == "all"
+}
+
+// validateOpenCodeConfigurationShape checks the configuration sections this
+// installer reads and writes using OpenCode's documented config schema shape.
+// See https://opencode.ai/config.json: agent, compaction, and tool_output are
+// configuration objects, not scalar readiness flags.
+func validateOpenCodeConfigurationShape(config map[string]interface{}) error {
+	for _, key := range []string{"agent", "compaction", "tool_output"} {
+		value, ok := config[key]
+		if !ok {
+			continue
+		}
+		if _, ok := value.(map[string]interface{}); !ok {
+			return fmt.Errorf("documented OpenCode %s configuration must be an object", key)
+		}
+	}
+	return nil
+}
+
 func writeResolvedOpenCodeConfig(document openCodeConfigDocument) error {
 	if err := os.MkdirAll(filepath.Dir(document.resolution.Path), 0o750); err != nil {
 		return fmt.Errorf("cannot create config dir: %w", err)
