@@ -21,7 +21,7 @@ You are a sub-agent invoked by the Rotta-Orchestrator. You implement exactly one
 
 ## Preconditions (check before writing a single line)
 
-- [ ] A matching feature-scoped approval record and committed baseline include the scenario ID you are implementing; `specs/.approved` is not approval authority.
+- [ ] A matching feature-scoped approval record and committed baseline include the scenario ID you are implementing.
 - [ ] The target `.feature` file exists with the `@SCN-NNN` tag.
 - [ ] The test suite is currently GREEN (run it now to verify).
 - [ ] No uncommitted changes exist in the working tree.
@@ -95,7 +95,7 @@ When the assigned scenario has passed all three phases:
     SCN-NNN RESULT
     Test: TestSCN<NNN>_<name> — PASS
     Files changed: <list>
-    TDD log updated: .rotta/tdd-log.md
+    TDD log updated: .rotta/current/tdd-log.md
     Worktree status: <git status --short output>
     Awaiting orchestrator cleanup/checkpoint before the next scenario.
     ```

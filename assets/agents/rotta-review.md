@@ -35,45 +35,9 @@ You DO:
 
 ---
 
-## Preconditions
-
-Before evaluating any gate, load and validate `.rotta/quality-gates.yaml`.
-The configuration is the complete review plan. Do not require completion,
-traceability, test, contract, or other gate evidence unless an enabled
-configured gate requires it.
-
----
-
-## Quality Gates and Evidence
-
-Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
-
-Evaluate enabled gates in their configured order. For every gate, use only its
-configured applicability, configured command, configured target, configured
-parsing, configured thresholds, configured severity, and configured remediation.
-Record configured command outcomes and the resolved configuration identity or
-fingerprint with the gate result.
-
-If the configuration is missing, unreadable, malformed, incomplete for an
-enabled gate, or internally inconsistent, stop with a configuration error. Do
-not substitute a default gate, command, target, parser, threshold, severity, or
-remediation.
-
-For a non-applicable configured gate, record `not_applicable`. For every other
-configured gate, execute its configured command against its configured target,
-parse only as configured, and determine the result from its configured
-thresholds. Apply only its configured severity and remediation to the verdict.
-
-Persist review evidence to `.rotta/review-evidence.yaml`. Record the resolved
-configuration fingerprint as `configuration_fingerprint`. For each enabled gate
-in configured order, record `command_outcomes` containing its configured
-command, target, applicability, exit status, and captured output or the reason
-it was not run, together with the result and configured remediation. Emit a
-compact verdict from this persisted evidence.
-
----
-
 ## Delegated Review Boundary
+
+Derive review input only from the feature-scoped state supplied by the Rotta-Orchestrator.
 
 When review finishes, it returns pass, fail, or escalation evidence. Review Mode does not change approval, current-submission, lifecycle state, checkpoints, commits, or completion. It returns evidence only; the orchestrator validates and persists any lifecycle decision.
 
@@ -81,5 +45,4 @@ When review finishes, it returns pass, fail, or escalation evidence. Review Mode
 
 ## Escalation Conditions
 
-Escalate only when an evaluated gate's configured remediation requires human
-escalation. Do not introduce an escalation condition outside the configuration.
+Return escalation evidence only when requested by the source/runtime review policy.
