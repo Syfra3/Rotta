@@ -100,6 +100,6 @@ contract_fingerprints:
   specs/workflow_ergonomics_hard_spec.md: 861ffa45d90c719e3ae9b14dd424aa30257b0157f47c97774edbb86b1fb2f3b4
   features/workflow_ergonomics.feature: 19596a1133df3934cea40425fcbdfc31faab87a53b8b55a0fc7e5c351a996f20
 baseline_confirmation:
-  status: pending
-  baseline_commit:
+  status: confirmed
+  baseline_commit: 444c209c706007e59d5595b5631b2732df58a538
   reviewed_commit: null
