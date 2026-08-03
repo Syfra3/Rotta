@@ -109,3 +109,118 @@ func TestSCN611_ScopedOverrideIsConsumedOnceAndRetainedAsEvidence(t *testing.T) 
 		})
 	}
 }
+
+// REQ-084 → SCN-612 → TestSCN612_InvalidOverrideIsRejectedOnDriftOrExpiry
+func TestSCN612_InvalidOverrideIsRejectedOnDriftOrExpiry(t *testing.T) {
+	// Scenario: An invalid override is rejected on drift or expiry
+	const (
+		featureID           = "workflow-ergonomics"
+		ruleID              = "relevant-package-tests"
+		operation           = "review"
+		baseline            = "baseline-sha"
+		contractFingerprint = "contract-fingerprint"
+		policyFingerprint   = "policy-fingerprint"
+		evidenceFingerprint = "evidence-fingerprint"
+		scope               = "review-handoff"
+	)
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+
+	for _, testCase := range []struct {
+		name          string
+		mutate        func(*FeatureLocalOverride)
+		removeExpiry  bool
+		addCompetitor bool
+	}{
+		{name: "expired", mutate: func(override *FeatureLocalOverride) { override.ExpiresAt = now.Add(-time.Hour) }},
+		{name: "already consumed", mutate: func(override *FeatureLocalOverride) { override.UsesRemaining, override.Status = 0, "consumed" }},
+		{name: "missing reason", mutate: func(override *FeatureLocalOverride) { override.Reason = "" }},
+		{name: "missing expiry", removeExpiry: true},
+		{name: "baseline drift", mutate: func(override *FeatureLocalOverride) { override.Baseline = "other-baseline" }},
+		{name: "contract drift", mutate: func(override *FeatureLocalOverride) { override.ContractFingerprint = "other-contract" }},
+		{name: "policy drift", mutate: func(override *FeatureLocalOverride) { override.PolicyFingerprint = "other-policy" }},
+		{name: "evidence drift", mutate: func(override *FeatureLocalOverride) { override.EvidenceFingerprint = "other-evidence" }},
+		{name: "scope mismatch", mutate: func(override *FeatureLocalOverride) { override.Scope = "other-scope" }},
+		{name: "competing override", addCompetitor: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := t.TempDir()
+			gateOutcomePath := filepath.Join(repo, ".rotta", "current", "evidence", "relevant-package-tests.yaml")
+			if err := os.MkdirAll(filepath.Dir(gateOutcomePath), 0o700); err != nil {
+				t.Fatalf("create gate evidence directory: %v", err)
+			}
+			const gateOutcome = "status: failed\n"
+			if err := os.WriteFile(gateOutcomePath, []byte(gateOutcome), 0o600); err != nil {
+				t.Fatalf("write failed gate outcome: %v", err)
+			}
+
+			override := FeatureLocalOverride{
+				Path:                  filepath.Join(repo, ".rotta", "current", "overrides", "override-1.yaml"),
+				AuthorizationActionID: "override-prompt-1",
+				FeatureID:             featureID,
+				RuleID:                ruleID,
+				Operation:             operation,
+				Baseline:              baseline,
+				ContractFingerprint:   contractFingerprint,
+				PolicyFingerprint:     policyFingerprint,
+				EvidenceFingerprint:   evidenceFingerprint,
+				Scope:                 scope,
+				Reason:                "preserve the blocked handoff for human review",
+				ExpiresAt:             now.Add(time.Hour),
+				Target:                "persisted_gate_outcome",
+				TargetReference:       ".rotta/current/evidence/relevant-package-tests.yaml",
+				UsesRemaining:         1,
+				Status:                "active",
+			}
+			if testCase.mutate != nil {
+				testCase.mutate(&override)
+			}
+			if err := writeFeatureLocalOverride(override); err != nil {
+				t.Fatalf("write override: %v", err)
+			}
+			if testCase.removeExpiry {
+				contents, err := os.ReadFile(override.Path)
+				if err != nil {
+					t.Fatalf("read override before removing expiry: %v", err)
+				}
+				if err := os.WriteFile(override.Path, []byte(strings.Replace(string(contents), "expires_at: "+override.ExpiresAt.UTC().Format(time.RFC3339)+"\n", "", 1)), 0o600); err != nil {
+					t.Fatalf("remove override expiry: %v", err)
+				}
+			}
+
+			context := OverrideEvaluationContext{
+				Operation:           operation,
+				Baseline:            baseline,
+				ContractFingerprint: contractFingerprint,
+				PolicyFingerprint:   policyFingerprint,
+				EvidenceFingerprint: evidenceFingerprint,
+				Scope:               scope,
+				Now:                 now,
+			}
+			if testCase.addCompetitor {
+				competitor := override
+				competitor.Path = filepath.Join(repo, ".rotta", "current", "overrides", "override-2.yaml")
+				if err := writeFeatureLocalOverride(competitor); err != nil {
+					t.Fatalf("write competing override: %v", err)
+				}
+			}
+
+			result, err := EvaluateFeatureLocalOverride(override.Path, context)
+			if err != nil {
+				t.Fatalf("EvaluateFeatureLocalOverride() returned error: %v", err)
+			}
+			if result.Applied {
+				t.Fatal("EvaluateFeatureLocalOverride() applied an invalid override")
+			}
+			if !strings.HasPrefix(result.Remediation, "remediation:") {
+				t.Fatalf("remediation = %q, want actionable remediation", result.Remediation)
+			}
+			contents, err := os.ReadFile(gateOutcomePath)
+			if err != nil {
+				t.Fatalf("read gate outcome after rejection: %v", err)
+			}
+			if string(contents) != gateOutcome {
+				t.Fatalf("gate outcome after rejected override = %q, want unchanged %q", contents, gateOutcome)
+			}
+		})
+	}
+}

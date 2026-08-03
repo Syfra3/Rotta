@@ -46,12 +46,34 @@ type FeatureLocalOverride struct {
 	Operation             string
 	Baseline              string
 	ContractFingerprint   string
+	PolicyFingerprint     string
+	EvidenceFingerprint   string
+	Scope                 string
 	Reason                string
 	ExpiresAt             time.Time
 	Target                string
 	TargetReference       string
 	UsesRemaining         int
 	Status                string
+}
+
+// OverrideEvaluationContext is the current binding against which a persisted
+// override is evaluated for one named operation.
+type OverrideEvaluationContext struct {
+	Operation           string
+	Baseline            string
+	ContractFingerprint string
+	PolicyFingerprint   string
+	EvidenceFingerprint string
+	Scope               string
+	Now                 time.Time
+}
+
+// OverrideEvaluation reports whether the named operation received the
+// override and, when it did not, the recovery action available to the human.
+type OverrideEvaluation struct {
+	Applied     bool
+	Remediation string
 }
 
 func NewDisplayedOverrideAction(input DisplayedOverrideActionInput) *DisplayedOverrideAction {
@@ -108,6 +130,74 @@ func ApplyFeatureLocalOverride(path, operation string) (bool, error) {
 	return true, nil
 }
 
+// EvaluateFeatureLocalOverride rejects expired, consumed, malformed, drifted,
+// or competing overrides without changing the underlying gate or process
+// outcome. Only a fully matching override reaches the existing atomic consume
+// path.
+func EvaluateFeatureLocalOverride(path string, context OverrideEvaluationContext) (OverrideEvaluation, error) {
+	override, err := readFeatureLocalOverride(path)
+	if err != nil {
+		return rejectedOverrideEvaluation(), nil
+	}
+	if !override.matchesEvaluationContext(context) {
+		return rejectedOverrideEvaluation(), nil
+	}
+	competing, err := hasCompetingFeatureLocalOverride(path, context.Operation)
+	if err != nil {
+		return OverrideEvaluation{}, err
+	}
+	if competing {
+		return rejectedOverrideEvaluation(), nil
+	}
+
+	applied, err := ApplyFeatureLocalOverride(path, context.Operation)
+	if err != nil {
+		return OverrideEvaluation{}, err
+	}
+	return OverrideEvaluation{Applied: applied}, nil
+}
+
+func rejectedOverrideEvaluation() OverrideEvaluation {
+	return OverrideEvaluation{Remediation: "remediation: repair or re-authorize one current, scoped feature-local override before retrying the operation"}
+}
+
+func (override FeatureLocalOverride) matchesEvaluationContext(context OverrideEvaluationContext) bool {
+	return override.Operation == context.Operation &&
+		override.UsesRemaining == 1 &&
+		override.Status == "active" &&
+		strings.TrimSpace(override.Reason) != "" &&
+		override.ExpiresAt.After(context.Now) &&
+		override.Baseline == context.Baseline &&
+		override.ContractFingerprint == context.ContractFingerprint &&
+		override.PolicyFingerprint == context.PolicyFingerprint &&
+		override.EvidenceFingerprint == context.EvidenceFingerprint &&
+		override.Scope == context.Scope
+}
+
+func hasCompetingFeatureLocalOverride(path, operation string) (bool, error) {
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return false, fmt.Errorf("read feature-local overrides: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		competingPath := filepath.Join(filepath.Dir(path), entry.Name())
+		if competingPath == path {
+			continue
+		}
+		competing, err := readFeatureLocalOverride(competingPath)
+		if err != nil {
+			return true, nil
+		}
+		if competing.Operation == operation && competing.Status == "active" && competing.UsesRemaining > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (action *DisplayedOverrideAction) target(repoRoot string) (string, string, error) {
 	if action.input.Target.PersistedGateOutcomePath != "" {
 		contents, err := readRepositoryFile(repoRoot, action.input.Target.PersistedGateOutcomePath)
@@ -148,6 +238,9 @@ func readFeatureLocalOverride(path string) (FeatureLocalOverride, error) {
 		Operation:             fields["operation"],
 		Baseline:              fields["baseline"],
 		ContractFingerprint:   fields["contract_fingerprint"],
+		PolicyFingerprint:     fields["policy_fingerprint"],
+		EvidenceFingerprint:   fields["evidence_fingerprint"],
+		Scope:                 fields["scope"],
 		Reason:                fields["reason"],
 		ExpiresAt:             expiresAt,
 		Target:                fields["target"],
@@ -185,13 +278,16 @@ func writeFeatureLocalOverride(override FeatureLocalOverride) error {
 }
 
 func serializeFeatureLocalOverride(override FeatureLocalOverride) string {
-	return fmt.Sprintf("format: rotta.feature-override/v1\nauthorization_action_id: %s\nfeature_id: %s\nrule_id: %s\noperation: %s\nbaseline: %s\ncontract_fingerprint: %s\nreason: %s\nexpires_at: %s\ntarget: %s\ntarget_reference: %s\nuses_remaining: %d\nstatus: %s\n",
+	return fmt.Sprintf("format: rotta.feature-override/v1\nauthorization_action_id: %s\nfeature_id: %s\nrule_id: %s\noperation: %s\nbaseline: %s\ncontract_fingerprint: %s\npolicy_fingerprint: %s\nevidence_fingerprint: %s\nscope: %s\nreason: %s\nexpires_at: %s\ntarget: %s\ntarget_reference: %s\nuses_remaining: %d\nstatus: %s\n",
 		override.AuthorizationActionID,
 		override.FeatureID,
 		override.RuleID,
 		override.Operation,
 		override.Baseline,
 		override.ContractFingerprint,
+		override.PolicyFingerprint,
+		override.EvidenceFingerprint,
+		override.Scope,
 		override.Reason,
 		override.ExpiresAt.UTC().Format(time.RFC3339),
 		override.Target,
