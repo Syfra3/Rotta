@@ -2,12 +2,16 @@
 package installer
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Options configures what and where to install.
@@ -65,11 +69,38 @@ type MCPRuntimeFallback struct {
 	State MCPRuntimeFallbackState
 }
 
+type MCPObservationStatus string
+
+const (
+	MCPObservationCompleted     MCPObservationStatus = "completed"
+	MCPObservationFailed        MCPObservationStatus = "failed"
+	MCPObservationNotObservable MCPObservationStatus = "not_observable"
+)
+
+type MCPDiscoverySource string
+
+const (
+	MCPDiscoverySourceDirectServer MCPDiscoverySource = "direct_server"
+	MCPDiscoverySourceOpenCode     MCPDiscoverySource = "opencode"
+)
+
+type MCPObservation struct {
+	Status MCPObservationStatus `json:"status"`
+	Detail string               `json:"detail,omitempty"`
+	Source MCPDiscoverySource   `json:"source,omitempty"`
+}
+
 type MCPStatusResult struct {
-	Status          MCPStatus
-	Reason          string
-	Remediation     string
-	RuntimeFallback MCPRuntimeFallback
+	Status                   MCPStatus          `json:"status"`
+	Reason                   string             `json:"reason"`
+	Remediation              string             `json:"remediation"`
+	RuntimeFallback          MCPRuntimeFallback `json:"runtime_fallback"`
+	CommandResolution        MCPObservation     `json:"preflight_command_resolved,omitempty"`
+	FileWrite                MCPObservation     `json:"written,omitempty"`
+	SchemaValidity           MCPObservation     `json:"schema_valid,omitempty"`
+	OpenCodeServerResolution MCPObservation     `json:"opencode_resolved,omitempty"`
+	ToolDiscovery            MCPObservation     `json:"tools_discovered,omitempty"`
+	ResolvedCommandPath      string             `json:"resolved_command_path,omitempty"`
 }
 
 type FileChangeCategory string
@@ -153,7 +184,9 @@ func install(opts Options) (*Result, error) {
 	if err := setupCodexMCP(opts, result, home, projectPath); err != nil {
 		return result, err
 	}
-	finalizeInstall(result, opts, projectPath)
+	if err := finalizeInstall(result, opts, projectPath); err != nil {
+		return result, err
+	}
 
 	return result, nil
 }
@@ -284,12 +317,51 @@ func recordVelaMCPAvailability(result *Result, vela *VelaResult) {
 	}
 }
 
-func finalizeInstall(result *Result, opts Options, projectPath string) {
+func finalizeInstall(result *Result, opts Options, projectPath string) error {
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
 	recordMCPStatuses(result, opts)
+	if err := recordMCPStatusEvidence(result); err != nil {
+		return err
+	}
 	recordChangedFiles(result, projectPath)
+	return nil
+}
+
+func recordMCPStatusEvidence(result *Result) error {
+	if result.BackupDir == "" || len(result.MCPStatuses) == 0 {
+		return nil
+	}
+	data, err := json.MarshalIndent(result.MCPStatuses, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize MCP status transaction evidence: %w", err)
+	}
+	if err := writePrivateFile(filepath.Join(result.BackupDir, "mcp-status.json"), data, 0o600); err != nil {
+		return fmt.Errorf("write MCP status transaction evidence: %w", err)
+	}
+	return nil
+}
+
+func resolveOpenCodeMCPServer(name string) MCPObservation {
+	path, err := exec.LookPath("opencode")
+	if err != nil {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "OpenCode CLI is unavailable; OpenCode server resolution was not observed."}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "mcp", "list").CombinedOutput()
+	if err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: fmt.Sprintf("OpenCode mcp list failed: %v", err)}
+	}
+	text := strings.ToLower(string(output))
+	if !strings.Contains(text, strings.ToLower(name)) {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "OpenCode mcp list did not expose a status for the selected server."}
+	}
+	if strings.Contains(text, "connected") {
+		return MCPObservation{Status: MCPObservationCompleted, Detail: "OpenCode mcp list reported the server connected."}
+	}
+	return MCPObservation{Status: MCPObservationFailed, Detail: "OpenCode mcp list reported the selected server without a connected status."}
 }
 
 func recordSelectedHostFailure(result *Result, opts Options, err error) {

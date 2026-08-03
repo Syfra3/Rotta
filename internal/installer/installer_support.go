@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -40,10 +41,66 @@ func recordMCPStatuses(result *Result, opts Options) {
 	for _, host := range selectedHosts(opts.Target) {
 		hostStatuses := map[string]MCPStatusResult{}
 		for _, capabilityName := range selectedMCPCapabilities(opts) {
-			hostStatuses[strings.TrimPrefix(capabilityName, "mcp:")] = mcpStatusResult(result.Hosts[host], capabilityName)
+			name := strings.TrimPrefix(capabilityName, "mcp:")
+			status := mcpStatusResult(result.Hosts[host], capabilityName)
+			if host == "opencode" {
+				status = openCodeMCPStatus(result, name, status)
+			}
+			hostStatuses[name] = status
 		}
 		result.MCPStatuses[host] = hostStatuses
 	}
+}
+
+func openCodeMCPStatus(result *Result, name string, status MCPStatusResult) MCPStatusResult {
+	command := managedMCPCommand(name)
+	if path, err := exec.LookPath(command); err == nil {
+		status.CommandResolution = MCPObservation{Status: MCPObservationCompleted, Detail: "Installer preflight resolved the managed command."}
+		status.ResolvedCommandPath = path
+	} else {
+		status.CommandResolution = MCPObservation{Status: MCPObservationNotObservable, Detail: "Managed command is unavailable to the installer."}
+	}
+
+	status.FileWrite, status.SchemaValidity = openCodeMCPConfigurationObservations(result.Hosts["opencode"].OpenCodeConfig, name)
+	status.OpenCodeServerResolution = resolveOpenCodeMCPServer(name)
+	status.ToolDiscovery = openCodeToolDiscovery(name, result.Context7)
+	return status
+}
+
+func openCodeMCPConfigurationObservations(resolution OpenCodeConfigResolution, name string) (MCPObservation, MCPObservation) {
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Cannot read the selected OpenCode configuration after installation."}, MCPObservation{Status: MCPObservationNotObservable, Detail: "Selected OpenCode configuration could not be read for validation."}
+	} else if err := validateOpenCodeConfigurationShape(document.config); err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Selected OpenCode configuration is invalid after installation."}, MCPObservation{Status: MCPObservationFailed, Detail: err.Error()}
+	}
+	if openCodeMCPEntryExists(document.config, name) {
+		return MCPObservation{Status: MCPObservationCompleted, Detail: "Selected managed MCP entry was written to the effective OpenCode configuration."}, MCPObservation{Status: MCPObservationCompleted, Detail: "Selected OpenCode configuration remains schema-valid."}
+	}
+	return MCPObservation{Status: MCPObservationFailed, Detail: "Selected managed MCP entry is absent from the effective OpenCode configuration."}, MCPObservation{Status: MCPObservationCompleted, Detail: "Selected OpenCode configuration remains schema-valid."}
+}
+
+func managedMCPCommand(name string) string {
+	if name == context7ServerName {
+		return Context7ServerConfig().Command
+	}
+	return name
+}
+
+func openCodeMCPEntryExists(config map[string]interface{}, name string) bool {
+	mcp, _ := config["mcp"].(map[string]interface{})
+	_, exists := mcp[name]
+	return exists
+}
+
+func openCodeToolDiscovery(name string, context7 Context7Result) MCPObservation {
+	if name != context7ServerName || !context7.HealthRan {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "No OpenCode tool enumeration was observed."}
+	}
+	if !context7.Health.ToolsDiscovered {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Direct server tools/list did not discover the required tools.", Source: MCPDiscoverySourceDirectServer}
+	}
+	return MCPObservation{Status: MCPObservationCompleted, Detail: "Tools were discovered by direct server tools/list, not OpenCode.", Source: MCPDiscoverySourceDirectServer}
 }
 
 func mcpStatusResult(host HostInstallResult, capabilityName string) MCPStatusResult {
