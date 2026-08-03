@@ -27,6 +27,28 @@ type ApprovalAcknowledgementContext struct {
 	PendingActions      int
 }
 
+// FinalHumanReview is the recorded final-review state for one feature. It
+// contains no human identity because final acknowledgement is actor-less.
+type FinalHumanReview struct {
+	FeatureID                   string
+	Phase                       string
+	CurrentCommit               string
+	ReviewedCommit              string
+	CurrentEvidenceFingerprint  string
+	ReviewedEvidenceFingerprint string
+	CurrentPolicyFingerprint    string
+	ReviewedPolicyFingerprint   string
+	PendingActions              int
+	Completed                   bool
+}
+
+// DisplayedFinalApprovalAction binds a final approval prompt to one feature
+// and its reviewed commit.
+type DisplayedFinalApprovalAction struct {
+	featureID      string
+	reviewedCommit string
+}
+
 func NewDisplayedApprovalAction(featureID, contractFingerprint, lifecycleAction string) *DisplayedApprovalAction {
 	return &DisplayedApprovalAction{
 		featureID:           featureID,
@@ -44,6 +66,41 @@ func NewContextualDisplayedApprovalAction(context ApprovalAcknowledgementContext
 		lifecycleAction:     lifecycleAction,
 		context:             context,
 	}
+}
+
+func NewDisplayedFinalApprovalAction(featureID, reviewedCommit string) *DisplayedFinalApprovalAction {
+	return &DisplayedFinalApprovalAction{featureID: featureID, reviewedCommit: reviewedCommit}
+}
+
+// Approve completes the final review represented by this displayed action.
+func (action *DisplayedFinalApprovalAction) Approve(acknowledgement string, review *FinalHumanReview) error {
+	if strings.TrimSpace(strings.ToLower(acknowledgement)) != "approve" {
+		return fmt.Errorf("final approval requires the exact acknowledgement approve")
+	}
+	if review.Phase != "final_human_review" {
+		return fmt.Errorf("final approval requires final_human_review")
+	}
+	if review.CurrentCommit != review.ReviewedCommit {
+		return fmt.Errorf("final approval requires the current commit to match reviewed_commit")
+	}
+	if review.CurrentEvidenceFingerprint != review.ReviewedEvidenceFingerprint {
+		return fmt.Errorf("final approval requires the current evidence fingerprint to match reviewed_commit")
+	}
+	if review.CurrentPolicyFingerprint != review.ReviewedPolicyFingerprint {
+		return fmt.Errorf("final approval requires the current policy fingerprint to match reviewed_commit")
+	}
+	if action.featureID != review.FeatureID {
+		return fmt.Errorf("displayed final approval action does not match its feature")
+	}
+	if action.reviewedCommit != review.ReviewedCommit {
+		return fmt.Errorf("displayed final approval action does not match reviewed_commit")
+	}
+	if review.PendingActions != 1 {
+		return fmt.Errorf("final approval requires exactly one displayed action")
+	}
+	review.Phase = "complete"
+	review.Completed = true
+	return nil
 }
 
 // ConsumeAcknowledgement advances only this displayed action once when the
