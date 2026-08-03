@@ -12,6 +12,19 @@ type DisplayedApprovalAction struct {
 	contractFingerprint string
 	lifecycleAction     string
 	consumed            bool
+	context             ApprovalAcknowledgementContext
+}
+
+// ApprovalAcknowledgementContext identifies the active prompt and every
+// fingerprint that must remain unchanged before its acknowledgement advances.
+type ApprovalAcknowledgementContext struct {
+	PromptID            string
+	SessionID           string
+	FeatureID           string
+	ContractFingerprint string
+	PolicyFingerprint   string
+	FinalSnapshot       string
+	PendingActions      int
 }
 
 func NewDisplayedApprovalAction(featureID, contractFingerprint, lifecycleAction string) *DisplayedApprovalAction {
@@ -19,6 +32,17 @@ func NewDisplayedApprovalAction(featureID, contractFingerprint, lifecycleAction 
 		featureID:           featureID,
 		contractFingerprint: contractFingerprint,
 		lifecycleAction:     lifecycleAction,
+	}
+}
+
+// NewContextualDisplayedApprovalAction binds one displayed action to the
+// current prompt, session, feature, and fingerprinted workflow context.
+func NewContextualDisplayedApprovalAction(context ApprovalAcknowledgementContext, lifecycleAction string) *DisplayedApprovalAction {
+	return &DisplayedApprovalAction{
+		featureID:           context.FeatureID,
+		contractFingerprint: context.ContractFingerprint,
+		lifecycleAction:     lifecycleAction,
+		context:             context,
 	}
 }
 
@@ -34,6 +58,46 @@ func (action *DisplayedApprovalAction) ConsumeAcknowledgement(acknowledgement, f
 	if !isCompactAcknowledgement(acknowledgement) {
 		return fmt.Errorf("acknowledgement is not an exact approval token")
 	}
+	return action.advance(advance)
+}
+
+// ConsumeContextualAcknowledgement advances only an unambiguous, current
+// displayed action. Rejections occur before the lifecycle callback is called.
+func (action *DisplayedApprovalAction) ConsumeContextualAcknowledgement(acknowledgement string, current ApprovalAcknowledgementContext, advance func(string) error) error {
+	if action.consumed {
+		return fmt.Errorf("displayed approval action has already been consumed")
+	}
+	if action.context.PromptID != current.PromptID {
+		return fmt.Errorf("acknowledgement prompt was replaced")
+	}
+	if action.context.SessionID != current.SessionID {
+		return fmt.Errorf("acknowledgement session was restarted")
+	}
+	if action.context.FeatureID != current.FeatureID {
+		return fmt.Errorf("displayed approval action does not match its feature")
+	}
+	if action.context.ContractFingerprint != current.ContractFingerprint {
+		return fmt.Errorf("displayed approval action does not match its contract")
+	}
+	if action.context.PolicyFingerprint != current.PolicyFingerprint {
+		return fmt.Errorf("displayed approval action does not match its policy")
+	}
+	if action.context.FinalSnapshot != current.FinalSnapshot {
+		return fmt.Errorf("displayed approval action does not match its final snapshot")
+	}
+	if current.PendingActions != 1 {
+		return fmt.Errorf("more than one approval action is pending")
+	}
+	if len(strings.Fields(strings.TrimSpace(acknowledgement))) > 1 {
+		return fmt.Errorf("acknowledgement contains multiple intents")
+	}
+	if !isCompactAcknowledgement(acknowledgement) {
+		return fmt.Errorf("acknowledgement is not an exact approval token")
+	}
+	return action.advance(advance)
+}
+
+func (action *DisplayedApprovalAction) advance(advance func(string) error) error {
 	if err := advance(action.lifecycleAction); err != nil {
 		return err
 	}
