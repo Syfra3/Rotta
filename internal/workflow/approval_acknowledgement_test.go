@@ -1,9 +1,12 @@
 package workflow
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
+
+const scn610ReviewedCommit = "3d8d4cc6f8ed0e40a11d6aa2b6dc3e2f4f85d06b"
 
 // REQ-083 → SCN-608 → TestSCN608_SoleDisplayedAcknowledgementAdvancesBoundActionOnce
 func TestSCN608_SoleDisplayedAcknowledgementAdvancesBoundActionOnce(t *testing.T) {
@@ -77,6 +80,132 @@ func TestSCN609_StaleOrAmbiguousAcknowledgementDoesNotAdvance(t *testing.T) {
 				t.Fatal("a rejected acknowledgement changed lifecycle state")
 			}
 		})
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalAcknowledgementCompletesDisplayedReviewedSnapshot
+func TestSCN610_FinalAcknowledgementCompletesDisplayedReviewedSnapshot(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	display := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit)
+
+	if err := display.Approve("approve", review); err != nil {
+		t.Fatalf("Approve() returned error: %v", err)
+	}
+	if review.Phase != "complete" || !review.Completed {
+		t.Fatalf("review after approval = %#v, want completed feature", review)
+	}
+	for _, identityField := range []string{"Actor", "ActorID", "Reviewer", "HumanIdentity"} {
+		if _, found := reflect.TypeOf(*review).FieldByName(identityField); found {
+			t.Fatalf("final review records forbidden human identity field %q", identityField)
+		}
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresFinalHumanReview
+func TestSCN610_FinalApprovalRequiresFinalHumanReview(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	review.Phase = "review_passed"
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "review_passed" {
+		t.Fatalf("Approve() = %v, review = %#v; want final_human_review rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresCurrentReviewedCommit
+func TestSCN610_FinalApprovalRequiresCurrentReviewedCommit(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	review.CurrentCommit = "current-commit"
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want reviewed-commit rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresReviewedEvidenceFingerprint
+func TestSCN610_FinalApprovalRequiresReviewedEvidenceFingerprint(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	review.CurrentEvidenceFingerprint = "evidence-2"
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want evidence-fingerprint rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresReviewedPolicyFingerprint
+func TestSCN610_FinalApprovalRequiresReviewedPolicyFingerprint(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	review.CurrentPolicyFingerprint = "policy-2"
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want policy-fingerprint rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresDisplayedFeature
+func TestSCN610_FinalApprovalRequiresDisplayedFeature(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+
+	err := NewDisplayedFinalApprovalAction("another-feature", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want displayed-feature rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresDisplayedReviewedCommit
+func TestSCN610_FinalApprovalRequiresDisplayedReviewedCommit(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", "another-commit").Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want displayed-commit rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresOneDisplayedAction
+func TestSCN610_FinalApprovalRequiresOneDisplayedAction(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+	review.PendingActions = 2
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("approve", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want multiple-actions rejection without completion", err, review)
+	}
+}
+
+// REQ-083 → SCN-610 → TestSCN610_FinalApprovalRequiresApproveAcknowledgement
+func TestSCN610_FinalApprovalRequiresApproveAcknowledgement(t *testing.T) {
+	// Scenario: Final acknowledgement completes only the displayed reviewed snapshot
+	review := newSCN610FinalHumanReview()
+
+	err := NewDisplayedFinalApprovalAction("workflow-ergonomics", scn610ReviewedCommit).Approve("decline", review)
+	if err == nil || review.Completed || review.Phase != "final_human_review" {
+		t.Fatalf("Approve() = %v, review = %#v; want acknowledgement rejection without completion", err, review)
+	}
+}
+
+func newSCN610FinalHumanReview() *FinalHumanReview {
+	return &FinalHumanReview{
+		FeatureID:                   "workflow-ergonomics",
+		Phase:                       "final_human_review",
+		CurrentCommit:               scn610ReviewedCommit,
+		ReviewedCommit:              scn610ReviewedCommit,
+		CurrentEvidenceFingerprint:  "evidence-1",
+		ReviewedEvidenceFingerprint: "evidence-1",
+		CurrentPolicyFingerprint:    "policy-1",
+		ReviewedPolicyFingerprint:   "policy-1",
+		PendingActions:              1,
 	}
 }
 
