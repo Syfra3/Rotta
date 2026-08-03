@@ -107,10 +107,11 @@ type HostCapability struct {
 }
 
 type HostInstallResult struct {
-	Host         string
-	Status       HostInstallStatus
-	Files        []string
-	Capabilities map[string]HostCapability
+	Host           string
+	Status         HostInstallStatus
+	Files          []string
+	Capabilities   map[string]HostCapability
+	OpenCodeConfig OpenCodeConfigResolution
 }
 
 func install(opts Options) (*Result, error) {
