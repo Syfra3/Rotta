@@ -94,6 +94,9 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := applyOpenCodeContextProfile(config); err != nil {
+		return nil, err
+	}
 	agentMap, _ := config["agent"].(map[string]interface{})
 	if agentMap == nil {
 		agentMap = map[string]interface{}{}
@@ -112,6 +115,37 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	files = append(files, configPath)
 
 	return files, nil
+}
+
+func applyOpenCodeContextProfile(config map[string]interface{}) error {
+	compaction, err := openCodeConfigurationObject(config, "compaction")
+	if err != nil {
+		return err
+	}
+	compaction["auto"] = true
+	compaction["prune"] = true
+	compaction["buffer"] = 10000
+
+	toolOutput, err := openCodeConfigurationObject(config, "tool_output")
+	if err != nil {
+		return err
+	}
+	toolOutput["max_lines"] = 120
+	toolOutput["max_bytes"] = 12288
+	return nil
+}
+
+func openCodeConfigurationObject(config map[string]interface{}, key string) (map[string]interface{}, error) {
+	if value, exists := config[key]; exists {
+		object, ok := value.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("cannot apply OpenCode context profile: %s is not an object", key)
+		}
+		return object, nil
+	}
+	object := map[string]interface{}{}
+	config[key] = object
+	return object, nil
 }
 
 func installOpenCodeAgents(opts Options, skillsBase string, agentMap map[string]interface{}) ([]string, error) {
