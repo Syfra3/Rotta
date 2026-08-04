@@ -246,6 +246,35 @@ func TestSCN507_SuccessfulGenericReviewWritesEvidenceAndEntersFinalHumanReview(t
 	}
 }
 
+// REQ-075 → SCN-508 → TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence
+func TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence(t *testing.T) {
+	// Scenario: Root and archived TDD logs cannot satisfy current review evidence
+	repo := t.TempDir()
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: review\nbaseline_commit: baseline-sha\ncompleted_scenarios: [SCN-501]\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## SCN-501\nroot evidence\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "archive", "prior", "tdd-log.md"), "## SCN-501\narchived evidence\n")
+
+	executed := false
+	result, err := EvaluatePhase4Review(repo, func(string) (string, error) {
+		executed = true
+		return "passed", nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "current TDD evidence is missing SCN-501") {
+		t.Fatalf("evaluate Phase 4 review error = %v, want missing current-submission evidence for SCN-501", err)
+	}
+	if executed {
+		t.Fatal("root or archived TDD evidence authorized gate execution")
+	}
+	if result.Readiness == "ready" {
+		t.Fatalf("review readiness = %q, root or archived TDD evidence must not report ready", result.Readiness)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("root or archived TDD evidence persisted ready review evidence: %v", err)
+	}
+}
+
 // REQ-074 → SCN-504 → TestSCN504_ChangedFileScopeUsesRecordedSnapshots
 func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
 	// Scenario: Changed-file scope is measured from trusted snapshots
