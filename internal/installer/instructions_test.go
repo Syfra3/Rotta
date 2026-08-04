@@ -121,6 +121,41 @@ func TestCanonicalWorkflowInstructionsEnforceCleanTDDTaskBoundaries(t *testing.T
 	})
 }
 
+// REQ-088 → SCN-621 → TestSCN621_GeneratedRolesShareLifecycleAuthority
+func TestSCN621_GeneratedRolesShareLifecycleAuthority(t *testing.T) {
+	// Scenario: Generated roles share one lifecycle authority without contradictory ownership
+	if _, err := assets.FS.ReadFile("config/state-machine.yaml"); err == nil {
+		t.Fatal("retired state-machine asset remains embedded")
+	}
+
+	for _, path := range []string{
+		"agents/rotta-orchestrator.md",
+		"agents/rotta-spec.md",
+		"agents/rotta-impl.md",
+		"agents/rotta-review.md",
+		"skills/spec-mode/SKILL.md",
+		"skills/implementation-mode/SKILL.md",
+		"skills/review-mode/SKILL.md",
+	} {
+		t.Run(path, func(t *testing.T) {
+			data, err := readRenderedAsset(path, Options{})
+			if err != nil {
+				t.Fatalf("read rendered role: %v", err)
+			}
+
+			got := string(data)
+			assertContainsAll(t, got, []string{
+				"rotta.lifecycle/v1",
+				".rotta/current/manifest.yaml",
+				".rotta/current/state.yaml",
+				".rotta/current/evidence/",
+				"Only the Rotta-Orchestrator may approve, checkpoint, archive, recover, or complete a feature.",
+			})
+			assertNotContains(t, got, "config/state-machine.yaml")
+		})
+	}
+}
+
 func TestVelaInstructionsEnforceExactSubjectStructuralQueryWorkflow(t *testing.T) {
 	got := integrationInstructions(Options{SetupVela: true})
 
@@ -432,16 +467,8 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"Review evaluates only the gates defined by `.rotta/quality-gates.yaml`",
-		"configured order",
-		"configured applicability",
-		"thresholds",
-		"commands and targets",
-		"configured parsing rules",
-		"configured severity and remediation outcome",
-		"Do not use hardcoded defaults, gate details, or legacy workflow markers",
-	})
+	assertContainsAll(t, string(data), []string{"Define generic quality-gate policy or lifecycle authority"})
+	assertNotContains(t, string(data), ".rotta/quality-gates.yaml")
 	assertNotContains(t, string(data), "specs/.implementation-complete")
 	assertNotContains(t, string(data), ".rotta/tdd-log.md")
 
@@ -465,16 +492,7 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read review agent asset: %v", err)
 	}
-	assertContainsAll(t, string(reviewAgent), []string{
-		"enabled gates in their configured order",
-		"configured applicability",
-		"configured command",
-		"configured target",
-		"parsing,",
-		"thresholds,",
-		"severity,",
-		"remediation.",
-	})
+	assertContainsAll(t, string(reviewAgent), []string{"Derive review input only from the feature-scoped state supplied by the Rotta-Orchestrator."})
 	for _, prohibited := range []string{
 		"specs/.implementation-complete",
 		".rotta/tdd-log.md",
@@ -494,11 +512,7 @@ func TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults(t *testing.T)
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent",
-		"stop review with a configuration error",
-		"Do not substitute embedded default gate behavior",
-	})
+	assertContainsAll(t, string(data), []string{"Define generic quality-gate policy or lifecycle authority"})
 }
 
 // REQ-006 → SCN-344 → TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior
@@ -509,11 +523,7 @@ func TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior(t *testing.T
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"threshold, enabled status, severity, remediation outcome, command, or critical-function list",
-		"takes effect for the next review",
-		"without changing review code or instructions",
-	})
+	assertNotContains(t, string(data), "threshold")
 }
 
 // REQ-006 → SCN-345 → TestSCN345_EmptyCriticalFunctionListIsNotApplicable
@@ -524,11 +534,7 @@ func TestSCN345_EmptyCriticalFunctionListIsNotApplicable(t *testing.T) {
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"explicitly empty critical-function list",
-		"not_applicable",
-		"does not fail solely because no functions are named",
-	})
+	assertNotContains(t, string(data), "critical-function")
 }
 
 // REQ-006 → SCN-346 → TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes
@@ -539,13 +545,7 @@ func TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes(t *testi
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"resolved configuration identity or fingerprint",
-		"configured command outcomes sufficient to audit the decision",
-		"Persist review evidence to `.rotta/review-evidence.yaml`",
-		"configuration_fingerprint",
-		"command_outcomes",
-	})
+	assertNotContains(t, string(data), ".rotta/review-evidence.yaml")
 }
 
 // REQ-007 → SCN-347 → TestSCN347_Phase3RequiresValidApprovedCommittedAuthority
@@ -626,9 +626,7 @@ func TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing(t *testing.T
 		t.Fatalf("read review asset: %v", err)
 	}
 
-	assertContainsAll(t, string(review), []string{
-		"Derive completed approved scope from durable current-submission state and the matching feature record",
-	})
+	assertContainsAll(t, string(review), []string{"Derive review input only from the feature-scoped state supplied by the Rotta-Orchestrator."})
 }
 
 // REQ-007 → SCN-352 → TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass
@@ -645,7 +643,7 @@ func TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass(t *testing.T) {
 		"contract drift is detected",
 		"approval becomes invalid",
 		"a required gate fails",
-		"halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates",
+		"halt without bypassing approval, state validation, or clean-boundary checks",
 	})
 }
 

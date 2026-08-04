@@ -83,15 +83,20 @@ var legacyCleanOpenCodeAgentKeys = []string{
 	"clean-review",
 }
 
-var disabledOpenCodeDefaultAgentKeys = []string{"build", "plan"}
-
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
 	skillsBase := filepath.Join(home, ".config", "opencode", "skills")
-	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
-	config, err := readOpenCodeConfig(configPath)
+	resolution, err := resolveOpenCodeConfig(opts, home)
 	if err != nil {
+		return nil, err
+	}
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return nil, err
+	}
+	config := document.config
+	if err := applyOpenCodeContextProfile(config); err != nil {
 		return nil, err
 	}
 	agentMap, _ := config["agent"].(map[string]interface{})
@@ -99,19 +104,49 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		agentMap = map[string]interface{}{}
 	}
 	removeLegacyOpenCodeAgents(config, agentMap)
-	disableOpenCodeDefaultAgents(agentMap)
 
 	files, err := installOpenCodeAgents(opts, skillsBase, agentMap)
 	if err != nil {
 		return nil, err
 	}
 	config["agent"] = agentMap
-	if err := writeOpenCodeConfig(configPath, config); err != nil {
+	if err := writeResolvedOpenCodeConfig(document); err != nil {
 		return nil, err
 	}
-	files = append(files, configPath)
+	files = append(files, resolution.Path)
 
 	return files, nil
+}
+
+func applyOpenCodeContextProfile(config map[string]interface{}) error {
+	compaction, err := openCodeConfigurationObject(config, "compaction")
+	if err != nil {
+		return err
+	}
+	compaction["auto"] = true
+	compaction["prune"] = true
+	compaction["buffer"] = 10000
+
+	toolOutput, err := openCodeConfigurationObject(config, "tool_output")
+	if err != nil {
+		return err
+	}
+	toolOutput["max_lines"] = 120
+	toolOutput["max_bytes"] = 12288
+	return nil
+}
+
+func openCodeConfigurationObject(config map[string]interface{}, key string) (map[string]interface{}, error) {
+	if value, exists := config[key]; exists {
+		object, ok := value.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("cannot apply OpenCode context profile: %s is not an object", key)
+		}
+		return object, nil
+	}
+	object := map[string]interface{}{}
+	config[key] = object
+	return object, nil
 }
 
 func installOpenCodeAgents(opts Options, skillsBase string, agentMap map[string]interface{}) ([]string, error) {
@@ -165,34 +200,38 @@ func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
 	return entry
 }
 
-func disableOpenCodeDefaultAgents(agentMap map[string]interface{}) {
-	for _, key := range disabledOpenCodeDefaultAgentKeys {
-		agentMap[key] = map[string]interface{}{
-			"disable": true,
-		}
-	}
-}
-
-func cleanPreviousOpenCodeInstallation(home string) error {
-	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
-	config, err := readOpenCodeConfig(configPath)
+func cleanPreviousOpenCodeInstallation(opts Options, home string) error {
+	resolution, err := resolveOpenCodeConfig(opts, home)
 	if err != nil {
 		return err
 	}
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return err
+	}
+	config := document.config
 	agentMap, _ := config["agent"].(map[string]interface{})
 	if agentMap != nil {
-		for _, a := range rottaAgents {
-			delete(agentMap, a.key)
+		changed := false
+		for _, agent := range rottaAgents {
+			if _, exists := agentMap[agent.key]; exists {
+				delete(agentMap, agent.key)
+				changed = true
+			}
 		}
-		removeLegacyOpenCodeAgents(config, agentMap)
-		config["agent"] = agentMap
-		if err := writeOpenCodeConfig(configPath, config); err != nil {
-			return err
+		if removeLegacyOpenCodeAgents(config, agentMap) {
+			changed = true
+		}
+		if changed {
+			config["agent"] = agentMap
+			if err := writeResolvedOpenCodeConfig(document); err != nil {
+				return err
+			}
 		}
 	}
 
-	for _, a := range rottaAgents {
-		path := filepath.Join(home, ".config", "opencode", "skills", a.skillName)
+	for _, agent := range rottaAgents {
+		path := filepath.Join(home, ".config", "opencode", "skills", agent.skillName)
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("cannot remove stale opencode skill %s: %w", path, err)
 		}
@@ -209,13 +248,19 @@ func cleanPreviousOpenCodeInstallation(home string) error {
 	return nil
 }
 
-func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[string]interface{}) {
+func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[string]interface{}) bool {
+	changed := false
 	for _, key := range append(legacyBobOpenCodeAgentKeys, legacyCleanOpenCodeAgentKeys...) {
-		delete(agentMap, key)
+		if _, exists := agentMap[key]; exists {
+			delete(agentMap, key)
+			changed = true
+		}
 	}
 	if config["default_agent"] == "bob-orchestrator" || config["default_agent"] == "clean-orchestrator" {
 		config["default_agent"] = "rotta-orchestrator"
+		changed = true
 	}
+	return changed
 }
 
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {

@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,321 @@ import (
 	"testing"
 	"time"
 )
+
+// REQ-081 → SCN-604 → TestSCN604_ResumeAndArchiveRetainVerifiedFeatureRecoveryBoundary
+func TestSCN604_ResumeAndArchiveRetainVerifiedFeatureRecoveryBoundary(t *testing.T) {
+	// Scenario: Resume and archive retain a verified feature recovery boundary
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "checkout", "-b", "feature/recovery-boundary")
+	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	mustWrite(t, filepath.Join(repo, "specs", "recovery-boundary_hard_spec.md"), "# approved contract\n")
+	mustWrite(t, filepath.Join(repo, "features", "recovery-boundary.feature"), "@SCN-604\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "recovery-boundary.yaml"), "status: approved\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "test: establish recovery baseline")
+	baselineSHA := runGitOutput(t, repo, "rev-parse", "HEAD")
+
+	policy, err := os.ReadFile(filepath.Join(repo, ".rotta", "quality-gates.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := os.ReadFile(filepath.Join(repo, "specs", "approvals", "recovery-boundary.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf("format: rotta.workflow-manifest/v1\nfeature_id: recovery-boundary\nworktree: %s\nbranch: feature/recovery-boundary\nbase_sha: %s\npolicy_path: .rotta/quality-gates.yaml\npolicy_fingerprint: %x\nspec_path: specs/recovery-boundary_hard_spec.md\nfeature_path: features/recovery-boundary.feature\ncheckpoint_mode: strict_per_scenario\n", repo, baselineSHA, sha256.Sum256(policy))
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), manifest)
+
+	state := func(status string) string {
+		return fmt.Sprintf("format: rotta.feature-runtime-state/v1\nfeature_id: recovery-boundary\nworktree: %s\nbranch: feature/recovery-boundary\nbaseline_sha: %s\nmanifest_fingerprint: %x\napproval_path: specs/approvals/recovery-boundary.yaml\napproval_fingerprint: %x\nscenario_or_slice: SCN-604\nstatus: %s\n", repo, baselineSHA, sha256.Sum256([]byte(manifest)), sha256.Sum256(approval), status)
+	}
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), state("checkpointed"))
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-604\n")
+
+	otherWorktree := t.TempDir()
+	mustWrite(t, filepath.Join(otherWorktree, ".rotta", "current", "preserve-me"), "other feature runtime\n")
+
+	resumed, err := ResumeFeatureWorkflow(repo)
+	if err != nil {
+		t.Fatalf("ResumeFeatureWorkflow returned error: %v", err)
+	}
+	if resumed.FeatureID != "recovery-boundary" || resumed.ScenarioOrSlice != "SCN-604" {
+		t.Fatalf("resumed=%#v, want only recovery-boundary at SCN-604", resumed)
+	}
+
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), state("terminal"))
+	if err := ArchiveTerminalFeatureRuntime(repo); err != nil {
+		t.Fatalf("ArchiveTerminalFeatureRuntime returned error: %v", err)
+	}
+
+	archive := filepath.Join(repo, ".rotta", "archive", "recovery-boundary", baselineSHA)
+	if _, err := os.Stat(filepath.Join(archive, "manifest.yaml")); err != nil {
+		t.Fatalf("archive is missing this feature runtime: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current")); !os.IsNotExist(err) {
+		t.Fatalf("active runtime remains after archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(otherWorktree, ".rotta", "current", "preserve-me")); err != nil {
+		t.Fatalf("archive touched another worktree runtime: %v", err)
+	}
+	for _, path := range []string{"specs/recovery-boundary_hard_spec.md", "features/recovery-boundary.feature", "specs/approvals/recovery-boundary.yaml", ".rotta/quality-gates.yaml"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("inspectable feature artifact %q is missing: %v", path, err)
+		}
+	}
+	if branch := runGitOutput(t, repo, "branch", "--show-current"); branch != "feature/recovery-boundary" {
+		t.Fatalf("feature branch = %q, want retained feature/recovery-boundary", branch)
+	}
+}
+
+// REQ-081 → SCN-601 → TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree
+func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) {
+	// Scenario: A new feature is bootstrapped only in its explicit-base worktree
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish explicit bootstrap base")
+	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+
+	bootstrap, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "isolated-bootstrap",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/isolated-bootstrap_hard_spec.md",
+		FeaturePath:    "features/isolated-bootstrap.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("BootstrapFullWorkflow returned error: %v", err)
+	}
+
+	wantWorktree := filepath.Join(parent, "repository-isolated-bootstrap")
+	if bootstrap.WorktreePath != wantWorktree || bootstrap.FeatureBranch != "feature/isolated-bootstrap" || bootstrap.BaseSHA != baseSHA {
+		t.Fatalf("bootstrap = %#v, want worktree %q, branch feature/isolated-bootstrap, base %q", bootstrap, wantWorktree, baseSHA)
+	}
+	if got := runGitOutput(t, bootstrap.WorktreePath, "rev-parse", "HEAD"); got != baseSHA {
+		t.Fatalf("feature worktree HEAD = %q, want explicit base %q", got, baseSHA)
+	}
+	if got := runGitOutput(t, bootstrap.WorktreePath, "branch", "--show-current"); got != "feature/isolated-bootstrap" {
+		t.Fatalf("feature worktree branch = %q, want feature/isolated-bootstrap", got)
+	}
+
+	for _, path := range []string{"specs/isolated-bootstrap_hard_spec.md", "features/isolated-bootstrap.feature", ".rotta/current/manifest.yaml", ".rotta/quality-gates.yaml"} {
+		if _, err := os.Stat(filepath.Join(bootstrap.WorktreePath, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("feature worktree is missing %q: %v", path, err)
+		}
+	}
+	if manifests, err := filepath.Glob(filepath.Join(bootstrap.WorktreePath, ".rotta", "current", "manifest*.yaml")); err != nil || len(manifests) != 1 {
+		t.Fatalf("feature worktree manifests = %v, %v; want exactly one", manifests, err)
+	}
+	if policy, err := os.ReadFile(filepath.Join(bootstrap.WorktreePath, ".rotta", "quality-gates.yaml")); err != nil || string(policy) != "format: rotta.quality-gates/v2\n" {
+		t.Fatalf("feature-local policy = %q, %v; want copied policy", policy, err)
+	}
+	for _, path := range []string{"specs", "features", ".rotta/current", "specs/approvals"} {
+		if _, err := os.Stat(filepath.Join(initiatingWorktree, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("initiating checkout received submission artifact %q: %v", path, err)
+		}
+	}
+}
+
+// REQ-081 → SCN-602 → TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated
+func TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated(t *testing.T) {
+	// Scenario: Parallel feature worktrees keep mutable workflow state isolated
+	parent := t.TempDir()
+	initiatingWorktree := filepath.Join(parent, "repository")
+	if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, initiatingWorktree, "init", "-b", "main")
+	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+	runGit(t, initiatingWorktree, "commit", "-m", "test: establish isolated runtime base")
+	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+
+	first, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "first-isolated",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/first-isolated_hard_spec.md",
+		FeaturePath:    "features/first-isolated.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("bootstrap first worktree: %v", err)
+	}
+	second, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+		FeatureID:      "second-isolated",
+		BaseSHA:        baseSHA,
+		SpecPath:       "specs/second-isolated_hard_spec.md",
+		FeaturePath:    "features/second-isolated.feature",
+		CheckpointMode: "strict_per_scenario",
+	})
+	if err != nil {
+		t.Fatalf("bootstrap second worktree: %v", err)
+	}
+
+	firstProgress := FeatureProgressRecord{FeatureID: "first-isolated", WorktreePath: first.WorktreePath, CheckpointState: "first checkpoint", Evidence: "first evidence"}
+	secondProgress := FeatureProgressRecord{FeatureID: "second-isolated", WorktreePath: second.WorktreePath, CheckpointState: "second checkpoint", Evidence: "second evidence"}
+	if err := RecordFeatureProgress(first.WorktreePath, firstProgress); err != nil {
+		t.Fatalf("record first initial progress: %v", err)
+	}
+	if err := RecordFeatureProgress(second.WorktreePath, secondProgress); err != nil {
+		t.Fatalf("record second initial progress: %v", err)
+	}
+
+	secondStatePath := filepath.Join(second.WorktreePath, ".rotta", "current", "state.yaml")
+	secondEvidencePath := filepath.Join(second.WorktreePath, ".rotta", "current", "tdd-log.md")
+	beforeSecondState, err := os.ReadFile(secondStatePath)
+	if err != nil {
+		t.Fatalf("read second state: %v", err)
+	}
+	beforeSecondEvidence, err := os.ReadFile(secondEvidencePath)
+	if err != nil {
+		t.Fatalf("read second evidence: %v", err)
+	}
+
+	firstProgress.CheckpointState = "first progressed checkpoint"
+	firstProgress.Evidence = "first progressed evidence"
+	if err := RecordFeatureProgress(first.WorktreePath, firstProgress); err != nil {
+		t.Fatalf("record first progress: %v", err)
+	}
+	firstState, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "state.yaml"))
+	if err != nil || !strings.Contains(string(firstState), "first progressed checkpoint") {
+		t.Fatalf("first state did not record progressed checkpoint: %q, %v", firstState, err)
+	}
+	firstEvidence, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "tdd-log.md"))
+	if err != nil || !strings.Contains(string(firstEvidence), "first progressed evidence") {
+		t.Fatalf("first evidence did not record progressed evidence: %q, %v", firstEvidence, err)
+	}
+	if err := RecordFeatureProgress(second.WorktreePath, firstProgress); err == nil || !strings.Contains(err.Error(), "feature runtime identity does not match current manifest") {
+		t.Fatalf("second worktree accepted first manifest, worktree, or checkpoint state: %v", err)
+	}
+	if err := RecordFeatureProgress(first.WorktreePath, secondProgress); err == nil || !strings.Contains(err.Error(), "feature runtime identity does not match current manifest") {
+		t.Fatalf("first worktree accepted second manifest, worktree, or checkpoint state: %v", err)
+	}
+
+	afterSecondState, err := os.ReadFile(secondStatePath)
+	if err != nil || string(afterSecondState) != string(beforeSecondState) {
+		t.Fatalf("second state changed after first progress: %q, %v", afterSecondState, err)
+	}
+	afterSecondEvidence, err := os.ReadFile(secondEvidencePath)
+	if err != nil || string(afterSecondEvidence) != string(beforeSecondEvidence) {
+		t.Fatalf("second evidence changed after first progress: %q, %v", afterSecondEvidence, err)
+	}
+	afterFirstState, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "state.yaml"))
+	if err != nil || string(afterFirstState) != string(firstState) {
+		t.Fatalf("first state changed after second progress: %q, %v", afterFirstState, err)
+	}
+	afterFirstEvidence, err := os.ReadFile(filepath.Join(first.WorktreePath, ".rotta", "current", "tdd-log.md"))
+	if err != nil || string(afterFirstEvidence) != string(firstEvidence) {
+		t.Fatalf("first evidence changed after second progress: %q, %v", afterFirstEvidence, err)
+	}
+}
+
+// REQ-081 → SCN-603 → TestSCN603_UnsafeWorktreePreparationPreservesInitiatingCheckout
+func TestSCN603_UnsafeWorktreePreparationPreservesInitiatingCheckout(t *testing.T) {
+	// Scenario: Unsafe worktree preparation preserves the initiating checkout
+	for _, testCase := range []struct {
+		name       string
+		configure  func(t *testing.T, repo, featureWorktree string)
+		baseSHA    func(string) string
+		wantReason string
+	}{
+		{
+			name: "non-ignored initiating-checkout change",
+			configure: func(t *testing.T, repo, _ string) {
+				mustWrite(t, filepath.Join(repo, "user-change.txt"), "preserve me\n")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "initiating worktree has non-ignored changes",
+		},
+		{
+			name: "existing remote feature branch collision",
+			configure: func(t *testing.T, repo, _ string) {
+				runGit(t, repo, "update-ref", "refs/remotes/origin/feature/unsafe-preparation", "HEAD")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "feature branch already exists",
+		},
+		{
+			name: "existing feature worktree path collision",
+			configure: func(t *testing.T, _, featureWorktree string) {
+				mustWrite(t, filepath.Join(featureWorktree, "preserve-me.txt"), "collision\n")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "worktree path collision",
+		},
+		{
+			name: "detached initiating HEAD",
+			configure: func(t *testing.T, repo, _ string) {
+				runGit(t, repo, "checkout", "--detach")
+			},
+			baseSHA:    func(baseSHA string) string { return baseSHA },
+			wantReason: "detached HEAD",
+		},
+		{
+			name:       "unresolved explicit base SHA",
+			configure:  func(*testing.T, string, string) {},
+			baseSHA:    func(string) string { return strings.Repeat("f", 40) },
+			wantReason: "resolve integration branch",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := t.TempDir()
+			initiatingWorktree := filepath.Join(parent, "repository")
+			if err := os.Mkdir(initiatingWorktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, initiatingWorktree, "init", "-b", "main")
+			runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
+			runGit(t, initiatingWorktree, "config", "user.name", "Test User")
+			mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
+			mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+			runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
+			runGit(t, initiatingWorktree, "commit", "-m", "test: establish unsafe preparation base")
+			baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
+			featureWorktree := filepath.Join(parent, "repository-unsafe-preparation")
+			testCase.configure(t, initiatingWorktree, featureWorktree)
+
+			bootstrap, err := BootstrapFullWorkflow(initiatingWorktree, FullWorkflowBootstrapRequest{
+				FeatureID:      "unsafe-preparation",
+				BaseSHA:        testCase.baseSHA(baseSHA),
+				SpecPath:       "specs/unsafe-preparation_hard_spec.md",
+				FeaturePath:    "features/unsafe-preparation.feature",
+				CheckpointMode: "strict_per_scenario",
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantReason) || !strings.Contains(err.Error(), "recovery: preserve the initiating checkout") {
+				t.Fatalf("BootstrapFullWorkflow error = %v, want %q with non-destructive recovery", err, testCase.wantReason)
+			}
+			if bootstrap != (FullWorkflowBootstrap{}) {
+				t.Fatalf("bootstrap = %#v, want no unsafe bootstrap", bootstrap)
+			}
+			for _, path := range []string{"specs", "features", ".rotta/current"} {
+				if _, statErr := os.Stat(filepath.Join(initiatingWorktree, filepath.FromSlash(path))); !os.IsNotExist(statErr) {
+					t.Fatalf("unsafe preparation began specification or implementation with %q: %v", path, statErr)
+				}
+			}
+			if _, branchErr := gitSubmissionOutput(initiatingWorktree, "show-ref", "--verify", "--quiet", "refs/heads/feature/unsafe-preparation"); branchErr == nil {
+				t.Fatal("unsafe preparation created the feature branch")
+			}
+			if worktrees := runGitOutput(t, initiatingWorktree, "worktree", "list", "--porcelain"); strings.Contains(worktrees, "worktree "+featureWorktree) {
+				t.Fatal("unsafe preparation created the feature worktree")
+			}
+		})
+	}
+}
 
 // REQ-045 → SCN-312 → TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree
 func TestSCN312_BeginSpecificationPhaseWritesContractOnlyInRecordedFeatureWorktree(t *testing.T) {
@@ -216,6 +532,7 @@ func installSCN313GitFailure(t *testing.T, failure, repoRoot string) {
 		"  'symbolic-ref --short refs/remotes/origin/HEAD') " + failureCase("default", failure, "exit 1", "printf '%s\\n' origin/main") + ";;\n" +
 		"  'rev-parse --verify main^{commit}') " + failureCase("base", failure, "exit 1", "exit 0") + ";;\n" +
 		"  'branch --list --format=%(refname:short) feature/unsafe-isolation') " + failureCase("branch", failure, "exit 1", "exit 0") + ";;\n" +
+		"  'for-each-ref --format=%(refname) refs/remotes') exit 0;;\n" +
 		"  'worktree list --porcelain') " + failureCase("worktrees", failure, "exit 1", "exit 0") + ";;\n" +
 		"  'worktree add -b feature/unsafe-isolation '* ) " + failureCase("add", failure, "exit 1", "exec \""+git+"\" \"$@\"") + ";;\n" +
 		"  *) exec \"" + git + "\" \"$@\";;\nesac\n"
