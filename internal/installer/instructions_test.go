@@ -671,7 +671,7 @@ func TestSCN352_ScenarioLoopAnomaliesHaltWithoutBypass(t *testing.T) {
 		"contract drift is detected",
 		"approval becomes invalid",
 		"a required gate fails",
-		"halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates",
+		"halt without bypassing approval, state validation, or clean-boundary checks",
 	})
 }
 

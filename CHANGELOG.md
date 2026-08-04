@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.11.0](https://github.com/Syfra3/Rotta/compare/v1.10.1...v1.11.0) (2026-08-04)
+
+
+### Features
+
+* **installer:** isolate transaction evidence ([5e79872](https://github.com/Syfra3/Rotta/commit/5e79872b53a7143a0dbb1cc82abebb13d52a30b0))
+* **installer:** preserve safe rollback boundaries ([aa648a2](https://github.com/Syfra3/Rotta/commit/aa648a2cc8c4000122b00d7b42effe16bc7bc840))
+* **installer:** record OpenCode MCP observations ([1ddc439](https://github.com/Syfra3/Rotta/commit/1ddc439c3809a33ad58007a63f53f923a158d355))
+* **installer:** resolve effective OpenCode config ([477f8af](https://github.com/Syfra3/Rotta/commit/477f8afbac83cdf8c0ca5f1ee8066940dde4c420))
+* **workflow:** accept contextual approvals ([56cc43f](https://github.com/Syfra3/Rotta/commit/56cc43f6e4ee53b0ae2fa85cb98e04b5b2f5c297))
+* **workflow:** apply scoped one-use overrides ([dc6d364](https://github.com/Syfra3/Rotta/commit/dc6d36439e3677e1d8a687afbd5b3c8bcf4527d7))
+* **workflow:** block missing quality gate interface ([0f3956b](https://github.com/Syfra3/Rotta/commit/0f3956b0e1c87022ed66ca37338941bff5e71134))
+* **workflow:** bootstrap isolated feature worktrees ([2a7d769](https://github.com/Syfra3/Rotta/commit/2a7d769ea0c158dd6d82aefd7289567db2aa2146))
+* **workflow:** bound exploration capsules ([5b40b11](https://github.com/Syfra3/Rotta/commit/5b40b1193f7e111f982e2fd24974b55cc2a81068))
+* **workflow:** capture bounded command evidence ([7f3ad9e](https://github.com/Syfra3/Rotta/commit/7f3ad9e50724d7b664bd6e56da986eba8a63619b))
+* **workflow:** complete matching final approval ([d6f9bb0](https://github.com/Syfra3/Rotta/commit/d6f9bb039937c84634c62e5845c13957e236f208))
+* **workflow:** isolate feature runtime state ([f9578d0](https://github.com/Syfra3/Rotta/commit/f9578d08503e742d6fa5d9037df8933fef7cd1bd))
+* **workflow:** preserve failed compact slices ([2b6322f](https://github.com/Syfra3/Rotta/commit/2b6322f01705e509ae04562b85fbf8d145b68cb5))
+* **workflow:** preserve strict slice checkpoints ([bbc44fe](https://github.com/Syfra3/Rotta/commit/bbc44fed57e554440dec0c0d69e226497e646d17))
+* **workflow:** record direct local delegation ([7d7abf8](https://github.com/Syfra3/Rotta/commit/7d7abf8099b2f2383e114b9f0527dd5f403e2005))
+* **workflow:** record resumable budget stops ([c627a52](https://github.com/Syfra3/Rotta/commit/c627a522cf130bc86b1f4c431bc2736f77fb4108))
+* **workflow:** resolve review changes from baseline ([0d91dfb](https://github.com/Syfra3/Rotta/commit/0d91dfb3feb3b33b64c9542aa0af588f441485bd))
+* **workflow:** resume and archive feature runtime ([24c5701](https://github.com/Syfra3/Rotta/commit/24c57013553fd7dc00e1a8662a18e467196ec601))
+* **workflow:** trace compact execution slices ([4039f74](https://github.com/Syfra3/Rotta/commit/4039f74b14c62d644f627575c0c053ec7cf87417))
+* **workflow:** unify generated lifecycle authority ([4a01daa](https://github.com/Syfra3/Rotta/commit/4a01daa64b762be1ada358d8742a2b0dee9c392a))
+
+
+### Bug Fixes
+
+* **installer:** fail closed on invalid OpenCode config ([49a7b2c](https://github.com/Syfra3/Rotta/commit/49a7b2cae5cec4e5f50aca74c2f65df993bc91a0))
+* **installer:** scope Vela rollback recovery ([d8fe897](https://github.com/Syfra3/Rotta/commit/d8fe89760ce110f5a1dafdda3bfb648fc4c8df1e))
+* **workflow:** block invalid feature policy ([d405e72](https://github.com/Syfra3/Rotta/commit/d405e72f63ad90e227a6db285354503a2bc244dd))
+* **workflow:** preserve initiating checkout on unsafe setup ([a01de2a](https://github.com/Syfra3/Rotta/commit/a01de2a51fa18de54c6881c1056516904ca6f2e4))
+* **workflow:** refuse integrity overrides ([a56ed94](https://github.com/Syfra3/Rotta/commit/a56ed941b9906eb51ae36cc6eafcb65dd9728742))
+* **workflow:** reject invalid overrides ([2676f7e](https://github.com/Syfra3/Rotta/commit/2676f7ed30d501250393e569617f2b7ebfcb00c8))
+* **workflow:** reject stale acknowledgements ([ca8259a](https://github.com/Syfra3/Rotta/commit/ca8259a4b7523e11e7d1f536ee954ca1d66186c6))
+* **workflow:** retire legacy review artifacts ([5e4b920](https://github.com/Syfra3/Rotta/commit/5e4b9209acbee7127c483e5335d38e72c90ac800))
+
+
+### Documentation
+
+* **workflow:** approve ergonomics contract ([444c209](https://github.com/Syfra3/Rotta/commit/444c209c706007e59d5595b5631b2732df58a538))
+
+## [1.10.1](https://github.com/Syfra3/Rotta/compare/v1.10.0...v1.10.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* resolve PR 38 verification blockers ([50e720c](https://github.com/Syfra3/Rotta/commit/50e720cc52670f701929e1d2930939a511fc4872))
+
+
+### Documentation
+
+* approve PR 38 CI remediation contract ([85db662](https://github.com/Syfra3/Rotta/commit/85db6621ce11147d6beccf6ca847e486d0b0618c))
+* confirm PR 38 remediation baseline ([ddd3df5](https://github.com/Syfra3/Rotta/commit/ddd3df537e1f1aae5d39d402e98ccb616cb78d94))
+* create PR 38 remediation baseline ([5fd3852](https://github.com/Syfra3/Rotta/commit/5fd3852c47eef576edcfc5b527ed5de372d3481e))
+
 ## [1.10.0](https://github.com/Syfra3/Rotta/compare/v1.9.0...v1.10.0) (2026-07-15)
 
 

@@ -166,7 +166,7 @@ func TestSCN003_BackupFailureAbortsInstallCompletely(t *testing.T) {
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`))
 	writeTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-spec", "SKILL.md"), []byte("stale skill\n"))
 	writeTestFile(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), []byte("stale: true\n"))
-	writeTestFile(t, filepath.Join(home, ".rotta", "backups"), []byte("not a directory\n"))
+	writeTestFile(t, installerTransactionRoot(home), []byte("not a directory\n"))
 
 	result, err := Install(Options{
 		Target:      "opencode",
@@ -191,7 +191,7 @@ func TestSCN003_BackupFailureAbortsInstallCompletely(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(home, ".config", "opencode", "skills", "rotta-spec", "SKILL.md"))
 	assertFileContains(t, filepath.Join(projectPath, ".rotta", "state-machine.yaml"), "stale: true")
-	assertFileContains(t, filepath.Join(home, ".rotta", "backups"), "not a directory")
+	assertFileContains(t, installerTransactionRoot(home), "not a directory")
 }
 
 func TestSCN007_RestoreAppliesFullBackupAndRemovesAbsentPaths(t *testing.T) {
@@ -296,7 +296,7 @@ func TestSCN009_RestoreFailureWithRollbackFailureProvidesManualRecoveryLocations
 			if path != restoredOpenCodeConfig {
 				return nil
 			}
-			preRestoreBackupDir := newestBackupDirExcept(t, filepath.Dir(selectedBackupDir), selectedBackupDir)
+			preRestoreBackupDir := newestBackupDirExcept(t, installerTransactionRoot(home), "")
 			writeTestFile(t, filepath.Join(preRestoreBackupDir, "manifest.json"), []byte(`not json`))
 			return os.ErrPermission
 		},
@@ -337,7 +337,7 @@ func TestSCN397_SelectedRestoreAndRollbackFailureReportsBothLocations(t *testing
 			if path != restoredOpenCodeConfig {
 				return nil
 			}
-			preRestoreBackupDir := newestBackupDirExcept(t, filepath.Dir(selectedBackupDir), selectedBackupDir)
+			preRestoreBackupDir := newestBackupDirExcept(t, installerTransactionRoot(home), "")
 			writeTestFile(t, filepath.Join(preRestoreBackupDir, "manifest.json"), []byte(`not json`))
 			return os.ErrPermission
 		},

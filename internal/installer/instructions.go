@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Syfra3/Rotta/assets"
+	"github.com/Syfra3/Rotta/internal/workflow"
 )
 
 func readRenderedAsset(path string, opts Options) ([]byte, error) {
@@ -39,7 +40,8 @@ func integrationInstructions(opts Options) string {
 }
 
 func canonicalWorkflowInstructions() string {
-	return `## Rotta Canonical Workflow Contract
+	return workflow.LifecycleModelInstructions() + `
+## Rotta Canonical Workflow Contract
 
 ## Workflow Selection (MANDATORY)
 

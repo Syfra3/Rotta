@@ -130,7 +130,7 @@ func assertBackupFileCopyFailure(t *testing.T, home string) {
 func assertBackupBlockedRootFails(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
-	writeTestFile(t, filepath.Join(home, ".rotta"), []byte("blocked"))
+	writeTestFile(t, installerTransactionRoot(home), []byte("blocked"))
 	if _, err := createInstallBackup(Options{}, home, filepath.Join(home, "project")); err == nil {
 		t.Fatal("expected blocked backup root to be reported")
 	}
