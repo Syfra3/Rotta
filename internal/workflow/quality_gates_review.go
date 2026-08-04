@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type QualityGatesReviewState string
@@ -32,6 +33,29 @@ type ResolvedQualityGate struct {
 	Command        string
 	MetadataSource string
 	DiscoveryRule  string
+}
+
+type Phase4ReviewResult struct {
+	Readiness                string
+	Snapshot                 string
+	ConfigurationFingerprint string
+	PlanFingerprint          string
+}
+
+type phase4GateOutcome struct {
+	Category    string
+	Command     string
+	Output      string
+	Measurement string
+}
+
+var requiredGenericGateCategories = []string{
+	"build",
+	"tests",
+	"changed_file_scope",
+	"static_analysis",
+	"dependency_checks",
+	"security_checks",
 }
 
 type ChangedFileScope struct {
@@ -163,6 +187,161 @@ func ResolveChangedFileScope(repoRoot string, _ []string) (ChangedFileScope, err
 		return ChangedFileScope{}, err
 	}
 	return scope, nil
+}
+
+// EvaluatePhase4Review persists successful required-gate evidence for the
+// committed review snapshot, then makes that snapshot eligible for final review.
+func EvaluatePhase4Review(repoRoot string, execute func(string) (string, error)) (Phase4ReviewResult, error) {
+	if execute == nil {
+		return Phase4ReviewResult{}, fmt.Errorf("evaluate Phase 4 review: command executor is required")
+	}
+	plan, err := ResolvePhase4ReviewPlan(repoRoot)
+	if err != nil {
+		return Phase4ReviewResult{}, err
+	}
+	if !hasRequiredGenericGateOrder(plan.Gates) {
+		return Phase4ReviewResult{}, fmt.Errorf("evaluate Phase 4 review: resolved plan must contain the six ordered generic gates")
+	}
+	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
+	state, err := os.ReadFile(statePath)
+	if err != nil {
+		return Phase4ReviewResult{}, fmt.Errorf("read current submission state: %w", err)
+	}
+	if stateValue(state, "baseline_commit") != plan.Baseline {
+		return Phase4ReviewResult{}, fmt.Errorf("evaluate Phase 4 review: recorded baseline does not match review plan")
+	}
+	if err := validateCurrentTDDEvidence(repoRoot, state); err != nil {
+		return Phase4ReviewResult{}, err
+	}
+	if err := validateCommittedReviewSnapshot(repoRoot, plan.Snapshot); err != nil {
+		return Phase4ReviewResult{}, err
+	}
+
+	scope, err := ResolveChangedFileScope(repoRoot, nil)
+	if err != nil {
+		return Phase4ReviewResult{}, err
+	}
+	outcomes := make([]phase4GateOutcome, 0, len(plan.Gates))
+	for _, gate := range plan.Gates {
+		output, err := execute(gate.Command)
+		if err != nil {
+			return Phase4ReviewResult{}, fmt.Errorf("execute %s gate: %w", gate.Category, err)
+		}
+		measurement := "command passed"
+		if gate.Category == "changed_file_scope" {
+			measurement = changedFileScopeMeasurement(scope)
+		}
+		outcomes = append(outcomes, phase4GateOutcome{Category: gate.Category, Command: gate.Command, Output: output, Measurement: measurement})
+	}
+
+	result := Phase4ReviewResult{
+		Readiness:                "ready",
+		Snapshot:                 plan.Snapshot,
+		ConfigurationFingerprint: plan.ConfigurationFingerprint,
+		PlanFingerprint:          plan.PlanFingerprint,
+	}
+	if err := persistPhase4ReviewEvidence(filepath.Join(repoRoot, ".rotta", "current", "review-evidence.yaml"), plan, outcomes, result.Readiness); err != nil {
+		return Phase4ReviewResult{}, err
+	}
+	updatedState := setStateValue(state, "phase", "final_human_review")
+	updatedState = setStateValue(updatedState, "reviewed_commit", plan.Snapshot)
+	updatedState = setStateValue(updatedState, "overall_readiness", result.Readiness)
+	updatedState = setStateValue(updatedState, "review_evidence", ".rotta/current/review-evidence.yaml")
+	updatedState = setStateValue(updatedState, "configuration_fingerprint", plan.ConfigurationFingerprint)
+	updatedState = setStateValue(updatedState, "plan_fingerprint", plan.PlanFingerprint)
+	if err := os.WriteFile(statePath, updatedState, 0o600); err != nil {
+		return Phase4ReviewResult{}, fmt.Errorf("persist final human review state: %w", err)
+	}
+	return result, nil
+}
+
+func hasRequiredGenericGateOrder(gates []ResolvedQualityGate) bool {
+	if len(gates) != len(requiredGenericGateCategories) {
+		return false
+	}
+	for index, category := range requiredGenericGateCategories {
+		if gates[index].Category != category || gates[index].Command == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validateCurrentTDDEvidence(repoRoot string, state []byte) error {
+	evidence, err := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "tdd-log.md"))
+	if err != nil {
+		return fmt.Errorf("read current TDD evidence: %w", err)
+	}
+	for _, scenarioID := range stateList(state, "completed_scenarios") {
+		if !strings.Contains(string(evidence), scenarioID) {
+			return fmt.Errorf("evaluate Phase 4 review: current TDD evidence is missing %s", scenarioID)
+		}
+	}
+	return nil
+}
+
+func validateCommittedReviewSnapshot(repoRoot, snapshot string) error {
+	command := exec.Command("git", "rev-parse", "HEAD") // #nosec G204 -- Git binary and arguments are fixed.
+	command.Dir = repoRoot
+	head, err := command.Output()
+	if err != nil || strings.TrimSpace(string(head)) != snapshot {
+		return fmt.Errorf("evaluate Phase 4 review: recorded snapshot is not the current committed snapshot")
+	}
+	command = exec.Command("git", "cat-file", "-e", snapshot+"^{commit}") // #nosec G204 -- Git binary and command structure are fixed; snapshot came from recorded metadata.
+	command.Dir = repoRoot
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("evaluate Phase 4 review: recorded snapshot is not committed")
+	}
+	return nil
+}
+
+func changedFileScopeMeasurement(scope ChangedFileScope) string {
+	paths := append([]string(nil), scope.Changed...)
+	for _, rename := range scope.Renamed {
+		paths = append(paths, rename.From+" -> "+rename.To)
+	}
+	paths = append(paths, scope.Deleted...)
+	return strings.Join(paths, ",")
+}
+
+func persistPhase4ReviewEvidence(path string, plan Phase4ReviewPlan, outcomes []phase4GateOutcome, readiness string) error {
+	var contents strings.Builder
+	fmt.Fprintf(&contents, "format: rotta.review-evidence/v1\nbaseline: %q\nsnapshot: %q\nconfiguration_fingerprint: %q\nplan_fingerprint: %q\nevaluated_at: %q\noverall_readiness: %s\ngates:\n", plan.Baseline, plan.Snapshot, plan.ConfigurationFingerprint, plan.PlanFingerprint, time.Now().UTC().Format(time.RFC3339), readiness)
+	for _, outcome := range outcomes {
+		fmt.Fprintf(&contents, "  - category: %s\n    status: passed\n    command: %q\n    output: %q\n    exit_status: 0\n    measurement: %q\n", outcome.Category, outcome.Command, outcome.Output, outcome.Measurement)
+	}
+	if err := os.WriteFile(path, []byte(contents.String()), 0o600); err != nil {
+		return fmt.Errorf("persist review evidence: %w", err)
+	}
+	return nil
+}
+
+func stateValue(state []byte, key string) string {
+	for _, line := range strings.Split(string(state), "\n") {
+		if value, found := strings.CutPrefix(line, key+": "); found {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func stateList(state []byte, key string) []string {
+	value := strings.Trim(stateValue(state, key), "[]")
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, ", ")
+}
+
+func setStateValue(state []byte, key, value string) []byte {
+	lines := strings.Split(strings.TrimSuffix(string(state), "\n"), "\n")
+	for index, line := range lines {
+		if strings.HasPrefix(line, key+": ") {
+			lines[index] = key + ": " + value
+			return []byte(strings.Join(lines, "\n") + "\n")
+		}
+	}
+	return []byte(strings.Join(append(lines, key+": "+value), "\n") + "\n")
 }
 
 func qualityGatesFormat(config []byte) string {
