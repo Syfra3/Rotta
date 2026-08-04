@@ -10,10 +10,15 @@ import (
 
 func TestMain(m *testing.M) {
 	previous, wasSet := os.LookupEnv("XDG_CONFIG_HOME")
+	previousState, stateWasSet := os.LookupEnv("XDG_STATE_HOME")
 	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	_ = os.Unsetenv("XDG_STATE_HOME")
 	exitCode := m.Run()
 	if wasSet {
 		_ = os.Setenv("XDG_CONFIG_HOME", previous)
+	}
+	if stateWasSet {
+		_ = os.Setenv("XDG_STATE_HOME", previousState)
 	}
 	os.Exit(exitCode)
 }
