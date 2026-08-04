@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -109,6 +110,76 @@ func TestSCN503_DeclaredConventionsResolveReproducibleGenericGatePlans(t *testin
 			}
 		})
 	}
+}
+
+// REQ-074 → SCN-504 → TestSCN504_ChangedFileScopeUsesRecordedSnapshots
+func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
+	// Scenario: Changed-file scope is measured from trusted snapshots
+	repo := t.TempDir()
+	runSCN504Git(t, repo, "init")
+	runSCN504Git(t, repo, "config", "user.email", "test@example.com")
+	runSCN504Git(t, repo, "config", "user.name", "Test User")
+	writeSCN503File(t, filepath.Join(repo, "modified.txt"), "before\n")
+	writeSCN503File(t, filepath.Join(repo, "deleted.txt"), "delete me\n")
+	writeSCN503File(t, filepath.Join(repo, "renamed-from.txt"), "rename me\n")
+	writeSCN503File(t, filepath.Join(repo, "working-tree-only.txt"), "snapshot content\n")
+	runSCN504Git(t, repo, "add", ".")
+	runSCN504Git(t, repo, "commit", "-m", "baseline")
+	baseline := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+
+	writeSCN503File(t, filepath.Join(repo, "modified.txt"), "after\n")
+	if err := os.Remove(filepath.Join(repo, "deleted.txt")); err != nil {
+		t.Fatalf("delete baseline file: %v", err)
+	}
+	runSCN504Git(t, repo, "mv", "renamed-from.txt", "renamed-to.txt")
+	writeSCN503File(t, filepath.Join(repo, "added.txt"), "added\n")
+	runSCN504Git(t, repo, "add", ".")
+	runSCN504Git(t, repo, "commit", "-m", "review snapshot")
+	snapshot := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), fmt.Sprintf("baseline: %s\nsnapshot: %s\n", baseline, snapshot))
+	writeSCN503File(t, filepath.Join(repo, "working-tree-only.txt"), "must not be scoped\n")
+
+	scope, err := ResolveChangedFileScope(repo, []string{"caller-supplied.txt"})
+	if err != nil {
+		t.Fatalf("resolve changed-file scope: %v", err)
+	}
+	if scope.Baseline != baseline || scope.Snapshot != snapshot {
+		t.Errorf("comparison identities = %#v, want baseline %q and snapshot %q", scope, baseline, snapshot)
+	}
+	if !reflect.DeepEqual(scope.Changed, []string{"added.txt", "modified.txt"}) {
+		t.Errorf("changed scope = %#v, want added and modified snapshot paths", scope.Changed)
+	}
+	if !reflect.DeepEqual(scope.Renamed, []ChangedFileRename{{From: "renamed-from.txt", To: "renamed-to.txt"}}) {
+		t.Errorf("renamed scope = %#v, want recorded snapshot rename", scope.Renamed)
+	}
+	if !reflect.DeepEqual(scope.Deleted, []string{"deleted.txt"}) {
+		t.Errorf("deleted scope = %#v, want recorded snapshot deletion", scope.Deleted)
+	}
+	if strings.Contains(strings.Join(scope.Changed, "\n"), "caller-supplied.txt") || strings.Contains(strings.Join(scope.Changed, "\n"), "working-tree-only.txt") {
+		t.Errorf("scope used untrusted input or working-tree diff: %#v", scope)
+	}
+
+	persisted, err := os.ReadFile(filepath.Join(repo, ".rotta", "current", "changed-file-scope.yaml"))
+	if err != nil {
+		t.Fatalf("read persisted changed-file scope: %v", err)
+	}
+	for _, want := range []string{baseline, snapshot, "added.txt", "modified.txt", "renamed-from.txt", "renamed-to.txt", "deleted.txt"} {
+		if !strings.Contains(string(persisted), want) {
+			t.Errorf("persisted changed-file scope does not contain %q:\n%s", want, persisted)
+		}
+	}
+}
+
+func runSCN504Git(t *testing.T, repo string, arguments ...string) string {
+	t.Helper()
+	command := exec.Command("git", arguments...)
+	command.Dir = repo
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+	}
+	return string(output)
 }
 
 func writeSCN503File(t *testing.T, path, contents string) {
