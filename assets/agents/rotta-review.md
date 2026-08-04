@@ -37,45 +37,39 @@ You DO:
 
 ## Preconditions
 
-Before evaluating any gate, load and validate `.rotta/quality-gates.yaml`.
-The configuration is the complete review plan. Do not require completion,
-traceability, test, contract, or other gate evidence unless an enabled
-configured gate requires it.
+Before evaluating any gate, load and validate `.rotta/quality-gates.yaml` as
+`rotta.quality-gates/v2`, the current submission state, and
+`.rotta/current/tdd-log.md`. Root and archived TDD logs are not current review evidence.
 
 ---
 
 ## Quality Gates and Evidence
 
-Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
+Derive completed approved scope from durable current-submission state and the
+matching feature record; do not accept externally supplied scope. Resolve the
+`rotta.quality-gates/v2` generic-gate plan from the recorded snapshot for only
+`build`, `tests`, `changed_file_scope`, `static_analysis`,
+`dependency_checks`, and `security_checks`.
 
-Evaluate enabled gates in their configured order. For every gate, use only its
-configured applicability, configured command, configured target, configured
-parsing, configured thresholds, configured severity, and configured remediation.
-Record configured command outcomes and the resolved configuration identity or
-fingerprint with the gate result.
+Use declared supported conventions and metadata for discovery. Persist the
+resolved plan and its fingerprints before evaluation. An unresolved, ambiguous,
+or unavailable required command blocks review with remediation; never guess,
+substitute, silently pass, or mark it not applicable.
 
-If the configuration is missing, unreadable, malformed, incomplete for an
-enabled gate, or internally inconsistent, stop with a configuration error. Do
-not substitute a default gate, command, target, parser, threshold, severity, or
-remediation.
-
-For a non-applicable configured gate, record `not_applicable`. For every other
-configured gate, execute its configured command against its configured target,
-parse only as configured, and determine the result from its configured
-thresholds. Apply only its configured severity and remediation to the verdict.
-
-Persist review evidence to `.rotta/review-evidence.yaml`. Record the resolved
-configuration fingerprint as `configuration_fingerprint`. For each enabled gate
-in configured order, record `command_outcomes` containing its configured
-command, target, applicability, exit status, and captured output or the reason
-it was not run, together with the result and configured remediation. Emit a
-compact verdict from this persisted evidence.
+Evaluate the persisted plan against its recorded snapshot. Persist complete
+current review evidence to `.rotta/current/review-evidence.yaml`, including
+the baseline and snapshot SHAs, configuration and plan fingerprints, ordered
+gate outcomes, discovered commands, outputs, measurements, and remediation.
+Derive readiness only from this matching persisted evidence. A valid waiver
+remains visible as `waived` alongside its underlying outcome, never `passed`.
 
 ---
 
 ## Delegated Review Boundary
 
-When review finishes, it returns pass, fail, or escalation evidence. Review Mode does not change approval, current-submission, lifecycle state, checkpoints, commits, or completion. It returns evidence only; the orchestrator validates and persists any lifecycle decision.
+When review finishes, it returns pass, fail, or escalation evidence. Review Mode does not change approval, current-submission, lifecycle state, checkpoints, commits, or completion. It returns evidence only; the orchestrator validates and
+persists any lifecycle decision, including `reviewed_commit`,
+`final_human_review`, and evidence-derived manual PR handoff eligibility.
 
 ---
 

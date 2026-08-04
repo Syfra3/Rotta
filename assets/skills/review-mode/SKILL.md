@@ -30,53 +30,38 @@ A feature is acceptable only when the measurable evidence says it is acceptable.
 
 ## Preconditions
 
-Before any gate evaluation, load and validate `.rotta/quality-gates.yaml`.
-The configured gates are the complete review plan: do not require a completion
-marker, TDD log, test result, or other gate evidence unless an enabled
-configured gate requires it.
+Before any gate evaluation, load and validate `.rotta/quality-gates.yaml` as
+`rotta.quality-gates/v2`, current submission state, and
+`.rotta/current/tdd-log.md`. Root and archived TDD logs are not current review evidence.
 
 ---
 
 ## Quality Gates
 
-Review evaluates only the gates defined by `.rotta/quality-gates.yaml` that are
-enabled, in their configured order. This canonical YAML is the sole authority
-for a gate's name, enabled status, and configured order.
+Resolve the `rotta.quality-gates/v2` generic-gate plan from the recorded
+snapshot for exactly `build`, `tests`, `changed_file_scope`,
+`static_analysis`, `dependency_checks`, and `security_checks`. Use only
+supported declared project conventions and metadata; persist the plan with its
+configuration and plan fingerprints before evaluation.
 
-For every configured gate in configured order:
-
-1. Use only its configured applicability to determine whether it runs; record
-   a non-applicable gate as `not_applicable`.
-2. Use only its configured commands and targets to collect evidence.
-3. Use only its configured parsing rules and thresholds to interpret evidence.
-4. Use only its configured severity and remediation outcome to decide and
-   report the result.
-
-Each evaluation therefore uses only the configured applicability, thresholds,
-commands, targets, parsing rules, severity, and remediation outcome.
-
-Do not use hardcoded defaults, gate details, or legacy workflow markers. Do
-not invent a gate, command, target, parser, threshold, applicability exception,
-severity, or remediation. Configuration validation and configuration-error
-handling are defined only by the canonical YAML.
-
-Before evaluating any gate, validate the canonical YAML. If it is missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent, stop review with a configuration error. Do not substitute embedded default gate behavior.
-
-When configuration changes a threshold, enabled status, severity, remediation outcome, command, or critical-function list, that change takes effect for the next review without changing review code or instructions.
-
-An explicitly empty critical-function list makes that coverage sub-gate
-`not_applicable`; it does not fail solely because no functions are named.
+An unresolved, ambiguous, or unavailable required gate command blocks review
+with remediation. Never guess, substitute, silently pass, or mark an unresolved
+required command not applicable. Evaluate only the persisted plan against its
+recorded snapshot and use its declared thresholds, severity, and remediation.
 
 ---
 
 ## Decision Report
 
-Emit review evidence and the decision using the configured reporting and
-remediation outcome for every evaluated gate. Persist review evidence to `.rotta/review-evidence.yaml`. Include the resolved configuration identity or fingerprint. Record the resolved configuration fingerprint as
-`configuration_fingerprint` and, for every evaluated gate, record
-`command_outcomes` containing its configured command, target, applicability,
-exit status, and captured output or the reason it was not run. These configured
-command outcomes must be persisted; configured command outcomes sufficient to audit the decision are required.
+Persist review evidence and the decision to `.rotta/current/review-evidence.yaml`.
+Include baseline and snapshot SHAs, configuration and plan fingerprints, ordered
+gate outcomes, discovered commands, outputs, measurements, and remediation.
+Derive readiness only from matching persisted current review evidence. A valid
+waiver remains visible as `waived` alongside its underlying outcome, never
+`passed`; ready or ready_with_waivers evidence permits the orchestrator to bind
+`reviewed_commit` and enter `final_human_review`, never complete automatically.
+Manual PR handoff is derived only from matching persisted current review
+evidence.
 
 ---
 
