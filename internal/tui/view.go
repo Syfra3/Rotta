@@ -304,38 +304,18 @@ func (m Model) viewQualityGates() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Quality Gates Configuration") + "\n\n")
 
-	defaults := []string{
-		"Changed-line coverage    ≥ 90%",
-		"Critical-branch coverage ≥ 95%",
-		"Mutation score           ≥ 80% (≥ 90% for auth/payments)",
-		"Cyclomatic complexity    ≤ 10 per function",
-		"Circular dependencies    0",
-	}
-
-	b.WriteString(sectionStyle.Render("Defaults") + "\n")
-	for _, d := range defaults {
-		b.WriteString(menuItemStyle.Render("  "+d) + "\n")
+	b.WriteString(sectionStyle.Render("Required generic gates") + "\n")
+	for _, gate := range []string{"build", "tests", "changed-file scope", "static analysis", "dependency checks", "security checks"} {
+		b.WriteString(menuItemStyle.Render("  "+gate) + "\n")
 	}
 	b.WriteString("\n")
+	b.WriteString(inputHintStyle.Render("Commands are detected from project conventions and metadata during review.") + "\n")
+	b.WriteString(inputHintStyle.Render("Unresolved required commands leave readiness blocked with remediation.") + "\n")
+	b.WriteString(inputHintStyle.Render("Generated configuration: .rotta/quality-gates.yaml") + "\n\n")
+	b.WriteString(menuSelectedStyle.Render("▸ Use generic threshold defaults (recommended)") + "\n")
+	b.WriteString("    " + inputHintStyle.Render("Generate the v2 generic-gate policy in .rotta/quality-gates.yaml") + "\n\n")
 
-	options := []struct {
-		label string
-		desc  string
-	}{
-		{"Use defaults (recommended)", "Reasonable starting thresholds, editable in .rotta/quality-gates.yaml"},
-		{"Review later", "Install defaults now; customize the YAML file after installation"},
-	}
-
-	for i, opt := range options {
-		if m.GatesCursor == i {
-			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
-			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
-		} else {
-			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
-		}
-	}
-
-	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	b.WriteString(helpStyle.Render("Enter to select · Esc to go back"))
 	return appStyle.Render(b.String())
 }
 
