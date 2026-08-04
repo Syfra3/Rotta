@@ -53,8 +53,8 @@ func assertBackupCreatedBeforeMutation(t *testing.T, result *Result, home, proje
 	if result.BackupDir == "" {
 		t.Fatal("expected install result to include backup directory")
 	}
-	if filepath.Dir(result.BackupDir) != filepath.Join(home, ".rotta", "backups") {
-		t.Fatalf("expected backup under ~/.rotta/backups, got %s", result.BackupDir)
+	if filepath.Dir(result.BackupDir) != installerTransactionRoot(home) {
+		t.Fatalf("expected backup under host-local installer transactions, got %s", result.BackupDir)
 	}
 	assertBackupManifest(t, result.BackupDir, home, projectPath)
 	backupContent, err := os.ReadFile(filepath.Join(result.BackupDir, "files", "home", ".config", "opencode", "opencode.json"))

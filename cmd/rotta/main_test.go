@@ -23,13 +23,14 @@ func installCLIWithBackup(t *testing.T) (string, []byte, string, *bytes.Buffer) 
 	home := t.TempDir()
 	projectPath := filepath.Join(home, "project")
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	preInstallConfig := []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`)
 	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), preInstallConfig)
 	var stdout bytes.Buffer
 	if err := runCLI([]string{"install", "--target", "opencode", "--project", projectPath, "--spec"}, &stdout, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	return projectPath, preInstallConfig, singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups")), &stdout
+	return projectPath, preInstallConfig, singleCLIBackupDir(t, filepath.Join(home, ".local", "state", "rotta", "installer-transactions")), &stdout
 }
 
 func assertCLIBackup(t *testing.T, backupDir string, stdout *bytes.Buffer, preInstallConfig []byte) {
