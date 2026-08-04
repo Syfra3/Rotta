@@ -24,6 +24,12 @@ func TestSCN611_ScopedOverrideIsConsumedOnceAndRetainedAsEvidence(t *testing.T) 
 	if err := os.MkdirAll(filepath.Join(repo, ".rotta", "current", "evidence"), 0o700); err != nil {
 		t.Fatalf("create gate evidence directory: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, ".rotta", "quality-gates.yaml"), []byte("format: rotta.quality-gates/v2\n"), 0o600); err != nil {
+		t.Fatalf("write quality-gates interface policy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), []byte("provided by quality-gates evaluator\n"), 0o600); err != nil {
+		t.Fatalf("write quality-gates interface review evidence: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(repo, gateOutcomePath), []byte("feature_id: workflow-ergonomics\nrule_id: relevant-package-tests\nbaseline: baseline-sha\ncontract_fingerprint: contract-fingerprint\nstatus: failed\n"), 0o600); err != nil {
 		t.Fatalf("write persisted non-passing gate outcome: %v", err)
 	}
