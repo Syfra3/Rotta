@@ -43,9 +43,10 @@ type Phase4ReviewResult struct {
 }
 
 type PRReadiness struct {
-	State   string
-	Gates   []PRReadinessGate
-	Waivers []DurableWaiver
+	State       string
+	Gates       []PRReadinessGate
+	Waivers     []DurableWaiver
+	Remediation string
 }
 
 type PRReadinessGate struct {
@@ -59,6 +60,7 @@ type DurableWaiver struct {
 	Reason                   string
 	Scope                    string
 	Timestamp                string
+	Expiry                   string
 	Snapshot                 string
 	ConfigurationFingerprint string
 }
@@ -320,10 +322,47 @@ func DerivePRReadiness(repoRoot, snapshot, configurationFingerprint string) (PRR
 	readiness := PRReadiness{Gates: persistedReviewGates(evidence), Waivers: persistedDurableWaivers(waiverData)}
 	for index := range readiness.Gates {
 		readiness.Gates[index].UnderlyingStatus = readiness.Gates[index].Status
-		for _, waiver := range readiness.Waivers {
-			if waiver.Gate == readiness.Gates[index].Category && waiver.Snapshot == snapshot && waiver.ConfigurationFingerprint == configurationFingerprint {
-				readiness.Gates[index].Status = "waived"
+	}
+	for _, waiver := range readiness.Waivers {
+		found := false
+		for _, gate := range readiness.Gates {
+			if waiver.Gate == gate.Category {
+				found = true
+				break
 			}
+		}
+		if !found {
+			readiness.State = "blocked"
+			readiness.Remediation = fmt.Sprintf("remove or correct waiver gate %s because it is absent from the persisted review plan", waiver.Gate)
+			return readiness, nil
+		}
+	}
+	for index := range readiness.Gates {
+		for _, waiver := range readiness.Waivers {
+			if waiver.Gate != readiness.Gates[index].Category {
+				continue
+			}
+			if waiver.Snapshot != snapshot {
+				readiness.State = "blocked"
+				readiness.Remediation = fmt.Sprintf("replace the waiver for the %s gate with one bound to snapshot %s", waiver.Gate, snapshot)
+				return readiness, nil
+			}
+			if waiver.ConfigurationFingerprint != configurationFingerprint {
+				readiness.State = "blocked"
+				readiness.Remediation = fmt.Sprintf("replace the waiver for the %s gate with one bound to configuration %s", waiver.Gate, configurationFingerprint)
+				return readiness, nil
+			}
+			if strings.TrimSpace(waiver.Reason) == "" {
+				readiness.State = "blocked"
+				readiness.Remediation = fmt.Sprintf("add a non-empty reason to the waiver for the %s gate", waiver.Gate)
+				return readiness, nil
+			}
+			if expiry, err := time.Parse(time.RFC3339, waiver.Expiry); err == nil && time.Now().After(expiry) {
+				readiness.State = "blocked"
+				readiness.Remediation = fmt.Sprintf("replace the expired waiver for the %s gate with a current durable waiver", waiver.Gate)
+				return readiness, nil
+			}
+			readiness.Gates[index].Status = "waived"
 		}
 	}
 
@@ -383,6 +422,8 @@ func persistedDurableWaivers(data []byte) []DurableWaiver {
 			waiver.Scope = strings.Trim(strings.TrimPrefix(trimmed, "scope: "), "\"")
 		case strings.HasPrefix(trimmed, "timestamp: "):
 			waiver.Timestamp = strings.Trim(strings.TrimPrefix(trimmed, "timestamp: "), "\"")
+		case strings.HasPrefix(trimmed, "expiry: "):
+			waiver.Expiry = strings.Trim(strings.TrimPrefix(trimmed, "expiry: "), "\"")
 		case strings.HasPrefix(trimmed, "snapshot: "):
 			waiver.Snapshot = strings.Trim(strings.TrimPrefix(trimmed, "snapshot: "), "\"")
 		case strings.HasPrefix(trimmed, "configuration_fingerprint: "):
