@@ -7,7 +7,9 @@ import (
 	"testing"
 )
 
-func TestInstallConfigGeneratesActionableCoverageAndMutationGates(t *testing.T) {
+// REQ-073 → SCN-501 → TestSCN501_GeneratedQualityGatesContainOnlyRequiredGenericCategories
+func TestSCN501_GeneratedQualityGatesContainOnlyRequiredGenericCategories(t *testing.T) {
+	// Scenario: A newly generated quality-gates configuration defines only required generic categories
 	projectPath := t.TempDir()
 
 	if _, err := installConfig(projectPath); err != nil {
@@ -20,25 +22,29 @@ func TestInstallConfigGeneratesActionableCoverageAndMutationGates(t *testing.T) 
 	}
 
 	got := string(data)
+	if !strings.Contains(got, "format: rotta.quality-gates/v2") {
+		t.Errorf("generated quality gates do not use the v2 format:\n%s", got)
+	}
+
 	for _, want := range []string{
-		"format: rotta.quality-gates/v1",
-		"gates:",
-		"- id: critical_path_statement_coverage",
-		"thresholds: { minimum: 0.95 }",
-		"CheckpointApprovedScenario",
-		"ContinueFromAutonomousScenarioCheckpoint",
-		"CompleteAutonomousPhase3Boundary",
-		"run: \"go-mutesting ./<changed-module>\"",
-		"changed_module: \"./<changed-module>\"",
-		"score_pattern: 'The mutation score is ([0-9]+(?:\\.[0-9]+)?)'",
-		"thresholds: { minimum: 0.80 }",
-		"thresholds: { maximum: 0 }",
+		"- id: build",
+		"- id: tests",
+		"- id: changed_file_scope",
+		"- id: static_analysis",
+		"- id: dependency_checks",
+		"- id: security_checks",
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("generated quality gates missing %q:\n%s", want, got)
+		if strings.Count(got, want) != 1 {
+			t.Errorf("generated quality gates must contain exactly one %q entry:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "critical_path_branch_coverage") {
-		t.Errorf("generated quality gates retain obsolete branch coverage gate:\n%s", got)
+
+	if count := strings.Count(got, "- id:"); count != 6 {
+		t.Errorf("generated quality gates contain %d entries, want 6:\n%s", count, got)
+	}
+	for _, prohibited := range []string{"coverage", "mutation", "complexity", "named_function", "language_profile", "command:", "run:"} {
+		if strings.Contains(got, prohibited) {
+			t.Errorf("generated quality gates contain prohibited %q:\n%s", prohibited, got)
+		}
 	}
 }
