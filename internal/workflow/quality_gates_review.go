@@ -305,6 +305,27 @@ func EvaluatePhase4Review(repoRoot string, execute func(string) (string, error))
 	return result, nil
 }
 
+// ValidateFinalReviewEligibility refuses final review when its snapshot changed.
+func ValidateFinalReviewEligibility(repoRoot, approvedSnapshot string) error {
+	statePath := filepath.Join(repoRoot, ".rotta", "current", "state.yaml")
+	state, err := os.ReadFile(statePath)
+	if err != nil {
+		return fmt.Errorf("read current submission state: %w", err)
+	}
+	reviewedCommit := stateValue(state, "reviewed_commit")
+	if reviewedCommit == approvedSnapshot {
+		return nil
+	}
+
+	updatedState := setStateValue(state, "phase", "review")
+	updatedState = setStateValue(updatedState, "reviewed_commit", "")
+	updatedState = setStateValue(updatedState, "overall_readiness", "invalidated")
+	if err := os.WriteFile(statePath, updatedState, 0o600); err != nil {
+		return fmt.Errorf("invalidate final review eligibility: %w", err)
+	}
+	return fmt.Errorf("final human approval cannot complete reviewed snapshot %s after it changed to %s; request a new Phase 4 review", reviewedCommit, approvedSnapshot)
+}
+
 // DerivePRReadiness applies persisted durable waivers without changing review evidence.
 func DerivePRReadiness(repoRoot, snapshot, configurationFingerprint string) (PRReadiness, error) {
 	evidence, err := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "review-evidence.yaml"))
