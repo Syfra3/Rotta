@@ -1721,6 +1721,53 @@ func TestSCN513_BlockedPersistedEvidenceRefusesManualGitHubPRHandoff(t *testing.
 	}
 }
 
+// REQ-078 → SCN-514 → TestSCN514_MatchingReadyWithWaiversEvidenceDerivesManualGitHubPRHandoff
+func TestSCN514_MatchingReadyWithWaiversEvidenceDerivesManualGitHubPRHandoff(t *testing.T) {
+	// Scenario: Eligible PR handoff is derived from matching ready evidence
+	repo := prepareSCN248Repository(t)
+	snapshot := runGitOutput(t, repo, "rev-parse", "HEAD")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "format: rotta.review-evidence/v1\nsnapshot: \""+snapshot+"\"\nconfiguration_fingerprint: \"cfg-1\"\nplan_fingerprint: \"plan-1\"\noverall_readiness: ready_with_waivers\ngates:\n  - category: tests\n    status: failed\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "waivers.yaml"), "format: rotta.review-waivers/v1\nwaivers:\n  - gate: tests\n    reason: \"Intermittent test has tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \""+snapshot+"\"\n    configuration_fingerprint: \"cfg-1\"\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "worktree: "+repo+"\nbranch: feature/worktree-handoff\nreviewed_commit: "+snapshot+"\nconfiguration_fingerprint: cfg-1\nplan_fingerprint: plan-1\napproval_record: specs/approvals/worktree-handoff.yaml\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "worktree-handoff.yaml"), "base_branch: main\n")
+	statusBefore := runGitOutput(t, repo, "status", "--short")
+
+	handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "caller-base",
+			FeatureBranch: "feature/caller-assertion",
+		},
+		CallerReadiness:      "ready",
+		CallerReviewedCommit: "caller-reviewed-commit",
+		ReviewedPaths:        []string{"caller-supplied.go"},
+	})
+	if err != nil {
+		t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+	}
+	for _, want := range []string{
+		"ready_with_waivers",
+		"tests",
+		"Intermittent test has tracked remediation",
+		"cd \"" + repo + "\"",
+		"git status --short",
+		"git push origin feature/worktree-handoff",
+		"gh pr create --base main --head feature/worktree-handoff",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("handoff missing trusted evidence or command %q:\n%s", want, handoff)
+		}
+	}
+	for _, forbidden := range []string{"caller-base", "feature/caller-assertion", "caller-reviewed-commit", "caller-supplied.go", "git add", "git commit"} {
+		if strings.Contains(handoff, forbidden) {
+			t.Errorf("handoff trusted caller assertion %q:\n%s", forbidden, handoff)
+		}
+	}
+	if statusAfter := runGitOutput(t, repo, "status", "--short"); statusAfter != statusBefore {
+		t.Fatalf("manual handoff executed a publication command or changed the worktree: before=%q after=%q", statusBefore, statusAfter)
+	}
+}
+
 // REQ-042, REQ-043 → SCN-248 → TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms
 func TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms(t *testing.T) {
 	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
