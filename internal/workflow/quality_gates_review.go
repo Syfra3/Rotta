@@ -270,6 +270,12 @@ func hasRequiredGenericGateOrder(gates []ResolvedQualityGate) bool {
 func validateCurrentTDDEvidence(repoRoot string, state []byte) error {
 	evidence, err := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "tdd-log.md"))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			scenarioIDs := stateList(state, "completed_scenarios")
+			if len(scenarioIDs) > 0 {
+				return fmt.Errorf("evaluate Phase 4 review: current TDD evidence is missing %s", scenarioIDs[0])
+			}
+		}
 		return fmt.Errorf("read current TDD evidence: %w", err)
 	}
 	for _, scenarioID := range stateList(state, "completed_scenarios") {
