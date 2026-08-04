@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -30,6 +31,19 @@ type ResolvedQualityGate struct {
 	Command        string
 	MetadataSource string
 	DiscoveryRule  string
+}
+
+type ChangedFileScope struct {
+	Baseline string
+	Snapshot string
+	Changed  []string
+	Renamed  []ChangedFileRename
+	Deleted  []string
+}
+
+type ChangedFileRename struct {
+	From string
+	To   string
 }
 
 // RequestPhase4Review rejects unsupported quality-gates configurations before command execution.
@@ -86,6 +100,46 @@ func ResolvePhase4ReviewPlan(repoRoot string) (Phase4ReviewPlan, error) {
 	return plan, nil
 }
 
+// ResolveChangedFileScope compares only the recorded baseline and review snapshot.
+func ResolveChangedFileScope(repoRoot string, _ []string) (ChangedFileScope, error) {
+	metadataPath := filepath.Join(repoRoot, ".rotta", "current", "review-snapshot.yaml")
+	metadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return ChangedFileScope{}, fmt.Errorf("read recorded review snapshot: %w", err)
+	}
+	baseline, snapshot := recordedReviewSnapshotIdentities(metadata)
+	if baseline == "" || snapshot == "" {
+		return ChangedFileScope{}, fmt.Errorf("resolve changed-file scope: recorded review snapshot has no comparison identities")
+	}
+
+	command := exec.Command("git", "diff", "--name-status", "-M", baseline, snapshot) // #nosec G204 -- Git binary and command structure are fixed; identities come from recorded snapshot metadata.
+	command.Dir = repoRoot
+	output, err := command.Output()
+	if err != nil {
+		return ChangedFileScope{}, fmt.Errorf("measure changed-file scope: %w", err)
+	}
+
+	scope := ChangedFileScope{Baseline: baseline, Snapshot: snapshot}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		switch {
+		case fields[0] == "D":
+			scope.Deleted = append(scope.Deleted, fields[1])
+		case strings.HasPrefix(fields[0], "R") && len(fields) == 3:
+			scope.Renamed = append(scope.Renamed, ChangedFileRename{From: fields[1], To: fields[2]})
+		default:
+			scope.Changed = append(scope.Changed, fields[len(fields)-1])
+		}
+	}
+	if err := persistChangedFileScope(filepath.Join(repoRoot, ".rotta", "current", "changed-file-scope.yaml"), scope); err != nil {
+		return ChangedFileScope{}, err
+	}
+	return scope, nil
+}
+
 func qualityGatesFormat(config []byte) string {
 	for _, line := range strings.Split(string(config), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
@@ -111,15 +165,12 @@ func supportsDeclaredConventionDiscovery(config []byte) bool {
 }
 
 func declaredConventionGates(metadata []byte, metadataPath string) (string, string, []ResolvedQualityGate, error) {
-	var baseline, snapshot, category string
+	baseline, snapshot := recordedReviewSnapshotIdentities(metadata)
+	var category string
 	var gates []ResolvedQualityGate
 	for _, line := range strings.Split(string(metadata), "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case strings.HasPrefix(line, "baseline: "):
-			baseline = strings.TrimSpace(strings.TrimPrefix(line, "baseline: "))
-		case strings.HasPrefix(line, "snapshot: "):
-			snapshot = strings.TrimSpace(strings.TrimPrefix(line, "snapshot: "))
 		case strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(trimmed, ":") && trimmed != "conventions:":
 			category = strings.TrimSuffix(trimmed, ":")
 		case strings.HasPrefix(line, "    command: "):
@@ -139,6 +190,19 @@ func declaredConventionGates(metadata []byte, metadataPath string) (string, stri
 		return "", "", nil, fmt.Errorf("resolve review plan: recorded review snapshot has no declared conventions")
 	}
 	return baseline, snapshot, gates, nil
+}
+
+func recordedReviewSnapshotIdentities(metadata []byte) (string, string) {
+	var baseline, snapshot string
+	for _, line := range strings.Split(string(metadata), "\n") {
+		switch {
+		case strings.HasPrefix(line, "baseline: "):
+			baseline = strings.TrimSpace(strings.TrimPrefix(line, "baseline: "))
+		case strings.HasPrefix(line, "snapshot: "):
+			snapshot = strings.TrimSpace(strings.TrimPrefix(line, "snapshot: "))
+		}
+	}
+	return baseline, snapshot
 }
 
 func fingerprint(data []byte) string {
@@ -166,6 +230,29 @@ func persistPhase4ReviewPlan(path string, plan Phase4ReviewPlan) error {
 	}
 	if err := os.WriteFile(path, []byte(contents.String()), 0o600); err != nil {
 		return fmt.Errorf("persist review plan: %w", err)
+	}
+	return nil
+}
+
+func persistChangedFileScope(path string, scope ChangedFileScope) error {
+	var contents strings.Builder
+	fmt.Fprintf(&contents, "format: rotta.changed-file-scope/v1\nbaseline: %q\nsnapshot: %q\nchanged:\n", scope.Baseline, scope.Snapshot)
+	for _, path := range scope.Changed {
+		fmt.Fprintf(&contents, "  - %q\n", path)
+	}
+	contents.WriteString("renamed:\n")
+	for _, rename := range scope.Renamed {
+		fmt.Fprintf(&contents, "  - from: %q\n    to: %q\n", rename.From, rename.To)
+	}
+	contents.WriteString("deleted:\n")
+	for _, path := range scope.Deleted {
+		fmt.Fprintf(&contents, "  - %q\n", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create changed-file scope directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(contents.String()), 0o600); err != nil {
+		return fmt.Errorf("persist changed-file scope: %w", err)
 	}
 	return nil
 }
