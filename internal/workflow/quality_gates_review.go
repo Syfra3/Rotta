@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,6 +47,12 @@ type ChangedFileRename struct {
 	To   string
 }
 
+type ambiguousStaticAnalysisConventionError struct{}
+
+func (ambiguousStaticAnalysisConventionError) Error() string {
+	return "resolve review plan: equally preferred static-analysis conventions conflict"
+}
+
 // RequestPhase4Review rejects unsupported quality-gates configurations before command execution.
 func RequestPhase4Review(repoRoot string, execute func(string) error) (QualityGatesReview, error) {
 	configPath := filepath.Join(repoRoot, ".rotta", "quality-gates.yaml")
@@ -62,6 +69,13 @@ func RequestPhase4Review(repoRoot string, execute func(string) error) (QualityGa
 	}
 	if format == "rotta.quality-gates/v2" {
 		plan, err := ResolvePhase4ReviewPlan(repoRoot)
+		var ambiguousStaticAnalysis ambiguousStaticAnalysisConventionError
+		if errors.As(err, &ambiguousStaticAnalysis) {
+			return QualityGatesReview{
+				State:  QualityGatesReviewBlocked,
+				Result: "static-analysis gate is blocked: equally preferred supported conventions resolve ambiguous conflicting commands; declare exactly one supported convention before requesting Phase 4 review",
+			}, nil
+		}
 		if err == nil && hasResolvedSecurityCheck(plan.Gates) {
 			return QualityGatesReview{}, fmt.Errorf("quality-gates review is unavailable for the active configuration")
 		}
@@ -187,6 +201,7 @@ func hasResolvedSecurityCheck(gates []ResolvedQualityGate) bool {
 func declaredConventionGates(metadata []byte, metadataPath string) (string, string, []ResolvedQualityGate, error) {
 	baseline, snapshot := recordedReviewSnapshotIdentities(metadata)
 	var category string
+	var staticAnalysisCommand string
 	var gates []ResolvedQualityGate
 	for _, line := range strings.Split(string(metadata), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -197,6 +212,12 @@ func declaredConventionGates(metadata []byte, metadataPath string) (string, stri
 			command := strings.TrimSpace(strings.TrimPrefix(line, "    command: "))
 			if category == "" || command == "" {
 				return "", "", nil, fmt.Errorf("resolve review plan: recorded convention is incomplete")
+			}
+			if category == "static_analysis" {
+				if staticAnalysisCommand != "" && staticAnalysisCommand != command {
+					return "", "", nil, ambiguousStaticAnalysisConventionError{}
+				}
+				staticAnalysisCommand = command
 			}
 			gates = append(gates, ResolvedQualityGate{
 				Category:       category,

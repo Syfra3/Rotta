@@ -140,6 +140,40 @@ func TestSCN505_MissingSecurityCheckConventionBlocksReviewWithoutExecution(t *te
 	}
 }
 
+// REQ-074 → SCN-506 → TestSCN506_AmbiguousStaticAnalysisConventionsBlockReviewWithoutExecution
+func TestSCN506_AmbiguousStaticAnalysisConventionsBlockReviewWithoutExecution(t *testing.T) {
+	// Scenario: Ambiguous command candidates block review
+	repo := t.TempDir()
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  static_analysis:\n    command: task lint\n  static_analysis:\n    command: make lint\n  security_checks:\n    command: task security\n")
+
+	executed := false
+	review, err := RequestPhase4Review(repo, func(string) error {
+		executed = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("request Phase 4 review: %v", err)
+	}
+	if review.State != QualityGatesReviewBlocked {
+		t.Errorf("review state = %q, want %q", review.State, QualityGatesReviewBlocked)
+	}
+	for _, want := range []string{"static-analysis", "ambiguous", "declare", "supported convention"} {
+		if !strings.Contains(review.Result, want) {
+			t.Errorf("review result %q does not contain %q", review.Result, want)
+		}
+	}
+	if strings.Contains(review.Result, "task lint") || strings.Contains(review.Result, "make lint") {
+		t.Errorf("review result selected a conflicting command: %q", review.Result)
+	}
+	if executed {
+		t.Fatal("ambiguous static-analysis command was selected or executed")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".rotta", "current", "review-plan.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("ambiguous static-analysis commands persisted a selected review plan: %v", err)
+	}
+}
+
 // REQ-074 → SCN-504 → TestSCN504_ChangedFileScopeUsesRecordedSnapshots
 func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
 	// Scenario: Changed-file scope is measured from trusted snapshots
