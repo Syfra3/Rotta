@@ -42,6 +42,27 @@ type Phase4ReviewResult struct {
 	PlanFingerprint          string
 }
 
+type PRReadiness struct {
+	State   string
+	Gates   []PRReadinessGate
+	Waivers []DurableWaiver
+}
+
+type PRReadinessGate struct {
+	Category         string
+	Status           string
+	UnderlyingStatus string
+}
+
+type DurableWaiver struct {
+	Gate                     string
+	Reason                   string
+	Scope                    string
+	Timestamp                string
+	Snapshot                 string
+	ConfigurationFingerprint string
+}
+
 type phase4GateOutcome struct {
 	Category    string
 	Status      string
@@ -280,6 +301,95 @@ func EvaluatePhase4Review(repoRoot string, execute func(string) (string, error))
 		return Phase4ReviewResult{}, fmt.Errorf("persist final human review state: %w", err)
 	}
 	return result, nil
+}
+
+// DerivePRReadiness applies persisted durable waivers without changing review evidence.
+func DerivePRReadiness(repoRoot, snapshot, configurationFingerprint string) (PRReadiness, error) {
+	evidence, err := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "review-evidence.yaml"))
+	if err != nil {
+		return PRReadiness{}, fmt.Errorf("read review evidence: %w", err)
+	}
+	if quotedStateValue(evidence, "snapshot") != snapshot || quotedStateValue(evidence, "configuration_fingerprint") != configurationFingerprint {
+		return PRReadiness{}, fmt.Errorf("derive PR readiness: review evidence does not match requested snapshot and configuration")
+	}
+	waiverData, err := os.ReadFile(filepath.Join(repoRoot, ".rotta", "current", "waivers.yaml"))
+	if err != nil {
+		return PRReadiness{}, fmt.Errorf("read durable waivers: %w", err)
+	}
+
+	readiness := PRReadiness{Gates: persistedReviewGates(evidence), Waivers: persistedDurableWaivers(waiverData)}
+	for index := range readiness.Gates {
+		readiness.Gates[index].UnderlyingStatus = readiness.Gates[index].Status
+		for _, waiver := range readiness.Waivers {
+			if waiver.Gate == readiness.Gates[index].Category && waiver.Snapshot == snapshot && waiver.ConfigurationFingerprint == configurationFingerprint {
+				readiness.Gates[index].Status = "waived"
+			}
+		}
+	}
+
+	allSatisfied, hasWaiver := true, false
+	for _, gate := range readiness.Gates {
+		if gate.Status != "passed" && gate.Status != "waived" {
+			allSatisfied = false
+		}
+		if gate.Status == "waived" {
+			hasWaiver = true
+		}
+	}
+	if allSatisfied && hasWaiver {
+		readiness.State = "ready_with_waivers"
+	} else if allSatisfied {
+		readiness.State = "ready"
+	} else {
+		readiness.State = "not_ready"
+	}
+	return readiness, nil
+}
+
+func quotedStateValue(data []byte, key string) string {
+	return strings.Trim(stateValue(data, key), "\"")
+}
+
+func persistedReviewGates(evidence []byte) []PRReadinessGate {
+	var gates []PRReadinessGate
+	for _, line := range strings.Split(string(evidence), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "- category: "):
+			gates = append(gates, PRReadinessGate{Category: strings.Trim(strings.TrimPrefix(trimmed, "- category: "), "\"")})
+		case strings.HasPrefix(trimmed, "status: ") && len(gates) > 0:
+			gates[len(gates)-1].Status = strings.Trim(strings.TrimPrefix(trimmed, "status: "), "\"")
+		}
+	}
+	return gates
+}
+
+func persistedDurableWaivers(data []byte) []DurableWaiver {
+	var waivers []DurableWaiver
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- gate: ") {
+			waivers = append(waivers, DurableWaiver{Gate: strings.Trim(strings.TrimPrefix(trimmed, "- gate: "), "\"")})
+			continue
+		}
+		if len(waivers) == 0 {
+			continue
+		}
+		waiver := &waivers[len(waivers)-1]
+		switch {
+		case strings.HasPrefix(trimmed, "reason: "):
+			waiver.Reason = strings.Trim(strings.TrimPrefix(trimmed, "reason: "), "\"")
+		case strings.HasPrefix(trimmed, "scope: "):
+			waiver.Scope = strings.Trim(strings.TrimPrefix(trimmed, "scope: "), "\"")
+		case strings.HasPrefix(trimmed, "timestamp: "):
+			waiver.Timestamp = strings.Trim(strings.TrimPrefix(trimmed, "timestamp: "), "\"")
+		case strings.HasPrefix(trimmed, "snapshot: "):
+			waiver.Snapshot = strings.Trim(strings.TrimPrefix(trimmed, "snapshot: "), "\"")
+		case strings.HasPrefix(trimmed, "configuration_fingerprint: "):
+			waiver.ConfigurationFingerprint = strings.Trim(strings.TrimPrefix(trimmed, "configuration_fingerprint: "), "\"")
+		}
+	}
+	return waivers
 }
 
 func hasRequiredGenericGateOrder(gates []ResolvedQualityGate) bool {
