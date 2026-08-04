@@ -2007,6 +2007,84 @@ func TestSCN248_PresentsManualGitHubPRHandoff(t *testing.T) {
 	}
 }
 
+// REQ-078 → SCN-513 → TestSCN513_BlockedPersistedEvidenceRefusesManualGitHubPRHandoff
+func TestSCN513_BlockedPersistedEvidenceRefusesManualGitHubPRHandoff(t *testing.T) {
+	// Scenario: PR handoff is refused when caller input contradicts persisted review evidence
+	repo := prepareSCN248Repository(t)
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "format: rotta.review-evidence/v1\noverall_readiness: blocked\ngates:\n  - category: security_checks\n    status: blocked\n    measurement: \"no declared security command\"\n    remediation: \"declare a supported security-check convention\"\n")
+
+	handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "main",
+			FeatureBranch: "feature/caller-asserts-ready",
+		},
+		CallerReadiness:      "ready",
+		CallerReviewedCommit: "caller-reviewed-commit",
+		ReviewedPaths:        []string{"caller-supplied.go"},
+	})
+	if err != nil {
+		t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+	}
+	for _, want := range []string{"blocked", "security_checks", "no declared security command", "declare a supported security-check convention"} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("handoff missing persisted blocked evidence %q:\n%s", want, handoff)
+		}
+	}
+	for _, forbidden := range []string{"git push", "gh pr create", "feature/caller-asserts-ready", "caller-supplied.go"} {
+		if strings.Contains(handoff, forbidden) {
+			t.Errorf("handoff trusted caller assertion %q:\n%s", forbidden, handoff)
+		}
+	}
+}
+
+// REQ-078 → SCN-514 → TestSCN514_MatchingReadyWithWaiversEvidenceDerivesManualGitHubPRHandoff
+func TestSCN514_MatchingReadyWithWaiversEvidenceDerivesManualGitHubPRHandoff(t *testing.T) {
+	// Scenario: Eligible PR handoff is derived from matching ready evidence
+	repo := prepareSCN248Repository(t)
+	snapshot := runGitOutput(t, repo, "rev-parse", "HEAD")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "format: rotta.review-evidence/v1\nsnapshot: \""+snapshot+"\"\nconfiguration_fingerprint: \"cfg-1\"\nplan_fingerprint: \"plan-1\"\noverall_readiness: ready_with_waivers\ngates:\n  - category: tests\n    status: failed\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "waivers.yaml"), "format: rotta.review-waivers/v1\nwaivers:\n  - gate: tests\n    reason: \"Intermittent test has tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \""+snapshot+"\"\n    configuration_fingerprint: \"cfg-1\"\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "worktree: "+repo+"\nbranch: feature/worktree-handoff\nreviewed_commit: "+snapshot+"\nconfiguration_fingerprint: cfg-1\nplan_fingerprint: plan-1\napproval_record: specs/approvals/worktree-handoff.yaml\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "worktree-handoff.yaml"), "base_branch: main\n")
+	statusBefore := runGitOutput(t, repo, "status", "--short")
+
+	handoff, err := PresentManualGitHubPRHandoff(ManualGitHubPRHandoffRequest{
+		Submission: NewImplementationSubmission{
+			WorktreePath:  repo,
+			BaseBranch:    "caller-base",
+			FeatureBranch: "feature/caller-assertion",
+		},
+		CallerReadiness:      "ready",
+		CallerReviewedCommit: "caller-reviewed-commit",
+		ReviewedPaths:        []string{"caller-supplied.go"},
+	})
+	if err != nil {
+		t.Fatalf("PresentManualGitHubPRHandoff returned error: %v", err)
+	}
+	for _, want := range []string{
+		"ready_with_waivers",
+		"tests",
+		"Intermittent test has tracked remediation",
+		"cd \"" + repo + "\"",
+		"git status --short",
+		"git push origin feature/worktree-handoff",
+		"gh pr create --base main --head feature/worktree-handoff",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("handoff missing trusted evidence or command %q:\n%s", want, handoff)
+		}
+	}
+	for _, forbidden := range []string{"caller-base", "feature/caller-assertion", "caller-reviewed-commit", "caller-supplied.go", "git add", "git commit"} {
+		if strings.Contains(handoff, forbidden) {
+			t.Errorf("handoff trusted caller assertion %q:\n%s", forbidden, handoff)
+		}
+	}
+	if statusAfter := runGitOutput(t, repo, "status", "--short"); statusAfter != statusBefore {
+		t.Fatalf("manual handoff executed a publication command or changed the worktree: before=%q after=%q", statusBefore, statusAfter)
+	}
+}
+
 // REQ-042, REQ-043 → SCN-248 → TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms
 func TestSCN248_PresentsManualHandoffForSupportedGitHubURLForms(t *testing.T) {
 	// Scenario: Present resolved manual GitHub PR handoff after Phase 4 passes
@@ -2193,7 +2271,8 @@ func prepareSCN248Repository(t *testing.T) string {
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
 	mustWrite(t, filepath.Join(repo, "README.md"), "base\n")
-	runGit(t, repo, "add", "README.md")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "format: rotta.review-evidence/v1\noverall_readiness: ready\n")
+	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-m", "test: establish handoff baseline")
 	runGit(t, repo, "checkout", "-b", "feature/worktree-handoff")
 	runGit(t, repo, "remote", "add", "origin", "git@github.com:example/repository.git")

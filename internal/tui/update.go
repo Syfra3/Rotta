@@ -219,16 +219,8 @@ func hasSelectedModes(modes [3]bool) bool {
 
 func (m Model) updateQualityGates(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "j", "down":
-		if m.GatesCursor < 1 {
-			m.GatesCursor++
-		}
-	case "k", "up":
-		if m.GatesCursor > 0 {
-			m.GatesCursor--
-		}
 	case "enter", " ":
-		m.UseDefaults = m.GatesCursor == 0
+		m.UseDefaults = true
 		m.PrevScreen = ScreenQualityGates
 		m.Screen = ScreenAncora
 	case "esc", "b":
