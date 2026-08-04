@@ -1,0 +1,70 @@
+format: rotta.feature-approval/v2
+status: approved
+approved_on: "2026-08-03"
+approval_source: explicit_human
+feature_id: language-agnostic-quality-gates
+submission_worktree: /home/geen/Documents/personal/Rotta-language-agnostic-quality-gates
+feature_branch: feature/language-agnostic-quality-gates
+base_branch: main
+spec_path: specs/language_agnostic_quality_gates_hard_spec.md
+feature_paths:
+  - features/language_agnostic_quality_gates.feature
+approved_scenarios:
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-501
+    requirement_ids: [REQ-073]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-502
+    requirement_ids: [REQ-073]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-503
+    requirement_ids: [REQ-074]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-504
+    requirement_ids: [REQ-074]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-505
+    requirement_ids: [REQ-074]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-506
+    requirement_ids: [REQ-074]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-507
+    requirement_ids: [REQ-075, REQ-077]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-508
+    requirement_ids: [REQ-075]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-509
+    requirement_ids: [REQ-075, REQ-076]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-510
+    requirement_ids: [REQ-076]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-511
+    requirement_ids: [REQ-076]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-512
+    requirement_ids: [REQ-077]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-513
+    requirement_ids: [REQ-078]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-514
+    requirement_ids: [REQ-078]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-515
+    requirement_ids: [REQ-079]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-517
+    requirement_ids: [REQ-079]
+  - feature_path: features/language_agnostic_quality_gates.feature
+    scenario_id: SCN-516
+    requirement_ids: [REQ-080]
+contract_fingerprints:
+  specs/language_agnostic_quality_gates_hard_spec.md: b56a3b72772a45a04b9947df350de34f2827c9ae58942a3570eed8679ca83ad6
+  features/language_agnostic_quality_gates.feature: 7dd5d70fe72e7ff3c5a54690c574c84c7acaca3171ac333f10d1d5f77d7aee7b
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: 98ab5f1b4810c7eaec2560ed43c55e08bd55fece
+  reviewed_commit: null

@@ -10,11 +10,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestSCN222_ConfirmViewDescribesCodexAndDeferredGates(t *testing.T) {
-	// REQ-014 → SCN-222 → TestSCN222_ConfirmViewDescribesCodexAndDeferredGates
+func TestSCN222_ConfirmViewDescribesCodexAndGenericThresholdDefaults(t *testing.T) {
+	// REQ-014 → SCN-222 → TestSCN222_ConfirmViewDescribesCodexAndGenericThresholdDefaults
 	// Scenario: Expose selected MCP configuration and runtime fallback states
-	view := Model{Target: TargetCodex, UseDefaults: false}.viewConfirm()
-	for _, want := range []string{"review later", "~/.codex/AGENTS.md"} {
+	view := Model{Target: TargetCodex, UseDefaults: true}.viewConfirm()
+	for _, want := range []string{"generic threshold defaults", "~/.codex/AGENTS.md"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected confirmation to contain %q: %s", want, view)
 		}
