@@ -1,6 +1,8 @@
 package installer
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,6 +121,45 @@ func TestCanonicalWorkflowInstructionsEnforceCleanTDDTaskBoundaries(t *testing.T
 		"checkpoint or clean the task diff before starting another scenario",
 		"Approved spec/feature contracts are tracked durable artifacts",
 	})
+}
+
+// REQ-080 -> SCN-516 -> TestSCN516_GeneratedReviewGuidancePreservesGenericGateContract
+func TestSCN516_GeneratedReviewGuidancePreservesGenericGateContract(t *testing.T) {
+	// Scenario: Generated review guidance preserves the executable generic-gate contract
+	home, options := setupCanonicalWorkflowInstall(t)
+	if _, err := Install(options); err != nil {
+		t.Fatalf("install supported hosts: %v", err)
+	}
+
+	for host, path := range map[string]string{
+		"claude-code": filepath.Join(home, ".claude", "skills", "rotta", "review-mode", "SKILL.md"),
+		"opencode":    filepath.Join(home, ".config", "opencode", "skills", "rotta-review", "SKILL.md"),
+		"codex":       filepath.Join(home, ".codex", "AGENTS.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s review guidance: %v", host, err)
+		}
+		got := string(data)
+
+		assertContainsAll(t, got, []string{
+			"rotta.quality-gates/v2 generic gate plan",
+			".rotta/current/review-evidence.yaml",
+			"unresolved required gate command blocks review",
+			"Waivers remain visible",
+			"final_human_review",
+			"matching persisted current review evidence",
+		})
+		for _, prohibited := range []string{
+			"rotta.quality-gates/v1",
+			"root `.rotta/tdd-log.md`",
+			"go test",
+			"go vet",
+			"coverage, mutation, and quality gates",
+		} {
+			assertNotContains(t, got, prohibited)
+		}
+	}
 }
 
 func TestVelaInstructionsEnforceExactSubjectStructuralQueryWorkflow(t *testing.T) {
@@ -433,17 +474,14 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 	}
 
 	assertContainsAll(t, string(data), []string{
-		"Review evaluates only the gates defined by `.rotta/quality-gates.yaml`",
-		"configured order",
-		"configured applicability",
-		"thresholds",
-		"commands and targets",
-		"configured parsing rules",
-		"configured severity and remediation outcome",
-		"Do not use hardcoded defaults, gate details, or legacy workflow markers",
+		"rotta.quality-gates/v2` generic-gate plan",
+		"`build`, `tests`, `changed_file_scope`",
+		"supported declared project conventions and metadata",
+		"configuration and plan fingerprints before evaluation",
+		"unresolved, ambiguous, or unavailable required gate command blocks review",
 	})
 	assertNotContains(t, string(data), "specs/.implementation-complete")
-	assertNotContains(t, string(data), ".rotta/tdd-log.md")
+	assertNotContains(t, string(data), ".rotta/review-evidence.yaml")
 
 	qualityGates, err := assets.FS.ReadFile("config/quality-gates.yaml")
 	if err != nil {
@@ -464,20 +502,16 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 		t.Fatalf("read review agent asset: %v", err)
 	}
 	assertContainsAll(t, string(reviewAgent), []string{
-		"enabled gates in their configured order",
-		"configured applicability",
-		"configured command",
-		"configured target",
-		"parsing,",
-		"thresholds,",
-		"severity,",
-		"remediation.",
+		"rotta.quality-gates/v2` generic-gate plan",
+		"declared supported conventions and metadata",
+		"unresolved, ambiguous,",
+		"blocks review with remediation",
+		".rotta/current/review-evidence.yaml",
 	})
 	for _, prohibited := range []string{
 		"specs/.implementation-complete",
-		".rotta/tdd-log.md",
-		"Step 1 — Traceability",
-		">= 0.90",
+		".rotta/review-evidence.yaml",
+		"go test",
 		"go-mutesting",
 	} {
 		assertNotContains(t, string(reviewAgent), prohibited)
@@ -493,9 +527,8 @@ func TestSCN343_InvalidGateConfigurationStopsReviewWithoutDefaults(t *testing.T)
 	}
 
 	assertContainsAll(t, string(data), []string{
-		"missing, unreadable, malformed, incomplete for an enabled gate, or internally inconsistent",
-		"stop review with a configuration error",
-		"Do not substitute embedded default gate behavior",
+		"unresolved, ambiguous, or unavailable required gate command blocks review",
+		"Never guess, substitute, silently pass",
 	})
 }
 
@@ -508,9 +541,8 @@ func TestSCN344_ConfigurationChangesControlSubsequentReviewBehavior(t *testing.T
 	}
 
 	assertContainsAll(t, string(data), []string{
-		"threshold, enabled status, severity, remediation outcome, command, or critical-function list",
-		"takes effect for the next review",
-		"without changing review code or instructions",
+		"declared thresholds, severity, and remediation",
+		"Evaluate only the persisted plan against its",
 	})
 }
 
@@ -522,11 +554,8 @@ func TestSCN345_EmptyCriticalFunctionListIsNotApplicable(t *testing.T) {
 		t.Fatalf("read review mode asset: %v", err)
 	}
 
-	assertContainsAll(t, string(data), []string{
-		"explicitly empty critical-function list",
-		"not_applicable",
-		"does not fail solely because no functions are named",
-	})
+	assertNotContains(t, string(data), "critical-function")
+	assertNotContains(t, string(data), "coverage sub-gate")
 }
 
 // REQ-006 → SCN-346 → TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes
@@ -538,11 +567,9 @@ func TestSCN346_ReviewEvidenceIdentifiesConfigurationAndCommandOutcomes(t *testi
 	}
 
 	assertContainsAll(t, string(data), []string{
-		"resolved configuration identity or fingerprint",
-		"configured command outcomes sufficient to audit the decision",
-		"Persist review evidence to `.rotta/review-evidence.yaml`",
-		"configuration_fingerprint",
-		"command_outcomes",
+		"Persist review evidence and the decision to `.rotta/current/review-evidence.yaml`",
+		"configuration and plan fingerprints",
+		"discovered commands, outputs, measurements, and remediation",
 	})
 }
 
@@ -625,7 +652,8 @@ func TestSCN351_OrchestratorValidatesScenarioResultBeforeContinuing(t *testing.T
 	}
 
 	assertContainsAll(t, string(review), []string{
-		"Derive completed approved scope from durable current-submission state and the matching feature record",
+		"Derive completed approved scope from durable current-submission state and the",
+		"matching feature record; do not accept externally supplied scope",
 	})
 }
 
