@@ -1,112 +1,31 @@
 # Rotta — Quality Gates
-# The ordered gates list is the complete Phase 4 review plan.
-format: rotta.quality-gates/v1
+# This ordered list is the complete generic Phase 4 review plan.
+format: rotta.quality-gates/v2
+gate_order:
+  - build
+  - tests
+  - changed_file_scope
+  - static_analysis
+  - dependency_checks
+  - security_checks
+discovery:
+  supported_inputs:
+    - declared_project_metadata
+    - task_runner_targets
+    - repository_tool_configuration
+  rules:
+    - declared_convention_only
+    - trusted_snapshot_comparison
 gates:
-  - id: scenario_traceability
+  - id: build
     enabled: true
-    applicability: always
-    command: { run: "test -f .rotta/tdd-log.md" }
-    target: { path: .rotta/tdd-log.md }
-    parsing: { success_exit_code: 0 }
-    thresholds: {}
-    severity: hard
-    remediation: return_to_tdd
-  - id: tests_passing
+  - id: tests
     enabled: true
-    applicability: always
-    command: { run: "go test ./..." }
-    target: { packages: "./..." }
-    parsing: { success_exit_code: 0 }
-    thresholds: {}
-    severity: hard
-    remediation: return_to_tdd
-  - id: changed_line_coverage
+  - id: changed_file_scope
     enabled: true
-    applicability: changed_go_files
-    command: { run: "go test ./... -coverprofile=phase4-changed.out" }
-    target: { changed_lines: true }
-    parsing: { coverage_profile: phase4-changed.out }
-    thresholds: { minimum: 0.90 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: critical_path_statement_coverage
+  - id: static_analysis
     enabled: true
-    applicability: configured_critical_functions
-    command: { run: "go test ./... -coverprofile=critical-path.out" }
-    target: { functions: [CheckpointApprovedScenario, ContinueFromAutonomousScenarioCheckpoint, CompleteAutonomousPhase3Boundary] }
-    parsing: { coverage_profile: critical-path.out }
-    thresholds: { minimum: 0.95 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: mutation_score
+  - id: dependency_checks
     enabled: true
-    applicability: changed_go_packages
-    command: { run: "go-mutesting ./<changed-module>" }
-    target: { changed_module: "./<changed-module>" }
-    parsing: { score_pattern: 'The mutation score is ([0-9]+(?:\.[0-9]+)?)' }
-    thresholds: { minimum: 0.80 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: surviving_critical_mutations
+  - id: security_checks
     enabled: true
-    applicability: changed_go_packages
-    command: { run: "go-mutesting ./<changed-module>" }
-    target: { changed_module: "./<changed-module>" }
-    parsing: { critical_survivors_report: report.json }
-    thresholds: { maximum: 0 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: circular_dependencies
-    enabled: true
-    applicability: always
-    command: { run: "go list -deps ./..." }
-    target: { packages: "./..." }
-    parsing: { circular_dependency_count: stderr }
-    thresholds: { maximum: 0 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: forbidden_import_violations
-    enabled: true
-    applicability: always
-    command: { run: "go list -deps ./..." }
-    target: { packages: "./..." }
-    parsing: { forbidden_import_violation_count: stdout }
-    thresholds: { maximum: 0 }
-    severity: hard
-    remediation: return_to_tdd
-  - id: typecheck_lint_security
-    enabled: true
-    applicability: always
-    command: { run: "go vet ./..." }
-    target: { packages: "./..." }
-    parsing: { success_exit_code: 0 }
-    thresholds: {}
-    severity: hard
-    remediation: return_to_tdd
-  - id: cyclomatic_complexity
-    enabled: true
-    applicability: changed_go_files
-    command: { run: "gocyclo -over 10 ." }
-    target: { changed_files: true }
-    parsing: { violation_count: stdout_lines }
-    thresholds: { maximum: 0 }
-    severity: warn
-    remediation: escalate_to_human
-  - id: unauthorized_files_changed
-    enabled: true
-    applicability: always
-    command: { run: "git diff --name-only" }
-    target: { changed_files: true }
-    parsing: { unauthorized_file_count: stdout_lines }
-    thresholds: { maximum: 0 }
-    severity: warn
-    remediation: escalate_to_human
-  - id: file_size_limit
-    enabled: true
-    applicability: changed_files
-    command: { run: "wc -l <changed-file>" }
-    target: { changed_files: true }
-    parsing: { line_count: stdout }
-    thresholds: { maximum: 500 }
-    severity: warn
-    remediation: escalate_to_human
