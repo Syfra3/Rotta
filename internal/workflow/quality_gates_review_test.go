@@ -246,6 +246,62 @@ func TestSCN507_SuccessfulGenericReviewWritesEvidenceAndEntersFinalHumanReview(t
 	}
 }
 
+// REQ-075 → REQ-076 → SCN-509 → TestSCN509_FailedBuildGateWritesNotReadyEvidence
+func TestSCN509_FailedBuildGateWritesNotReadyEvidence(t *testing.T) {
+	// Scenario: A failed required gate produces not-ready evidence
+	repo := t.TempDir()
+	runSCN504Git(t, repo, "init")
+	runSCN504Git(t, repo, "config", "user.email", "test@example.com")
+	runSCN504Git(t, repo, "config", "user.name", "Test User")
+	writeSCN503File(t, filepath.Join(repo, "tracked.txt"), "baseline\n")
+	runSCN504Git(t, repo, "add", "tracked.txt")
+	runSCN504Git(t, repo, "commit", "-m", "baseline")
+	baseline := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+	writeSCN503File(t, filepath.Join(repo, "tracked.txt"), "snapshot\n")
+	runSCN504Git(t, repo, "add", "tracked.txt")
+	runSCN504Git(t, repo, "commit", "-m", "snapshot")
+	snapshot := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), fmt.Sprintf("baseline: %s\nsnapshot: %s\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n", baseline, snapshot))
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), fmt.Sprintf("phase: review\nbaseline_commit: %s\ncompleted_scenarios: [SCN-501]\n", baseline))
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-501\nvalid current TDD evidence\n")
+
+	result, err := EvaluatePhase4Review(repo, func(command string) (string, error) {
+		if command == "task build" {
+			return "compile failed", fmt.Errorf("exit status 1")
+		}
+		t.Fatalf("executor ran %q after the failed build gate", command)
+		return "", nil
+	})
+	if err != nil {
+		t.Fatalf("evaluate Phase 4 review: %v", err)
+	}
+	if result.Readiness != "not_ready" || result.Snapshot != snapshot {
+		t.Errorf("review result = %#v, want not_ready result for snapshot %q", result, snapshot)
+	}
+
+	evidence, err := os.ReadFile(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"))
+	if err != nil {
+		t.Fatalf("read review evidence: %v", err)
+	}
+	for _, want := range []string{"overall_readiness: not_ready", "category: build", "status: failed", "output: \"compile failed\"", "exit_result: \"exit status 1\"", "remediation:"} {
+		if !strings.Contains(string(evidence), want) {
+			t.Errorf("review evidence does not contain %q:\n%s", want, evidence)
+		}
+	}
+
+	state, err := os.ReadFile(filepath.Join(repo, ".rotta", "current", "state.yaml"))
+	if err != nil {
+		t.Fatalf("read current state: %v", err)
+	}
+	for _, forbidden := range []string{"phase: final_human_review", "overall_readiness: ready", "reviewed_commit:"} {
+		if strings.Contains(string(state), forbidden) {
+			t.Errorf("current state must not contain %q:\n%s", forbidden, state)
+		}
+	}
+}
+
 // REQ-075 → SCN-508 → TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence
 func TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence(t *testing.T) {
 	// Scenario: Root and archived TDD logs cannot satisfy current review evidence
