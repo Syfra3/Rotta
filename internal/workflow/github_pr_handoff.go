@@ -2,21 +2,35 @@ package workflow
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
 
-// ManualGitHubPRHandoffRequest contains the already-reviewed submission data
-// needed to print, but never execute, human publication commands.
+// ManualGitHubPRHandoffRequest contains caller-provided handoff inputs.
+// Persisted review evidence remains the authority for readiness.
 type ManualGitHubPRHandoffRequest struct {
-	Submission     NewImplementationSubmission
-	ReviewedPaths  []string
-	HostDisclaimer string
+	Submission           NewImplementationSubmission
+	CallerReadiness      string
+	CallerReviewedCommit string
+	ReviewedPaths        []string
+	HostDisclaimer       string
 }
 
 // PresentManualGitHubPRHandoff prints a manual-only GitHub publication handoff.
 func PresentManualGitHubPRHandoff(request ManualGitHubPRHandoffRequest) (string, error) {
-	if request.Submission.WorktreePath == "" || !filepath.IsAbs(request.Submission.WorktreePath) || !isSafeGitBranchName(request.Submission.BaseBranch) || !isSafeGitBranchName(request.Submission.FeatureBranch) {
+	if request.Submission.WorktreePath == "" || !filepath.IsAbs(request.Submission.WorktreePath) {
+		return "", fmt.Errorf("manual GitHub PR handoff requires the recorded feature worktree and branches")
+	}
+	evidence, err := os.ReadFile(filepath.Join(request.Submission.WorktreePath, ".rotta", "current", "review-evidence.yaml"))
+	if err != nil {
+		return "Manual GitHub PR handoff is blocked: persisted review evidence is unavailable; no push or pull-request command was generated.\n", nil
+	}
+	readiness := stateValue(evidence, "overall_readiness")
+	if readiness != "ready" && readiness != "ready_with_waivers" {
+		return fmt.Sprintf("Manual GitHub PR handoff is blocked by persisted review evidence (overall readiness: %s); no push or pull-request command was generated.\n\n%s\n", readiness, strings.TrimSpace(string(evidence))), nil
+	}
+	if !isSafeGitBranchName(request.Submission.BaseBranch) || !isSafeGitBranchName(request.Submission.FeatureBranch) {
 		return "", fmt.Errorf("manual GitHub PR handoff requires the recorded feature worktree and branches")
 	}
 	remote, webURL, err := resolveGitHubPushRemote(request.Submission.WorktreePath)
