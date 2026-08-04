@@ -342,6 +342,42 @@ func TestSCN510_ValidWaiverProducesReadyWithWaivers(t *testing.T) {
 	}
 }
 
+// REQ-076 → SCN-511 → TestSCN511_InvalidWaiversBlockReadiness
+func TestSCN511_InvalidWaiversBlockReadiness(t *testing.T) {
+	// Scenario: An invalid waiver cannot authorize readiness
+	for _, test := range []struct {
+		name        string
+		waiver      string
+		remediation string
+	}{
+		{name: "expired", waiver: "gate: tests\n    reason: \"Flake has a tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    expiry: \"2026-08-03T12:00:00Z\"\n    snapshot: \"abc123\"\n    configuration_fingerprint: \"cfg-1\"", remediation: "expired"},
+		{name: "bound to a different snapshot SHA", waiver: "gate: tests\n    reason: \"Flake has a tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \"different-sha\"\n    configuration_fingerprint: \"cfg-1\"", remediation: "snapshot"},
+		{name: "bound to a different configuration fingerprint", waiver: "gate: tests\n    reason: \"Flake has a tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \"abc123\"\n    configuration_fingerprint: \"different-config\"", remediation: "configuration"},
+		{name: "missing a non-empty reason", waiver: "gate: tests\n    reason: \"\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \"abc123\"\n    configuration_fingerprint: \"cfg-1\"", remediation: "reason"},
+		{name: "naming a gate that is not in the persisted review plan", waiver: "gate: absent_gate\n    reason: \"Flake has a tracked remediation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \"abc123\"\n    configuration_fingerprint: \"cfg-1\"", remediation: "persisted review plan"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "format: rotta.review-evidence/v1\nsnapshot: \"abc123\"\nconfiguration_fingerprint: \"cfg-1\"\noverall_readiness: not_ready\ngates:\n  - category: tests\n    status: failed\n")
+			writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "waivers.yaml"), "format: rotta.review-waivers/v1\nwaivers:\n  - "+test.waiver+"\n")
+
+			readiness, err := DerivePRReadiness(repo, "abc123", "cfg-1")
+			if err != nil {
+				t.Fatalf("derive PR readiness: %v", err)
+			}
+			if readiness.State != "blocked" {
+				t.Errorf("readiness state = %q, want blocked", readiness.State)
+			}
+			if readiness.Gates[0].Status == "passed" || readiness.Gates[0].Status == "waived" {
+				t.Errorf("tests gate status = %q, invalid waiver must not authorize it", readiness.Gates[0].Status)
+			}
+			if !strings.Contains(readiness.Remediation, test.remediation) {
+				t.Errorf("waiver remediation = %q, want %q remediation", readiness.Remediation, test.remediation)
+			}
+		})
+	}
+}
+
 // REQ-075 → SCN-508 → TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence
 func TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence(t *testing.T) {
 	// Scenario: Root and archived TDD logs cannot satisfy current review evidence
