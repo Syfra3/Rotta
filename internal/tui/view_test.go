@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,6 +58,48 @@ func TestSCN515_QualityGateDefaultsAreLanguageNeutral(t *testing.T) {
 		}
 		if strings.Contains(strings.ToLower(string(config)), prohibited) {
 			t.Fatalf("generated quality-gates configuration unexpectedly contains %q:\n%s", prohibited, config)
+		}
+	}
+}
+
+// REQ-079 → SCN-517 → TestSCN517_QualityGatePreviewShowsDetectedAndBlockedMetrics
+func TestSCN517_QualityGatePreviewShowsDetectedAndBlockedMetrics(t *testing.T) {
+	// Scenario: The TUI presents generic detection and blocked metrics without executing review
+	projectPath := t.TempDir()
+	metadataPath := filepath.Join(projectPath, ".rotta", "current", "review-snapshot.yaml")
+	if err := os.MkdirAll(filepath.Dir(metadataPath), 0o700); err != nil {
+		t.Fatalf("create detected-project metadata directory: %v", err)
+	}
+	if err := os.WriteFile(metadataPath, []byte("conventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n"), 0o600); err != nil {
+		t.Fatalf("write detected-project metadata: %v", err)
+	}
+
+	model := New()
+	model.Screen = ScreenQualityGates
+	model.ProjectPath = projectPath
+	preview := model.View()
+	for _, want := range []string{
+		"Detection preview",
+		"build: resolved task build",
+		"tests: resolved task test",
+		"security checks: blocked",
+		"Declare a supported security-check convention in project metadata.",
+		"Blocked metrics (4): changed-file scope, static analysis, dependency checks, security checks",
+		".rotta/quality-gates.yaml",
+	} {
+		if !strings.Contains(preview, want) {
+			t.Fatalf("quality-gates detection preview missing %q:\n%s", want, preview)
+		}
+	}
+	if sources := strings.Count(preview, "source: "+metadataPath); sources != 2 {
+		t.Fatalf("resolved commands reported %d metadata sources, want 2:\n%s", sources, preview)
+	}
+	for _, path := range []string{
+		filepath.Join(projectPath, ".rotta", "current", "review-plan.yaml"),
+		filepath.Join(projectPath, ".rotta", "current", "review-evidence.yaml"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("detection preview created review artifact %q: %v", path, err)
 		}
 	}
 }

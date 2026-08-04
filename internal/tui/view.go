@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -309,6 +311,8 @@ func (m Model) viewQualityGates() string {
 		b.WriteString(menuItemStyle.Render("  "+gate) + "\n")
 	}
 	b.WriteString("\n")
+	writeQualityGatePreview(&b, m.ProjectPath)
+	b.WriteString("\n")
 	b.WriteString(inputHintStyle.Render("Commands are detected from project conventions and metadata during review.") + "\n")
 	b.WriteString(inputHintStyle.Render("Unresolved required commands leave readiness blocked with remediation.") + "\n")
 	b.WriteString(inputHintStyle.Render("Generated configuration: .rotta/quality-gates.yaml") + "\n\n")
@@ -317,6 +321,53 @@ func (m Model) viewQualityGates() string {
 
 	b.WriteString(helpStyle.Render("Enter to select · Esc to go back"))
 	return appStyle.Render(b.String())
+}
+
+func writeQualityGatePreview(b *strings.Builder, projectPath string) {
+	metadataPath := filepath.Join(projectPath, ".rotta", "current", "review-snapshot.yaml")
+	metadata, _ := os.ReadFile(metadataPath)
+	commands := declaredPreviewCommands(metadata)
+	gates := []struct {
+		category    string
+		label       string
+		remediation string
+	}{
+		{category: "build", label: "build", remediation: "build"},
+		{category: "tests", label: "tests", remediation: "tests"},
+		{category: "changed_file_scope", label: "changed-file scope", remediation: "changed-file-scope"},
+		{category: "static_analysis", label: "static analysis", remediation: "static-analysis"},
+		{category: "dependency_checks", label: "dependency checks", remediation: "dependency-check"},
+		{category: "security_checks", label: "security checks", remediation: "security-check"},
+	}
+
+	b.WriteString(sectionStyle.Render("Detection preview") + "\n")
+	blocked := make([]string, 0, len(gates))
+	for _, gate := range gates {
+		if command := commands[gate.category]; command != "" {
+			b.WriteString(menuItemStyle.Render(fmt.Sprintf("  %s: resolved %s", gate.label, command)) + "\n")
+			b.WriteString("    " + inputHintStyle.Render("source: "+metadataPath) + "\n")
+			continue
+		}
+		blocked = append(blocked, gate.label)
+		b.WriteString(warningStyle.Render("  "+gate.label+": blocked") + "\n")
+		b.WriteString("    " + inputHintStyle.Render("Declare a supported "+gate.remediation+" convention in project metadata.") + "\n")
+	}
+	b.WriteString(inputHintStyle.Render(fmt.Sprintf("Blocked metrics (%d): %s", len(blocked), strings.Join(blocked, ", "))) + "\n")
+}
+
+func declaredPreviewCommands(metadata []byte) map[string]string {
+	commands := make(map[string]string)
+	var category string
+	for _, line := range strings.Split(string(metadata), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(trimmed, ":") && trimmed != "conventions:":
+			category = strings.TrimSuffix(trimmed, ":")
+		case strings.HasPrefix(line, "    command: ") && category != "":
+			commands[category] = strings.TrimSpace(strings.TrimPrefix(line, "    command: "))
+		}
+	}
+	return commands
 }
 
 func (m Model) viewInstalling() string {
