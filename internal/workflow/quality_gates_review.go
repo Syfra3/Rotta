@@ -44,8 +44,11 @@ type Phase4ReviewResult struct {
 
 type phase4GateOutcome struct {
 	Category    string
+	Status      string
 	Command     string
 	Output      string
+	ExitResult  string
+	Remediation string
 	Measurement string
 }
 
@@ -225,13 +228,37 @@ func EvaluatePhase4Review(repoRoot string, execute func(string) (string, error))
 	for _, gate := range plan.Gates {
 		output, err := execute(gate.Command)
 		if err != nil {
-			return Phase4ReviewResult{}, fmt.Errorf("execute %s gate: %w", gate.Category, err)
+			outcomes = append(outcomes, phase4GateOutcome{
+				Category:    gate.Category,
+				Status:      "failed",
+				Command:     gate.Command,
+				Output:      output,
+				ExitResult:  err.Error(),
+				Remediation: fmt.Sprintf("fix the %s gate failure and rerun %q before requesting Phase 4 review", gate.Category, gate.Command),
+			})
+			result := Phase4ReviewResult{
+				Readiness:                "not_ready",
+				Snapshot:                 plan.Snapshot,
+				ConfigurationFingerprint: plan.ConfigurationFingerprint,
+				PlanFingerprint:          plan.PlanFingerprint,
+			}
+			if err := persistPhase4ReviewEvidence(filepath.Join(repoRoot, ".rotta", "current", "review-evidence.yaml"), plan, outcomes, result.Readiness); err != nil {
+				return Phase4ReviewResult{}, err
+			}
+			updatedState := setStateValue(state, "overall_readiness", result.Readiness)
+			updatedState = setStateValue(updatedState, "review_evidence", ".rotta/current/review-evidence.yaml")
+			updatedState = setStateValue(updatedState, "configuration_fingerprint", plan.ConfigurationFingerprint)
+			updatedState = setStateValue(updatedState, "plan_fingerprint", plan.PlanFingerprint)
+			if err := os.WriteFile(statePath, updatedState, 0o600); err != nil {
+				return Phase4ReviewResult{}, fmt.Errorf("persist not-ready review state: %w", err)
+			}
+			return result, nil
 		}
 		measurement := "command passed"
 		if gate.Category == "changed_file_scope" {
 			measurement = changedFileScopeMeasurement(scope)
 		}
-		outcomes = append(outcomes, phase4GateOutcome{Category: gate.Category, Command: gate.Command, Output: output, Measurement: measurement})
+		outcomes = append(outcomes, phase4GateOutcome{Category: gate.Category, Status: "passed", Command: gate.Command, Output: output, Measurement: measurement})
 	}
 
 	result := Phase4ReviewResult{
@@ -314,7 +341,12 @@ func persistPhase4ReviewEvidence(path string, plan Phase4ReviewPlan, outcomes []
 	var contents strings.Builder
 	fmt.Fprintf(&contents, "format: rotta.review-evidence/v1\nbaseline: %q\nsnapshot: %q\nconfiguration_fingerprint: %q\nplan_fingerprint: %q\nevaluated_at: %q\noverall_readiness: %s\ngates:\n", plan.Baseline, plan.Snapshot, plan.ConfigurationFingerprint, plan.PlanFingerprint, time.Now().UTC().Format(time.RFC3339), readiness)
 	for _, outcome := range outcomes {
-		fmt.Fprintf(&contents, "  - category: %s\n    status: passed\n    command: %q\n    output: %q\n    exit_status: 0\n    measurement: %q\n", outcome.Category, outcome.Command, outcome.Output, outcome.Measurement)
+		fmt.Fprintf(&contents, "  - category: %s\n    status: %s\n    command: %q\n    output: %q\n", outcome.Category, outcome.Status, outcome.Command, outcome.Output)
+		if outcome.Status == "failed" {
+			fmt.Fprintf(&contents, "    exit_result: %q\n    remediation: %q\n", outcome.ExitResult, outcome.Remediation)
+			continue
+		}
+		fmt.Fprintf(&contents, "    exit_status: 0\n    measurement: %q\n", outcome.Measurement)
 	}
 	if err := os.WriteFile(path, []byte(contents.String()), 0o600); err != nil {
 		return fmt.Errorf("persist review evidence: %w", err)
