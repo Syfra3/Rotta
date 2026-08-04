@@ -99,7 +99,7 @@ type Model struct {
 	SelectedModes [3]bool
 
 	// Quality gates
-	GatesCursor int // 0=Use defaults, 1=Configure
+	GatesCursor int // 0=Use generic threshold defaults
 	UseDefaults bool
 
 	// Ancora memory
