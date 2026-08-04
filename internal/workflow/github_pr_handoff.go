@@ -22,7 +22,8 @@ func PresentManualGitHubPRHandoff(request ManualGitHubPRHandoffRequest) (string,
 	if request.Submission.WorktreePath == "" || !filepath.IsAbs(request.Submission.WorktreePath) {
 		return "", fmt.Errorf("manual GitHub PR handoff requires the recorded feature worktree and branches")
 	}
-	evidence, err := os.ReadFile(filepath.Join(request.Submission.WorktreePath, ".rotta", "current", "review-evidence.yaml"))
+	worktreePath := request.Submission.WorktreePath
+	evidence, err := os.ReadFile(filepath.Join(worktreePath, ".rotta", "current", "review-evidence.yaml"))
 	if err != nil {
 		return "Manual GitHub PR handoff is blocked: persisted review evidence is unavailable; no push or pull-request command was generated.\n", nil
 	}
@@ -30,24 +31,77 @@ func PresentManualGitHubPRHandoff(request ManualGitHubPRHandoffRequest) (string,
 	if readiness != "ready" && readiness != "ready_with_waivers" {
 		return fmt.Sprintf("Manual GitHub PR handoff is blocked by persisted review evidence (overall readiness: %s); no push or pull-request command was generated.\n\n%s\n", readiness, strings.TrimSpace(string(evidence))), nil
 	}
-	if !isSafeGitBranchName(request.Submission.BaseBranch) || !isSafeGitBranchName(request.Submission.FeatureBranch) {
-		return "", fmt.Errorf("manual GitHub PR handoff requires the recorded feature worktree and branches")
+	if readiness == "ready" {
+		if !isSafeGitBranchName(request.Submission.BaseBranch) || !isSafeGitBranchName(request.Submission.FeatureBranch) {
+			return "", fmt.Errorf("manual GitHub PR handoff requires the recorded feature worktree and branches")
+		}
+		remote, webURL, err := resolveGitHubPushRemote(worktreePath)
+		if err != nil {
+			return "Phase 4 passed. GitHub remote selection requires user resolution; no push or pull-request command was generated.\n", nil
+		}
+
+		var handoff strings.Builder
+		fmt.Fprintf(&handoff, "Phase 4 passed. Run these commands yourself from the recorded worktree:\n\n  cd %q\n  git status --short\n", worktreePath)
+		if len(request.ReviewedPaths) > 0 {
+			handoff.WriteString("\nIf the status contains only your reviewed outstanding changes, optionally commit only those paths:\n  git add --")
+			for _, path := range request.ReviewedPaths {
+				fmt.Fprintf(&handoff, " %q", path)
+			}
+			handoff.WriteString("\n  git commit -m \"reviewed changes\"\n")
+		}
+		fmt.Fprintf(&handoff, "\n  git push %s %s\n  gh pr create --base %s --head %s\n\nOr open the GitHub web UI: %s/compare/%s\n\n%s\n", remote, request.Submission.FeatureBranch, request.Submission.BaseBranch, request.Submission.FeatureBranch, webURL, request.Submission.FeatureBranch, request.HostDisclaimer)
+		return handoff.String(), nil
 	}
-	remote, webURL, err := resolveGitHubPushRemote(request.Submission.WorktreePath)
+	state, err := os.ReadFile(filepath.Join(worktreePath, ".rotta", "current", "state.yaml"))
+	if err != nil {
+		return "Manual GitHub PR handoff is blocked: persisted current submission state is unavailable; no push or pull-request command was generated.\n", nil
+	}
+	recordedWorktree := stateValue(state, "worktree")
+	reviewedCommit := stateValue(state, "reviewed_commit")
+	configurationFingerprint := stateValue(state, "configuration_fingerprint")
+	planFingerprint := stateValue(state, "plan_fingerprint")
+	featureBranch := stateValue(state, "branch")
+	approvalRecord := stateValue(state, "approval_record")
+	if recordedWorktree != worktreePath || reviewedCommit == "" || configurationFingerprint == "" || planFingerprint == "" || !isSafeGitBranchName(featureBranch) || approvalRecord == "" || filepath.IsAbs(approvalRecord) || strings.HasPrefix(filepath.Clean(approvalRecord), "..") {
+		return "Manual GitHub PR handoff is blocked: persisted current submission state is incomplete or mismatched; no push or pull-request command was generated.\n", nil
+	}
+	approval, err := os.ReadFile(filepath.Join(worktreePath, approvalRecord))
+	baseBranch := stateValue(approval, "base_branch")
+	if err != nil || !isSafeGitBranchName(baseBranch) || quotedStateValue(evidence, "snapshot") != reviewedCommit || quotedStateValue(evidence, "configuration_fingerprint") != configurationFingerprint || quotedStateValue(evidence, "plan_fingerprint") != planFingerprint {
+		return "Manual GitHub PR handoff is blocked: persisted review evidence does not match the current submission; no push or pull-request command was generated.\n", nil
+	}
+	if head, err := gitSubmissionOutput(worktreePath, "rev-parse", "HEAD"); err != nil || head != reviewedCommit {
+		return "Manual GitHub PR handoff is blocked: the current approved snapshot does not match the reviewed commit; no push or pull-request command was generated.\n", nil
+	}
+	if branch, err := gitSubmissionOutput(worktreePath, "branch", "--show-current"); err != nil || branch != featureBranch {
+		return "Manual GitHub PR handoff is blocked: the recorded feature branch does not match the worktree; no push or pull-request command was generated.\n", nil
+	}
+	derivedReadiness, err := DerivePRReadiness(worktreePath, reviewedCommit, configurationFingerprint)
+	if err != nil || derivedReadiness.State != readiness {
+		return "Manual GitHub PR handoff is blocked: persisted waiver evidence is not eligible; no push or pull-request command was generated.\n", nil
+	}
+	remote, webURL, err := resolveGitHubPushRemote(worktreePath)
 	if err != nil {
 		return "Phase 4 passed. GitHub remote selection requires user resolution; no push or pull-request command was generated.\n", nil
 	}
 
 	var handoff strings.Builder
-	fmt.Fprintf(&handoff, "Phase 4 passed. Run these commands yourself from the recorded worktree:\n\n  cd %q\n  git status --short\n", request.Submission.WorktreePath)
-	if len(request.ReviewedPaths) > 0 {
-		handoff.WriteString("\nIf the status contains only your reviewed outstanding changes, optionally commit only those paths:\n  git add --")
-		for _, path := range request.ReviewedPaths {
-			fmt.Fprintf(&handoff, " %q", path)
+	fmt.Fprintf(&handoff, "Phase 4 evidence is %s.\n", derivedReadiness.State)
+	if derivedReadiness.State == "ready_with_waivers" {
+		handoff.WriteString("\nWaived gates:\n")
+		for _, gate := range derivedReadiness.Gates {
+			if gate.Status != "waived" {
+				continue
+			}
+			for _, waiver := range derivedReadiness.Waivers {
+				if waiver.Gate == gate.Category {
+					fmt.Fprintf(&handoff, "  %s: %s\n", gate.Category, waiver.Reason)
+					break
+				}
+			}
 		}
-		handoff.WriteString("\n  git commit -m \"reviewed changes\"\n")
 	}
-	fmt.Fprintf(&handoff, "\n  git push %s %s\n  gh pr create --base %s --head %s\n\nOr open the GitHub web UI: %s/compare/%s\n\n%s\n", remote, request.Submission.FeatureBranch, request.Submission.BaseBranch, request.Submission.FeatureBranch, webURL, request.Submission.FeatureBranch, request.HostDisclaimer)
+	fmt.Fprintf(&handoff, "\nRun these commands yourself from the recorded worktree:\n\n  cd %q\n  git status --short\n\n  git push %s %s\n  gh pr create --base %s --head %s\n\nOr open the GitHub web UI: %s/compare/%s\n\n%s\n", worktreePath, remote, featureBranch, baseBranch, featureBranch, webURL, featureBranch, request.HostDisclaimer)
 	return handoff.String(), nil
 }
 
