@@ -180,24 +180,23 @@ func TestSCN202_InstallRottaIntoAllSupportedHostsWithIndependentResults(t *testi
 		t.Fatal("expected an install error for the blocked OpenCode host")
 	}
 	if result == nil {
-		t.Fatal("expected partial result when one selected host fails")
+		t.Fatal("expected blocked result for malformed selected OpenCode configuration")
 	}
 
 	if len(result.Hosts) != 3 {
 		t.Fatalf("expected exactly three host results, got %#v", result.Hosts)
 	}
-	if result.Hosts["claude-code"].Status != HostInstallStatusInstalled {
-		t.Fatalf("expected Claude Code installed independently, got %#v", result.Hosts["claude-code"])
-	}
-	if result.Hosts["opencode"].Status != HostInstallStatusFailed {
-		t.Fatalf("expected OpenCode failed independently, got %#v", result.Hosts["opencode"])
-	}
-	if result.Hosts["codex"].Status != HostInstallStatusInstalled {
-		t.Fatalf("expected Codex installed independently, got %#v", result.Hosts["codex"])
+	for _, host := range []string{"claude-code", "opencode", "codex"} {
+		if result.Hosts[host].Status != HostInstallStatusFailed {
+			t.Fatalf("expected %s to be blocked before all-host installation, got %#v", host, result.Hosts[host])
+		}
 	}
 
-	assertPathExists(t, filepath.Join(home, ".claude", "skills", "rotta"))
-	assertPathExists(t, filepath.Join(home, ".codex", "AGENTS.md"))
+	for _, path := range []string{filepath.Join(home, ".claude", "skills", "rotta"), filepath.Join(home, ".codex", "AGENTS.md")} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("expected no all-host write to %s, stat error = %v", path, statErr)
+		}
+	}
 }
 
 func TestSCN203_RejectUnsupportedHostBeforeMutation(t *testing.T) {
