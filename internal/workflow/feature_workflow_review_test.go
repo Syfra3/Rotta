@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // REQ-082 → SCN-606 → TestSCN606_ContinuationAndReviewUseOnlyFeatureLocalPolicyAndEvidence
@@ -114,14 +115,76 @@ func TestSCN607_InvalidFeatureLocalPolicyBlocksWithoutFallback(t *testing.T) {
 	}
 }
 
+// REQ-090 → SCN-626 → TestSCN626_MissingQualityGatesInterfaceBlocksOnlyDependentBehavior
+func TestSCN626_MissingQualityGatesInterfaceBlocksOnlyDependentBehavior(t *testing.T) {
+	// Scenario: Missing quality-gates interface blocks only dependent workflow behavior
+	for _, testCase := range []struct {
+		name        string
+		policy      string
+		unavailable func(t *testing.T, repo string)
+	}{
+		{name: "v2 policy unavailable", policy: "format: rotta.quality-gates/v1\n"},
+		{
+			name:   "current review evidence unavailable",
+			policy: "format: rotta.quality-gates/v2\n",
+			unavailable: func(t *testing.T, repo string) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml")); err != nil {
+					t.Fatalf("remove unavailable quality-gates review evidence: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo, baseline := prepareFeatureWorkflowWithPolicy(t, testCase.policy)
+			if testCase.unavailable != nil {
+				testCase.unavailable(t, repo)
+			}
+
+			resumed, err := ResumeFeatureWorkflow(repo)
+			if err != nil {
+				t.Fatalf("ResumeFeatureWorkflow() returned error: %v", err)
+			}
+			if resumed.FeatureID != "feature-local" || resumed.ScenarioOrSlice != "SCN-606" {
+				t.Fatalf("ResumeFeatureWorkflow() = %#v, want independently traceable lifecycle continuation", resumed)
+			}
+
+			if _, err := ReviewFeatureWorkflow(repo); err == nil || !strings.Contains(err.Error(), "quality-gates interface remediation") {
+				t.Fatalf("ReviewFeatureWorkflow() error = %v, want quality-gates interface remediation", err)
+			}
+
+			gateOutcomePath := ".rotta/current/evidence/interface-dependent-gate.yaml"
+			mustWrite(t, filepath.Join(repo, filepath.FromSlash(gateOutcomePath)), "feature_id: feature-local\nrule_id: interface-dependent-gate\nbaseline: "+baseline+"\ncontract_fingerprint: contract-fingerprint\nstatus: failed\n")
+			display := NewDisplayedOverrideAction(DisplayedOverrideActionInput{
+				AuthorizationActionID: "interface-dependent-override",
+				FeatureID:             "feature-local",
+				RuleID:                "interface-dependent-gate",
+				Operation:             "review",
+				Baseline:              baseline,
+				ContractFingerprint:   "contract-fingerprint",
+				Reason:                "preserve interface remediation",
+				ExpiresAt:             time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC),
+				Target:                OverrideTarget{PersistedGateOutcomePath: gateOutcomePath},
+			})
+			if _, err := display.Authorize(repo, "approve"); err == nil || !strings.Contains(err.Error(), "quality-gates interface remediation") {
+				t.Fatalf("Authorize() error = %v, want quality-gates interface remediation", err)
+			}
+		})
+	}
+}
+
 func prepareSCN606FeatureWorkflow(t *testing.T) (string, string) {
+	return prepareFeatureWorkflowWithPolicy(t, "format: rotta.quality-gates/v2\n")
+}
+
+func prepareFeatureWorkflowWithPolicy(t *testing.T, policy string) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
 	runGit(t, repo, "checkout", "-b", "feature/feature-local")
-	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), policy)
 	mustWrite(t, filepath.Join(repo, "specs", "feature-local_hard_spec.md"), "# approved contract\n")
 	mustWrite(t, filepath.Join(repo, "features", "feature-local.feature"), "@REQ-082 @SCN-606\nScenario: Only feature-local policy and evidence paths are active\n")
 	mustWrite(t, filepath.Join(repo, "specs", "approvals", "feature-local.yaml"), "status: approved\n")
@@ -129,12 +192,13 @@ func prepareSCN606FeatureWorkflow(t *testing.T) (string, string) {
 	runGit(t, repo, "commit", "-m", "test: establish SCN-606 baseline")
 	baseline := runGitOutput(t, repo, "rev-parse", "HEAD")
 
-	policy := []byte("format: rotta.quality-gates/v1\n")
+	policyBytes := []byte(policy)
 	approval := []byte("status: approved\n")
-	manifest := fmt.Sprintf("format: rotta.workflow-manifest/v1\nfeature_id: feature-local\nworktree: %s\nbranch: feature/feature-local\nbase_sha: %s\npolicy_path: .rotta/quality-gates.yaml\npolicy_fingerprint: %x\nspec_path: specs/feature-local_hard_spec.md\nfeature_path: features/feature-local.feature\ncheckpoint_mode: strict_per_scenario\n", repo, baseline, sha256.Sum256(policy))
+	manifest := fmt.Sprintf("format: rotta.workflow-manifest/v1\nfeature_id: feature-local\nworktree: %s\nbranch: feature/feature-local\nbase_sha: %s\npolicy_path: .rotta/quality-gates.yaml\npolicy_fingerprint: %x\nspec_path: specs/feature-local_hard_spec.md\nfeature_path: features/feature-local.feature\ncheckpoint_mode: strict_per_scenario\n", repo, baseline, sha256.Sum256(policyBytes))
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "manifest.yaml"), manifest)
 	state := fmt.Sprintf("format: rotta.feature-runtime-state/v1\nfeature_id: feature-local\nworktree: %s\nbranch: feature/feature-local\nbaseline_sha: %s\nmanifest_fingerprint: %x\napproval_path: specs/approvals/feature-local.yaml\napproval_fingerprint: %x\nscenario_or_slice: SCN-606\nstatus: checkpointed\n", repo, baseline, sha256.Sum256([]byte(manifest)), sha256.Sum256(approval))
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), state)
 	mustWrite(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-606\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "provided by quality-gates evaluator\n")
 	return repo, baseline
 }

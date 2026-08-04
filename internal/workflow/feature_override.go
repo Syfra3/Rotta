@@ -250,6 +250,9 @@ func hasCompetingFeatureLocalOverride(path, operation string) (bool, error) {
 
 func (action *DisplayedOverrideAction) target(repoRoot string) (string, string, error) {
 	if action.input.Target.PersistedGateOutcomePath != "" {
+		if err := requireQualityGatesInterface(repoRoot); err != nil {
+			return "", "", err
+		}
 		contents, err := readRepositoryFile(repoRoot, action.input.Target.PersistedGateOutcomePath)
 		if err != nil {
 			return "", "", fmt.Errorf("read persisted gate outcome: %w", err)

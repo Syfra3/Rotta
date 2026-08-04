@@ -39,6 +39,9 @@ func ReviewFeatureWorkflow(repoRoot string) (FeatureWorkflowReview, error) {
 	if err != nil {
 		return FeatureWorkflowReview{}, err
 	}
+	if err := requireQualityGatesInterface(repoRoot); err != nil {
+		return FeatureWorkflowReview{}, err
+	}
 
 	stateContents, err := readRepositoryFile(repoRoot, ".rotta/current/state.yaml")
 	if err != nil {
