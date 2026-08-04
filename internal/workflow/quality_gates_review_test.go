@@ -466,6 +466,40 @@ func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
 	}
 }
 
+// REQ-077 → SCN-512 → TestSCN512_ChangedReviewedSnapshotInvalidatesFinalReviewEligibility
+func TestSCN512_ChangedReviewedSnapshotInvalidatesFinalReviewEligibility(t *testing.T) {
+	// Scenario: A changed reviewed snapshot invalidates final-review eligibility
+	repo := t.TempDir()
+	statePath := filepath.Join(repo, ".rotta", "current", "state.yaml")
+	writeSCN503File(t, statePath, "phase: final_human_review\nreviewed_commit: abc123\noverall_readiness: ready\nreview_evidence: .rotta/current/review-evidence.yaml\nconfiguration_fingerprint: cfg-1\nplan_fingerprint: plan-1\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"), "snapshot: \"abc123\"\nconfiguration_fingerprint: \"cfg-1\"\nplan_fingerprint: \"plan-1\"\noverall_readiness: ready\n")
+
+	err := ValidateFinalReviewEligibility(repo, "def456")
+	if err == nil {
+		t.Fatal("changed approved snapshot did not refuse final human approval")
+	}
+	for _, want := range []string{"abc123", "def456", "new Phase 4 review"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("eligibility refusal %q does not contain %q", err, want)
+		}
+	}
+
+	state, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read invalidated final review state: %v", err)
+	}
+	for _, want := range []string{"phase: review", "overall_readiness: invalidated", "reviewed_commit: "} {
+		if !strings.Contains(string(state), want) {
+			t.Errorf("invalidated state does not contain %q:\n%s", want, state)
+		}
+	}
+	for _, forbidden := range []string{"phase: final_human_review", "phase: complete", "reviewed_commit: abc123"} {
+		if strings.Contains(string(state), forbidden) {
+			t.Errorf("invalidated state must not contain %q:\n%s", forbidden, state)
+		}
+	}
+}
+
 func runSCN504Git(t *testing.T, repo string, arguments ...string) string {
 	t.Helper()
 	command := exec.Command("git", arguments...)
