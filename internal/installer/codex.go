@@ -95,7 +95,7 @@ func codexInstructions(opts Options) string {
 		b.WriteString("- Each TDD scenario task must start from a clean worktree; after the scenario passes, update the task checklist and checkpoint or clean the diff before starting the next scenario.\n")
 	}
 	if opts.InstallReview {
-		b.WriteString("- Full workflow review mode: judge evidence against traceability, tests, coverage, mutation, and quality gates.\n")
+		b.WriteString("- Full workflow review mode: judge persisted current evidence from the v2 generic-gate plan.\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(integrationInstructions(opts))
