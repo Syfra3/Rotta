@@ -1,0 +1,105 @@
+format: rotta.feature-approval/v2
+contract_id:
+status: approved
+approved_on: "2026-08-03"
+approval_source: explicit_human
+approval_message: "approve contrat"
+feature_id: workflow-ergonomics
+submission_worktree: /home/geen/Documents/personal/Rotta-workflow-ergonomics
+feature_branch: feature/workflow-ergonomics
+base_branch: main
+spec_path: specs/workflow_ergonomics_hard_spec.md
+feature_paths:
+  - features/workflow_ergonomics.feature
+approved_scenarios:
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-601
+    requirement_ids: [REQ-081]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-602
+    requirement_ids: [REQ-081]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-603
+    requirement_ids: [REQ-081]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-604
+    requirement_ids: [REQ-081]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-605
+    requirement_ids: [REQ-082]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-606
+    requirement_ids: [REQ-082]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-607
+    requirement_ids: [REQ-082]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-608
+    requirement_ids: [REQ-083]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-609
+    requirement_ids: [REQ-083]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-610
+    requirement_ids: [REQ-083]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-611
+    requirement_ids: [REQ-084]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-612
+    requirement_ids: [REQ-084]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-613
+    requirement_ids: [REQ-084]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-614
+    requirement_ids: [REQ-085]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-615
+    requirement_ids: [REQ-085]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-616
+    requirement_ids: [REQ-086]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-617
+    requirement_ids: [REQ-086]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-618
+    requirement_ids: [REQ-087]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-619
+    requirement_ids: [REQ-087]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-620
+    requirement_ids: [REQ-087]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-621
+    requirement_ids: [REQ-088]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-622
+    requirement_ids: [REQ-089]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-623
+    requirement_ids: [REQ-089]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-624
+    requirement_ids: [REQ-089]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-625
+    requirement_ids: [REQ-089]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-626
+    requirement_ids: [REQ-090]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-627
+    requirement_ids: [REQ-090]
+  - feature_path: features/workflow_ergonomics.feature
+    scenario_id: SCN-628
+    requirement_ids: [REQ-085, REQ-089]
+contract_fingerprints:
+  specs/workflow_ergonomics_hard_spec.md: 861ffa45d90c719e3ae9b14dd424aa30257b0157f47c97774edbb86b1fb2f3b4
+  features/workflow_ergonomics.feature: 19596a1133df3934cea40425fcbdfc31faab87a53b8b55a0fc7e5c351a996f20
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: 444c209c706007e59d5595b5631b2732df58a538
+  reviewed_commit: null

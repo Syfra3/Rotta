@@ -112,7 +112,7 @@ Before every scenario delegation, verify the recorded worktree identity matches 
 At the next scenario boundary, ignored local artifacts alone do not block a clean scenario boundary. When tracked and non-ignored paths are clean, the orchestrator may proceed with the approved scenario.
 
 ```
-Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/tdd-log.md" })
+Task("rotta-impl", { scenario_id, feature_file, project, state_ref: ".rotta/current/tdd-log.md" })
 ```
 
 Each rotta-impl task contains exactly one already-approved scenario. After the task reports Red/Green/Refactor traceability and required evidence, it stops.
@@ -133,7 +133,7 @@ not decide how to persist or discard them.
 
 Before accepting a reported scenario result, verify required evidence, approved scope, and boundary cleanliness. Only after successful validation may it accept the scenario result, checkpoint it, and continue to the next approved scenario. After validation, persist the scenario checkpoint evidence and accepted completed/remaining/next scenario state in durable current-submission artifacts before continuing.
 
-If checkpoint persistence and state persistence disagree, another process changes the worktree during delegation, contract drift is detected, approval becomes invalid, or a required gate fails, halt without bypassing approval, state validation, clean-boundary checks, or configured quality gates.
+If checkpoint persistence and state persistence disagree, another process changes the worktree during delegation, contract drift is detected, approval becomes invalid, a required gate fails, or required validation fails, halt without bypassing approval, state validation, or clean-boundary checks.
 
 ### Phase 4 — Review → `rotta-review`
 ```
@@ -142,16 +142,7 @@ Task("rotta-review", { project, state_ref: ".rotta/current/state.yaml + feature 
 
 Derive completed approved scope from durable current-submission state and the matching feature record; do not accept an externally supplied scenario scope.
 
-**AI-generated code metrics gate**: `rotta-review` must load the active quality
-gate thresholds from the TUI-generated workflow file, not from hardcoded values
-in this orchestrator prompt. The generated gates are the source of truth.
-
-If the generated gate file is missing, stale, or unreadable: stop and ask the
-user to regenerate/confirm gates in the TUI before review. Do not silently fall
-back to embedded defaults.
-
-If any active objective gate fails: return to Phase 3 with specific remediation.
-If all active objective gates pass, the orchestrator records that committed implementation snapshot as reviewed_commit, transitions the feature durably to final_human_review, and does not mark the feature complete. Final approval still requires semantic correctness, design fit, meaningful tests, and risk-boundary review.
+The source/runtime review policy determines review validation and remediation. When it reports success, the orchestrator records that committed implementation snapshot as reviewed_commit, transitions the feature durably to final_human_review, and does not mark the feature complete.
 
 Only explicit human approval for a feature in final_human_review whose current approved implementation snapshot matches reviewed_commit transitions the feature to complete. The approval record does not record reviewer identity.
 
@@ -163,7 +154,7 @@ If recording reviewed_commit or the final_human_review transition fails, the fea
 
 ## Escalate to human when
 
-- Gate fails and TDD sub-agent requests exception.
+- Required validation fails and TDD sub-agent requests exception.
 - Implementation requires changing the approved Gherkin contract.
 - Diff touches security, auth, payments, infra, secrets, or migrations.
 - Metrics conflict (high coverage + low mutation score in critical module).

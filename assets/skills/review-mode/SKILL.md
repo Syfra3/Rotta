@@ -78,5 +78,4 @@ Escalate only when the configured remediation outcome requires human escalation.
 - Override approved product behavior.
 - Accept an implementation because it "looks reasonable."
 - Block completion on personal taste.
-- Skip an applicable configured gate.
-- Evaluate against stale configured evidence.
+- Define generic quality-gate policy or lifecycle authority.

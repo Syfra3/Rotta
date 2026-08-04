@@ -2,12 +2,16 @@
 package installer
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Options configures what and where to install.
@@ -65,11 +69,38 @@ type MCPRuntimeFallback struct {
 	State MCPRuntimeFallbackState
 }
 
+type MCPObservationStatus string
+
+const (
+	MCPObservationCompleted     MCPObservationStatus = "completed"
+	MCPObservationFailed        MCPObservationStatus = "failed"
+	MCPObservationNotObservable MCPObservationStatus = "not_observable"
+)
+
+type MCPDiscoverySource string
+
+const (
+	MCPDiscoverySourceDirectServer MCPDiscoverySource = "direct_server"
+	MCPDiscoverySourceOpenCode     MCPDiscoverySource = "opencode"
+)
+
+type MCPObservation struct {
+	Status MCPObservationStatus `json:"status"`
+	Detail string               `json:"detail,omitempty"`
+	Source MCPDiscoverySource   `json:"source,omitempty"`
+}
+
 type MCPStatusResult struct {
-	Status          MCPStatus
-	Reason          string
-	Remediation     string
-	RuntimeFallback MCPRuntimeFallback
+	Status                   MCPStatus          `json:"status"`
+	Reason                   string             `json:"reason"`
+	Remediation              string             `json:"remediation"`
+	RuntimeFallback          MCPRuntimeFallback `json:"runtime_fallback"`
+	CommandResolution        MCPObservation     `json:"preflight_command_resolved,omitempty"`
+	FileWrite                MCPObservation     `json:"written,omitempty"`
+	SchemaValidity           MCPObservation     `json:"schema_valid,omitempty"`
+	OpenCodeServerResolution MCPObservation     `json:"opencode_resolved,omitempty"`
+	ToolDiscovery            MCPObservation     `json:"tools_discovered,omitempty"`
+	ResolvedCommandPath      string             `json:"resolved_command_path,omitempty"`
 }
 
 type FileChangeCategory string
@@ -107,15 +138,20 @@ type HostCapability struct {
 }
 
 type HostInstallResult struct {
-	Host         string
-	Status       HostInstallStatus
-	Files        []string
-	Capabilities map[string]HostCapability
+	Host           string
+	Status         HostInstallStatus
+	Files          []string
+	Capabilities   map[string]HostCapability
+	OpenCodeConfig OpenCodeConfigResolution
 }
 
 func install(opts Options) (*Result, error) {
 	result, home, projectPath, err := prepareInstall(opts)
 	if err != nil {
+		return result, err
+	}
+	if err := validateSelectedOpenCodeConfiguration(opts, home); err != nil {
+		recordSelectedHostFailure(result, opts, err)
 		return result, err
 	}
 
@@ -134,23 +170,76 @@ func install(opts Options) (*Result, error) {
 		recordChangedFiles(result, projectPath)
 		return result, err
 	}
-	if err := setupVela(opts, result, home, projectPath); err != nil {
-		return nil, err
-	}
-
 	if keepResult, err := setupContext7(opts, result, home, projectPath); err != nil {
 		if keepResult {
 			return result, err
 		}
 		return nil, err
 	}
+	velaTransaction, err := beginSelectedOpenCodeVelaTransaction(opts, result, home)
+	if err != nil {
+		recordChangedFiles(result, projectPath)
+		return result, err
+	}
+	if err := setupVelaWithTransaction(opts, result, home, projectPath, velaTransaction); err != nil {
+		return recoverSelectedOpenCodeVelaFailure(result, opts, projectPath, velaTransaction, err)
+	}
 
 	if err := setupCodexMCP(opts, result, home, projectPath); err != nil {
 		return result, err
 	}
-	finalizeInstall(result, opts, projectPath)
+	if err := finalizeInstall(result, opts, projectPath); err != nil {
+		return result, err
+	}
 
 	return result, nil
+}
+
+func beginSelectedOpenCodeVelaTransaction(opts Options, result *Result, home string) (*openCodeVelaTransaction, error) {
+	if !opts.SetupVela || !targetsOpenCode(opts.Target) {
+		return nil, nil
+	}
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return nil, fmt.Errorf("begin Vela scoped transaction: %w", err)
+	}
+	transaction, err := beginOpenCodeVelaTransaction(result.BackupDir, resolution.Path)
+	if err != nil {
+		return nil, err
+	}
+	return transaction, nil
+}
+
+func recoverSelectedOpenCodeVelaFailure(result *Result, opts Options, projectPath string, transaction *openCodeVelaTransaction, setupErr error) (*Result, error) {
+	if transaction != nil {
+		if _, err := transaction.recover(setupErr); err != nil {
+			setupErr = err
+		}
+	}
+	recordVelaSetupFailure(result, opts, setupErr)
+	recordMCPStatuses(result, opts)
+	if err := recordMCPStatusEvidence(result); err != nil {
+		return result, err
+	}
+	recordChangedFiles(result, projectPath)
+	result.Error = setupErr.Error()
+	return result, setupErr
+}
+
+func recordVelaSetupFailure(result *Result, opts Options, setupErr error) {
+	for _, host := range selectedHosts(opts.Target) {
+		hostResult := result.Hosts[host]
+		if hostResult.Capabilities == nil {
+			hostResult.Capabilities = map[string]HostCapability{}
+		}
+		hostResult.Capabilities["mcp:vela"] = HostCapability{
+			Name:        "mcp:vela",
+			Status:      HostCapabilityStatusFailed,
+			Reason:      setupErr.Error(),
+			Remediation: "Repair the Vela setup failure and rerun Rotta; successful selected-host integrations remain configured.",
+		}
+		result.Hosts[host] = hostResult
+	}
 }
 
 // Install runs the full installation and returns a summary.
@@ -202,6 +291,10 @@ func setupAncora(opts Options, result *Result, home string) error {
 }
 
 func setupVela(opts Options, result *Result, home, projectPath string) error {
+	return setupVelaWithTransaction(opts, result, home, projectPath, nil)
+}
+
+func setupVelaWithTransaction(opts Options, result *Result, home, projectPath string, transaction *openCodeVelaTransaction) error {
 	if !opts.SetupVela {
 		return nil
 	}
@@ -215,7 +308,11 @@ func setupVela(opts Options, result *Result, home, projectPath string) error {
 	if len(vr.MCPAvailability) != 0 {
 		markBackedUpVelaConfigurations(vr, result.BackupDir, home)
 		if velaConfigurationNeedsRestore(vr) {
-			if _, err := RestoreBackup(result.BackupDir); err != nil {
+			if transaction != nil {
+				if _, err := transaction.recover(fmt.Errorf("Vela configuration was not newly validated")); err != nil {
+					return err
+				}
+			} else if _, err := RestoreBackup(result.BackupDir); err != nil {
 				return fmt.Errorf("restore previous Vela configuration: %w", err)
 			}
 		}
@@ -279,12 +376,51 @@ func recordVelaMCPAvailability(result *Result, vela *VelaResult) {
 	}
 }
 
-func finalizeInstall(result *Result, opts Options, projectPath string) {
+func finalizeInstall(result *Result, opts Options, projectPath string) error {
 	recordCommandHostCapabilities(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
 	recordMCPStatuses(result, opts)
+	if err := recordMCPStatusEvidence(result); err != nil {
+		return err
+	}
 	recordChangedFiles(result, projectPath)
+	return nil
+}
+
+func recordMCPStatusEvidence(result *Result) error {
+	if result.BackupDir == "" || len(result.MCPStatuses) == 0 {
+		return nil
+	}
+	data, err := json.MarshalIndent(result.MCPStatuses, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize MCP status transaction evidence: %w", err)
+	}
+	if err := writePrivateFile(filepath.Join(result.BackupDir, "mcp-status.json"), data, 0o600); err != nil {
+		return fmt.Errorf("write MCP status transaction evidence: %w", err)
+	}
+	return nil
+}
+
+func resolveOpenCodeMCPServer(name string) MCPObservation {
+	path, err := exec.LookPath("opencode")
+	if err != nil {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "OpenCode CLI is unavailable; OpenCode server resolution was not observed."}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, path, "mcp", "list").CombinedOutput()
+	if err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: fmt.Sprintf("OpenCode mcp list failed: %v", err)}
+	}
+	text := strings.ToLower(string(output))
+	if !strings.Contains(text, strings.ToLower(name)) {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "OpenCode mcp list did not expose a status for the selected server."}
+	}
+	if strings.Contains(text, "connected") {
+		return MCPObservation{Status: MCPObservationCompleted, Detail: "OpenCode mcp list reported the server connected."}
+	}
+	return MCPObservation{Status: MCPObservationFailed, Detail: "OpenCode mcp list reported the selected server without a connected status."}
 }
 
 func recordSelectedHostFailure(result *Result, opts Options, err error) {

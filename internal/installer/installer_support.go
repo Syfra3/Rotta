@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -40,10 +41,66 @@ func recordMCPStatuses(result *Result, opts Options) {
 	for _, host := range selectedHosts(opts.Target) {
 		hostStatuses := map[string]MCPStatusResult{}
 		for _, capabilityName := range selectedMCPCapabilities(opts) {
-			hostStatuses[strings.TrimPrefix(capabilityName, "mcp:")] = mcpStatusResult(result.Hosts[host], capabilityName)
+			name := strings.TrimPrefix(capabilityName, "mcp:")
+			status := mcpStatusResult(result.Hosts[host], capabilityName)
+			if host == "opencode" {
+				status = openCodeMCPStatus(result, name, status)
+			}
+			hostStatuses[name] = status
 		}
 		result.MCPStatuses[host] = hostStatuses
 	}
+}
+
+func openCodeMCPStatus(result *Result, name string, status MCPStatusResult) MCPStatusResult {
+	command := managedMCPCommand(name)
+	if path, err := exec.LookPath(command); err == nil {
+		status.CommandResolution = MCPObservation{Status: MCPObservationCompleted, Detail: "Installer preflight resolved the managed command."}
+		status.ResolvedCommandPath = path
+	} else {
+		status.CommandResolution = MCPObservation{Status: MCPObservationNotObservable, Detail: "Managed command is unavailable to the installer."}
+	}
+
+	status.FileWrite, status.SchemaValidity = openCodeMCPConfigurationObservations(result.Hosts["opencode"].OpenCodeConfig, name)
+	status.OpenCodeServerResolution = resolveOpenCodeMCPServer(name)
+	status.ToolDiscovery = openCodeToolDiscovery(name, result.Context7)
+	return status
+}
+
+func openCodeMCPConfigurationObservations(resolution OpenCodeConfigResolution, name string) (MCPObservation, MCPObservation) {
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Cannot read the selected OpenCode configuration after installation."}, MCPObservation{Status: MCPObservationNotObservable, Detail: "Selected OpenCode configuration could not be read for validation."}
+	} else if err := validateOpenCodeConfigurationShape(document.config); err != nil {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Selected OpenCode configuration is invalid after installation."}, MCPObservation{Status: MCPObservationFailed, Detail: err.Error()}
+	}
+	if openCodeMCPEntryExists(document.config, name) {
+		return MCPObservation{Status: MCPObservationCompleted, Detail: "Selected managed MCP entry was written to the effective OpenCode configuration."}, MCPObservation{Status: MCPObservationCompleted, Detail: "Selected OpenCode configuration remains schema-valid."}
+	}
+	return MCPObservation{Status: MCPObservationFailed, Detail: "Selected managed MCP entry is absent from the effective OpenCode configuration."}, MCPObservation{Status: MCPObservationCompleted, Detail: "Selected OpenCode configuration remains schema-valid."}
+}
+
+func managedMCPCommand(name string) string {
+	if name == context7ServerName {
+		return Context7ServerConfig().Command
+	}
+	return name
+}
+
+func openCodeMCPEntryExists(config map[string]interface{}, name string) bool {
+	mcp, _ := config["mcp"].(map[string]interface{})
+	_, exists := mcp[name]
+	return exists
+}
+
+func openCodeToolDiscovery(name string, context7 Context7Result) MCPObservation {
+	if name != context7ServerName || !context7.HealthRan {
+		return MCPObservation{Status: MCPObservationNotObservable, Detail: "No OpenCode tool enumeration was observed."}
+	}
+	if !context7.Health.ToolsDiscovered {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "Direct server tools/list did not discover the required tools.", Source: MCPDiscoverySourceDirectServer}
+	}
+	return MCPObservation{Status: MCPObservationCompleted, Detail: "Tools were discovered by direct server tools/list, not OpenCode.", Source: MCPDiscoverySourceDirectServer}
 }
 
 func mcpStatusResult(host HostInstallResult, capabilityName string) MCPStatusResult {
@@ -118,7 +175,13 @@ func installAllHosts(opts Options, result *Result, home, projectPath string) (*R
 			continue
 		}
 		result.Files = append(result.Files, files...)
-		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+		hostResult, err := installedHostResult(opts, host, home, files)
+		if err != nil {
+			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
+			installErr = fmt.Errorf("%s host configuration: %w", host, err)
+			continue
+		}
+		result.Hosts[host] = hostResult
 	}
 	files, err := installConfig(projectPath)
 	if err != nil {
@@ -142,7 +205,7 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 		}
 		return installClaudeCode(hostOpts, home)
 	case "opencode":
-		if err := cleanPreviousOpenCodeInstallation(home); err != nil {
+		if err := cleanPreviousOpenCodeInstallation(hostOpts, home); err != nil {
 			return nil, err
 		}
 		return installOpenCode(hostOpts, home)
@@ -186,7 +249,7 @@ func installConfig(projectPath string) ([]string, error) {
 
 func cleanPreviousInstallation(opts Options, home, projectPath string) error {
 	if opts.Target != "all" {
-		if err := cleanSelectedHosts(opts.Target, home); err != nil {
+		if err := cleanSelectedHosts(opts, home); err != nil {
 			return err
 		}
 	}
@@ -203,18 +266,22 @@ func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) e
 	}
 	return nil
 }
-func cleanSelectedHosts(target, home string) error {
-	for _, host := range selectedHosts(target) {
-		if err := cleanHostInstallation(host, home); err != nil {
+func cleanSelectedHosts(opts Options, home string) error {
+	for _, host := range selectedHosts(opts.Target) {
+		if err := cleanHostInstallationWithOptions(opts, host, home); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 func cleanHostInstallation(host, home string) error {
+	return cleanHostInstallationWithOptions(Options{Target: host}, host, home)
+}
+
+func cleanHostInstallationWithOptions(opts Options, host, home string) error {
 	switch host {
 	case "opencode":
-		return cleanPreviousOpenCodeInstallation(home)
+		return cleanPreviousOpenCodeInstallation(opts, home)
 	case "claude-code":
 		return cleanPreviousClaudeCodeInstallation(home)
 	case "codex":
