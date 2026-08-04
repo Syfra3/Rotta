@@ -174,6 +174,78 @@ func TestSCN506_AmbiguousStaticAnalysisConventionsBlockReviewWithoutExecution(t 
 	}
 }
 
+// REQ-075 → REQ-077 → SCN-507 → TestSCN507_SuccessfulGenericReviewWritesEvidenceAndEntersFinalHumanReview
+func TestSCN507_SuccessfulGenericReviewWritesEvidenceAndEntersFinalHumanReview(t *testing.T) {
+	// Scenario: Successful generic review writes evidence and enters final human review
+	repo := t.TempDir()
+	runSCN504Git(t, repo, "init")
+	runSCN504Git(t, repo, "config", "user.email", "test@example.com")
+	runSCN504Git(t, repo, "config", "user.name", "Test User")
+	writeSCN503File(t, filepath.Join(repo, "tracked.txt"), "baseline\n")
+	runSCN504Git(t, repo, "add", "tracked.txt")
+	runSCN504Git(t, repo, "commit", "-m", "baseline")
+	baseline := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+	writeSCN503File(t, filepath.Join(repo, "tracked.txt"), "snapshot\n")
+	runSCN504Git(t, repo, "add", "tracked.txt")
+	runSCN504Git(t, repo, "commit", "-m", "snapshot")
+	snapshot := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
+
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), fmt.Sprintf("baseline: %s\nsnapshot: %s\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n", baseline, snapshot))
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), fmt.Sprintf("phase: review\nbaseline_commit: %s\ncompleted_scenarios: [SCN-501]\n", baseline))
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-501\nvalid current TDD evidence\n")
+
+	var executed []string
+	result, err := EvaluatePhase4Review(repo, func(command string) (string, error) {
+		executed = append(executed, command)
+		return "passed " + command, nil
+	})
+	if err != nil {
+		t.Fatalf("evaluate Phase 4 review: %v", err)
+	}
+	if result.Readiness != "ready" || result.Snapshot != snapshot {
+		t.Errorf("review result = %#v, want ready result for snapshot %q", result, snapshot)
+	}
+	if !reflect.DeepEqual(executed, []string{"task build", "task test", "task scope", "task lint", "task dependencies", "task security"}) {
+		t.Errorf("executed commands = %#v, want all ordered generic gate commands", executed)
+	}
+
+	evidence, err := os.ReadFile(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml"))
+	if err != nil {
+		t.Fatalf("read review evidence: %v", err)
+	}
+	for _, want := range append([]string{baseline, snapshot, result.ConfigurationFingerprint, result.PlanFingerprint, "overall_readiness: ready", "tracked.txt"}, executed...) {
+		if !strings.Contains(string(evidence), want) {
+			t.Errorf("review evidence does not contain %q:\n%s", want, evidence)
+		}
+	}
+	evidenceText := string(evidence)
+	lastOutcome := -1
+	for index, category := range []string{"build", "tests", "changed_file_scope", "static_analysis", "dependency_checks", "security_checks"} {
+		outcome := "category: " + category + "\n    status: passed\n    command: \"" + executed[index] + "\"\n    output: \"passed " + executed[index] + "\""
+		outcomeIndex := strings.Index(evidenceText, outcome)
+		if outcomeIndex <= lastOutcome {
+			t.Errorf("review evidence does not record ordered passed %q outcome:\n%s", category, evidence)
+		}
+		lastOutcome = outcomeIndex
+	}
+
+	state, err := os.ReadFile(filepath.Join(repo, ".rotta", "current", "state.yaml"))
+	if err != nil {
+		t.Fatalf("read current state: %v", err)
+	}
+	for _, want := range []string{"phase: final_human_review", "reviewed_commit: " + snapshot, "overall_readiness: ready"} {
+		if !strings.Contains(string(state), want) {
+			t.Errorf("current state does not contain %q:\n%s", want, state)
+		}
+	}
+	for _, forbidden := range []string{"phase: complete", "human_identity", "reviewer"} {
+		if strings.Contains(string(state), forbidden) {
+			t.Errorf("current state must not contain %q:\n%s", forbidden, state)
+		}
+	}
+}
+
 // REQ-074 → SCN-504 → TestSCN504_ChangedFileScopeUsesRecordedSnapshots
 func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
 	// Scenario: Changed-file scope is measured from trusted snapshots
