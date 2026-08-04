@@ -65,6 +65,6 @@ contract_fingerprints:
   specs/language_agnostic_quality_gates_hard_spec.md: b56a3b72772a45a04b9947df350de34f2827c9ae58942a3570eed8679ca83ad6
   features/language_agnostic_quality_gates.feature: 7dd5d70fe72e7ff3c5a54690c574c84c7acaca3171ac333f10d1d5f77d7aee7b
 baseline_confirmation:
-  status: pending
-  baseline_commit: null
+  status: confirmed
+  baseline_commit: 98ab5f1b4810c7eaec2560ed43c55e08bd55fece
   reviewed_commit: null
