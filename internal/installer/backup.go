@@ -11,6 +11,8 @@ import (
 
 const backupManifestVersion = 1
 
+const installerTransactionRetention = 30 * 24 * time.Hour
+
 type backupManifest struct {
 	Version              int                  `json:"version"`
 	Timestamp            string               `json:"timestamp"`
@@ -21,6 +23,21 @@ type backupManifest struct {
 	BackedUpPaths        []string             `json:"backed_up_paths"`
 	MissingPaths         []string             `json:"missing_paths"`
 	Status               string               `json:"status"`
+	RetentionExpiresAt   string               `json:"retention_expires_at,omitempty"`
+}
+
+// installerTransactionEvidence contains only transaction-scoped references
+// and redacted status. It is not a workflow artifact or lifecycle input.
+type installerTransactionEvidence struct {
+	Version             int      `json:"version"`
+	TransactionID       string   `json:"transaction_id"`
+	SelectedHost        string   `json:"selected_host"`
+	Status              string   `json:"status"`
+	StartedAt           string   `json:"started_at"`
+	RetentionExpiresAt  string   `json:"retention_expires_at"`
+	CommandStatus       string   `json:"command_status"`
+	ConfigurationStatus string   `json:"configuration_status"`
+	BackupReferences    []string `json:"backup_references"`
 }
 
 type selectedModes struct {
@@ -45,7 +62,7 @@ func Backup(opts Options) (string, error) {
 		return "", fmt.Errorf("cannot resolve home directory: %w", err)
 	}
 	projectPath := resolveProjectPath(opts.ProjectPath, home)
-	return createInstallBackup(opts, home, projectPath)
+	return createBackup(opts, home, projectPath, backupScope(opts, home, projectPath))
 }
 
 type restoreHooks struct {
@@ -162,7 +179,29 @@ func restoreBackedUpPath(backupDir, home, path string) error {
 }
 
 func createInstallBackup(opts Options, home, projectPath string) (string, error) {
-	return createBackup(opts, home, projectPath, backupScope(opts, home, projectPath))
+	backupDir, timestamp, err := nextInstallerTransactionDir(home)
+	if err != nil {
+		return "", err
+	}
+	manifest := newBackupManifest(opts, timestamp, projectPath)
+	manifest.RetentionExpiresAt = installerTransactionRetentionExpiry(time.Now())
+	if err := os.MkdirAll(filepath.Join(backupDir, "files"), 0o750); err != nil {
+		return "", err
+	}
+	if err := backupInstallPaths(&manifest, backupDir, home, backupScope(opts, home, projectPath)); err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := writePrivateFile(filepath.Join(backupDir, "manifest.json"), data, 0o600); err != nil {
+		return "", err
+	}
+	if err := writeInstallerTransactionEvidence(backupDir, opts.Target, manifest.RetentionExpiresAt); err != nil {
+		return "", err
+	}
+	return backupDir, nil
 }
 
 func createAgentBackup(opts Options, host, home string) (string, error) {
@@ -290,6 +329,85 @@ func nextBackupDir(home string) (string, string, error) {
 		}
 	}
 	return "", "", fmt.Errorf("cannot allocate backup directory")
+}
+
+func nextInstallerTransactionDir(home string) (string, string, error) {
+	timestamp := time.Now().UTC().Format("20060102T150405Z")
+	root := installerTransactionRoot(home)
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		return "", "", err
+	}
+	for suffix := 0; suffix < 1000; suffix++ {
+		name := timestamp
+		if suffix > 0 {
+			name = fmt.Sprintf("%s-%03d", timestamp, suffix)
+		}
+		path := filepath.Join(root, name)
+		if err := os.Mkdir(path, 0o750); err == nil {
+			return path, name, nil
+		} else if !os.IsExist(err) {
+			return "", "", err
+		}
+	}
+	return "", "", fmt.Errorf("cannot allocate installer transaction directory")
+}
+
+func installerTransactionRoot(home string) string {
+	stateHome := os.Getenv("XDG_STATE_HOME")
+	if stateHome == "" {
+		stateHome = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(stateHome, "rotta", "installer-transactions")
+}
+
+func installerTransactionRetentionExpiry(now time.Time) string {
+	return now.UTC().Add(installerTransactionRetention).Format(time.RFC3339)
+}
+
+func writeInstallerTransactionEvidence(backupDir, selectedHost, retentionExpiresAt string) error {
+	evidence := installerTransactionEvidence{
+		Version:             1,
+		TransactionID:       filepath.Base(backupDir),
+		SelectedHost:        selectedHost,
+		Status:              "started",
+		StartedAt:           time.Now().UTC().Format(time.RFC3339),
+		RetentionExpiresAt:  retentionExpiresAt,
+		CommandStatus:       "not_observed",
+		ConfigurationStatus: "not_observed",
+		BackupReferences:    []string{"manifest.json", "files"},
+	}
+	data, err := json.MarshalIndent(evidence, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writePrivateFile(filepath.Join(backupDir, "transaction.json"), data, 0o600)
+}
+
+// CleanupInstallerTransaction removes one explicitly named transaction only.
+// The caller supplies the host state root, never a workflow path.
+func CleanupInstallerTransaction(stateHome, transactionID string, _ time.Time) error {
+	if transactionID == "" || transactionID == "." || transactionID == ".." || filepath.Base(transactionID) != transactionID {
+		return fmt.Errorf("installer transaction cleanup requires one transaction ID")
+	}
+	root := filepath.Join(stateHome, "rotta", "installer-transactions")
+	transactionPath := filepath.Join(root, transactionID)
+	if filepath.Dir(transactionPath) != filepath.Clean(root) {
+		return fmt.Errorf("installer transaction cleanup refuses path outside transaction root")
+	}
+	info, err := os.Lstat(transactionPath)
+	if err != nil {
+		return fmt.Errorf("inspect installer transaction: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("installer transaction cleanup requires a direct transaction directory")
+	}
+	if _, err := os.Stat(filepath.Join(transactionPath, "transaction.json")); err != nil {
+		return fmt.Errorf("installer transaction cleanup requires transaction evidence: %w", err)
+	}
+	if err := os.RemoveAll(transactionPath); err != nil {
+		return fmt.Errorf("remove installer transaction %s: %w", transactionID, err)
+	}
+	return nil
 }
 
 func backupScope(opts Options, home, projectPath string) []string {

@@ -101,6 +101,11 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 	} else if branches != "" {
 		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("feature branch already exists: %s", featureBranch))
 	}
+	if references, err := gitSubmissionOutput(repoRoot, "for-each-ref", "--format=%(refname)", "refs/remotes"); err != nil {
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("check feature branch availability %q: %w", featureBranch, err))
+	} else if hasRemoteFeatureBranchReference(references, featureBranch) {
+		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("feature branch already exists: %s", featureBranch))
+	}
 	worktreePath := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-"+request.Slug)
 	if _, err := os.Lstat(worktreePath); err == nil {
 		return NewImplementationSubmission{}, unsafeWorktreePreparation(fmt.Errorf("worktree path collision: %s", worktreePath))
@@ -120,6 +125,15 @@ func PrepareNewImplementationSubmission(initiatingWorktree string, request NewIm
 		BaseBranch:    baseBranch,
 		FeatureBranch: featureBranch,
 	}, nil
+}
+
+func hasRemoteFeatureBranchReference(references, featureBranch string) bool {
+	for _, reference := range strings.Fields(references) {
+		if strings.HasSuffix(reference, "/"+featureBranch) {
+			return true
+		}
+	}
+	return false
 }
 
 func unsafeWorktreePreparation(validation error) error {
