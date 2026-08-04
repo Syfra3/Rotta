@@ -53,10 +53,21 @@ func RequestPhase4Review(repoRoot string, execute func(string) error) (QualityGa
 	if err != nil {
 		return QualityGatesReview{}, fmt.Errorf("read quality-gates configuration: %w", err)
 	}
-	if qualityGatesFormat(config) == "rotta.quality-gates/v1" {
+	format := qualityGatesFormat(config)
+	if format == "rotta.quality-gates/v1" {
 		return QualityGatesReview{
 			State:  QualityGatesReviewBlocked,
 			Result: "quality-gates v1 is unsupported and is not automatically migrated; replace .rotta/quality-gates.yaml with the generated rotta.quality-gates/v2 configuration before requesting Phase 4 review",
+		}, nil
+	}
+	if format == "rotta.quality-gates/v2" {
+		plan, err := ResolvePhase4ReviewPlan(repoRoot)
+		if err == nil && hasResolvedSecurityCheck(plan.Gates) {
+			return QualityGatesReview{}, fmt.Errorf("quality-gates review is unavailable for the active configuration")
+		}
+		return QualityGatesReview{
+			State:  QualityGatesReviewBlocked,
+			Result: "security-check gate is blocked: declare the security-check command in supported project metadata or configure a supported convention before requesting Phase 4 review",
 		}, nil
 	}
 
@@ -162,6 +173,15 @@ func supportsDeclaredConventionDiscovery(config []byte) bool {
 		}
 	}
 	return declaredMetadata && declaredRule
+}
+
+func hasResolvedSecurityCheck(gates []ResolvedQualityGate) bool {
+	for _, gate := range gates {
+		if gate.Category == "security_checks" && gate.Command != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func declaredConventionGates(metadata []byte, metadataPath string) (string, string, []ResolvedQualityGate, error) {

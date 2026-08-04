@@ -112,6 +112,34 @@ func TestSCN503_DeclaredConventionsResolveReproducibleGenericGatePlans(t *testin
 	}
 }
 
+// REQ-074 → SCN-505 → TestSCN505_MissingSecurityCheckConventionBlocksReviewWithoutExecution
+func TestSCN505_MissingSecurityCheckConventionBlocksReviewWithoutExecution(t *testing.T) {
+	// Scenario: Missing required command discovery blocks review instead of guessing
+	repo := t.TempDir()
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  build:\n    command: task build\n")
+
+	executed := false
+	review, err := RequestPhase4Review(repo, func(string) error {
+		executed = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("request Phase 4 review: %v", err)
+	}
+	if review.State != QualityGatesReviewBlocked {
+		t.Errorf("review state = %q, want %q", review.State, QualityGatesReviewBlocked)
+	}
+	for _, want := range []string{"security-check", "declare", "configure", "supported convention"} {
+		if !strings.Contains(review.Result, want) {
+			t.Errorf("review result %q does not contain %q", review.Result, want)
+		}
+	}
+	if executed {
+		t.Fatal("missing security-check command was executed, invented, substituted, or silently passed")
+	}
+}
+
 // REQ-074 → SCN-504 → TestSCN504_ChangedFileScopeUsesRecordedSnapshots
 func TestSCN504_ChangedFileScopeUsesRecordedSnapshots(t *testing.T) {
 	// Scenario: Changed-file scope is measured from trusted snapshots
