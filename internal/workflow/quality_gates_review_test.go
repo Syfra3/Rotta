@@ -302,6 +302,46 @@ func TestSCN509_FailedBuildGateWritesNotReadyEvidence(t *testing.T) {
 	}
 }
 
+// REQ-076 → SCN-510 → TestSCN510_ValidWaiverProducesReadyWithWaivers
+func TestSCN510_ValidWaiverProducesReadyWithWaivers(t *testing.T) {
+	// Scenario: A valid waiver remains visible and produces ready with waivers
+	repo := t.TempDir()
+	evidencePath := filepath.Join(repo, ".rotta", "current", "review-evidence.yaml")
+	evidence := "format: rotta.review-evidence/v1\nsnapshot: \"abc123\"\nconfiguration_fingerprint: \"cfg-1\"\noverall_readiness: not_ready\ngates:\n  - category: build\n    status: passed\n  - category: tests\n    status: passed\n  - category: changed_file_scope\n    status: passed\n  - category: static_analysis\n    status: passed\n  - category: dependency_checks\n    status: failed\n    output: \"dependency audit failed\"\n    exit_result: \"exit status 1\"\n  - category: security_checks\n    status: passed\n"
+	writeSCN503File(t, evidencePath, evidence)
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "waivers.yaml"), "format: rotta.review-waivers/v1\nwaivers:\n  - gate: dependency_checks\n    reason: \"Dependency advisory has a documented mitigation\"\n    scope: \"current pull request\"\n    timestamp: \"2026-08-04T12:00:00Z\"\n    snapshot: \"abc123\"\n    configuration_fingerprint: \"cfg-1\"\n")
+
+	readiness, err := DerivePRReadiness(repo, "abc123", "cfg-1")
+	if err != nil {
+		t.Fatalf("derive PR readiness: %v", err)
+	}
+	if readiness.State != "ready_with_waivers" {
+		t.Errorf("readiness state = %q, want ready_with_waivers", readiness.State)
+	}
+	if len(readiness.Gates) != 6 {
+		t.Fatalf("derived gate count = %d, want 6", len(readiness.Gates))
+	}
+	if readiness.Gates[4].Status != "waived" || readiness.Gates[4].UnderlyingStatus != "failed" {
+		t.Errorf("dependency-check gate = %#v, want waived status with failed underlying outcome", readiness.Gates[4])
+	}
+	if len(readiness.Waivers) != 1 || readiness.Waivers[0].Gate != "dependency_checks" || readiness.Waivers[0].Reason == "" {
+		t.Errorf("derived waivers = %#v, want separate durable dependency-check waiver", readiness.Waivers)
+	}
+
+	persistedEvidence, err := os.ReadFile(evidencePath)
+	if err != nil {
+		t.Fatalf("read persisted review evidence: %v", err)
+	}
+	if string(persistedEvidence) != evidence {
+		t.Errorf("persisted evidence changed during waiver derivation:\n%s", persistedEvidence)
+	}
+	for _, forbidden := range []string{"reviewer", "identity", "actor"} {
+		if strings.Contains(string(persistedEvidence), forbidden) {
+			t.Errorf("persisted evidence must not contain %q:\n%s", forbidden, persistedEvidence)
+		}
+	}
+}
+
 // REQ-075 → SCN-508 → TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence
 func TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence(t *testing.T) {
 	// Scenario: Root and archived TDD logs cannot satisfy current review evidence
