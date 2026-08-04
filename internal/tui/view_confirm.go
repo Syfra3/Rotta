@@ -19,7 +19,7 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Target:", m.Target)
 	writeConfirmValue(b, "Project path:", m.ProjectPath)
 	writeConfirmValue(b, "Modes:", strings.Join(selectedConfirmModes(m.SelectedModes), ", "))
-	writeConfirmValue(b, "Quality gates:", confirmGateLabel(m.UseDefaults))
+	writeConfirmValue(b, "Quality gates:", confirmGateLabel())
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
@@ -41,11 +41,8 @@ func selectedConfirmModes(selected [3]bool) []string {
 	return modes
 }
 
-func confirmGateLabel(useDefaults bool) string {
-	if useDefaults {
-		return "defaults"
-	}
-	return "review later"
+func confirmGateLabel() string {
+	return "generic threshold defaults"
 }
 
 func confirmSetupLabel(enabled bool) string {
