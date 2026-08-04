@@ -450,15 +450,13 @@ func TestSCN342_ReviewEvaluatesOnlyConfiguredObjectiveGates(t *testing.T) {
 		t.Fatalf("read quality-gates asset: %v", err)
 	}
 	assertContainsAll(t, string(qualityGates), []string{
+		"format: rotta.quality-gates/v2",
+		"gate_order:",
+		"discovery:",
+		"supported_inputs:",
+		"rules:",
 		"gates:",
 		"enabled: true",
-		"applicability:",
-		"command:",
-		"target:",
-		"parsing:",
-		"thresholds:",
-		"severity:",
-		"remediation:",
 	})
 
 	reviewAgent, err := assets.FS.ReadFile("agents/rotta-review.md")
