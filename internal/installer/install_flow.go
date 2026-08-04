@@ -24,9 +24,26 @@ func installNamedHosts(opts Options, result *Result, home string) error {
 			return err
 		}
 		result.Files = append(result.Files, files...)
-		result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+		hostResult, err := installedHostResult(opts, host, home, files)
+		if err != nil {
+			return err
+		}
+		result.Hosts[host] = hostResult
 	}
 	return nil
+}
+
+func installedHostResult(opts Options, host, home string, files []string) (HostInstallResult, error) {
+	result := HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+	if host != "opencode" {
+		return result, nil
+	}
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return HostInstallResult{}, err
+	}
+	result.OpenCodeConfig = resolution
+	return result, nil
 }
 
 func installHost(opts Options, host, home string) ([]string, error) {

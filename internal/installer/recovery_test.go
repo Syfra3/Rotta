@@ -53,8 +53,8 @@ func assertBackupCreatedBeforeMutation(t *testing.T, result *Result, home, proje
 	if result.BackupDir == "" {
 		t.Fatal("expected install result to include backup directory")
 	}
-	if filepath.Dir(result.BackupDir) != filepath.Join(home, ".rotta", "backups") {
-		t.Fatalf("expected backup under ~/.rotta/backups, got %s", result.BackupDir)
+	if filepath.Dir(result.BackupDir) != installerTransactionRoot(home) {
+		t.Fatalf("expected backup under host-local installer transactions, got %s", result.BackupDir)
 	}
 	assertBackupManifest(t, result.BackupDir, home, projectPath)
 	backupContent, err := os.ReadFile(filepath.Join(result.BackupDir, "files", "home", ".config", "opencode", "opencode.json"))
@@ -220,10 +220,10 @@ func assertRottaOpenCodeAgents(t *testing.T, agents map[string]interface{}) {
 	if orchestrator["mode"] != "primary" || orchestrator["prompt"] == "old" {
 		t.Fatalf("expected Rotta orchestrator to be freshly installed as primary, got %#v", orchestrator)
 	}
-	for _, builtIn := range disabledOpenCodeDefaultAgentKeys {
-		entry := agents[builtIn].(map[string]interface{})
-		if entry["disable"] != true {
-			t.Fatalf("expected OpenCode built-in agent %s to be disabled by default, got %#v", builtIn, entry)
+	for _, builtIn := range []string{"build", "plan"} {
+		entry, exists := agents[builtIn].(map[string]interface{})
+		if exists && entry["disable"] == true {
+			t.Fatalf("expected OpenCode built-in agent %s to remain user-owned, got %#v", builtIn, entry)
 		}
 	}
 	for _, subagent := range []string{"rotta-spec", "rotta-impl", "rotta-review"} {

@@ -75,5 +75,4 @@ persists any lifecycle decision, including `reviewed_commit`,
 
 ## Escalation Conditions
 
-Escalate only when an evaluated gate's configured remediation requires human
-escalation. Do not introduce an escalation condition outside the configuration.
+Return escalation evidence only when requested by the source/runtime review policy.
