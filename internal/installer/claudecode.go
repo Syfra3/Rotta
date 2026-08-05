@@ -10,64 +10,39 @@ import (
 // installClaudeCode copies skills and patches Claude Code settings.
 func installClaudeCode(opts Options, home string) ([]string, error) {
 	skillsDir := filepath.Join(home, ".claude", "skills")
-	if err := os.MkdirAll(skillsDir, 0o750); err != nil {
-		return nil, fmt.Errorf("cannot create ~/.claude/skills: %w", err)
-	}
-
-	files, err := copySkillsToDir(opts, skillsDir)
+	agentsDir := filepath.Join(home, ".claude", "agents")
+	managed := map[string][]byte{}
+	core, err := readRenderedAsset("core/rotta-core.md", opts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot read embedded core policy: %w", err)
 	}
-	agentFiles, err := installClaudeCodeAgents(opts, filepath.Join(home, ".claude", "agents"))
-	if err != nil {
-		return nil, err
-	}
-	files = append(files, agentFiles...)
-
-	// Add tool permissions for rotta skills to settings.json
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	if err := addClaudeCodePermissions(settingsPath, opts); err != nil {
-		// Non-fatal: user can add permissions manually
-		_ = err
-	}
-
-	return files, nil
-}
-
-func installClaudeCodeAgents(opts Options, agentsDir string) ([]string, error) {
-	if err := os.MkdirAll(agentsDir, 0o750); err != nil {
-		return nil, fmt.Errorf("cannot create ~/.claude/agents: %w", err)
-	}
-
-	var files []string
+	managed[filepath.Join(skillsDir, "rotta-next", "rotta-core", "SKILL.md")] = core
 	for _, agent := range rottaAgents {
-		if !agent.modeFlag(opts) {
-			continue
-		}
 		data, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
-		path := filepath.Join(agentsDir, agent.key+".md")
-		if err := writePrivateFile(path, data, 0o600); err != nil {
-			return nil, fmt.Errorf("cannot write %s: %w", path, err)
-		}
-		files = append(files, path)
+		managed[filepath.Join(skillsDir, "rotta-next", agent.skillName, "SKILL.md")] = data
+		managed[filepath.Join(agentsDir, agent.key+".md")] = data
 	}
-	return files, nil
+	return installManagedFiles(home, managed)
+}
+
+func installClaudeCodeAgents(opts Options, agentsDir string) ([]string, error) {
+	managed := map[string][]byte{}
+	for _, agent := range rottaAgents {
+		data, err := readRenderedAsset(agent.assetPath, opts)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
+		}
+		managed[filepath.Join(agentsDir, agent.key+".md")] = data
+	}
+	home := filepath.Clean(filepath.Join(agentsDir, "..", ".."))
+	return installManagedFiles(home, managed)
 }
 
 func cleanPreviousClaudeCodeInstallation(home string) error {
-	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "rotta")); err != nil {
-		return fmt.Errorf("cannot remove stale Claude Code skills: %w", err)
-	}
-	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills", "clean-workflow")); err != nil {
-		return fmt.Errorf("cannot remove legacy Claude Code skills: %w", err)
-	}
-	if err := cleanClaudeCodeVelaFreshnessGuard(home); err != nil {
-		return err
-	}
-	return cleanClaudeCodePermissions(filepath.Join(home, ".claude", "settings.json"))
+	return nil
 }
 
 // addClaudeCodePermissions injects rotta skill triggers into the
@@ -170,7 +145,7 @@ func removeOwnedClaudeCodePermissions(allow []interface{}) []interface{} {
 
 func allOwnedClaudeCodePermissions() map[string]bool {
 	owned := map[string]bool{}
-	for _, entry := range selectedClaudeCodePermissions(Options{InstallSpec: true, InstallImpl: true, InstallReview: true}) {
+	for _, entry := range []string{"mcp__rotta__spec_mode", "mcp__rotta__implementation_mode", "mcp__rotta__review_mode"} {
 		owned[entry] = true
 	}
 	for _, entry := range legacyCleanClaudeCodePermissions() {
@@ -180,17 +155,7 @@ func allOwnedClaudeCodePermissions() map[string]bool {
 }
 
 func selectedClaudeCodePermissions(opts Options) []string {
-	var entries []string
-	if opts.InstallSpec {
-		entries = append(entries, "mcp__rotta__spec_mode")
-	}
-	if opts.InstallImpl {
-		entries = append(entries, "mcp__rotta__implementation_mode")
-	}
-	if opts.InstallReview {
-		entries = append(entries, "mcp__rotta__review_mode")
-	}
-	return entries
+	return nil
 }
 
 func legacyCleanClaudeCodePermissions() []string {

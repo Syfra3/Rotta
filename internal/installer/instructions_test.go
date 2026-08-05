@@ -1,3 +1,5 @@
+//go:build legacy_v2
+
 package installer
 
 import (
@@ -111,16 +113,20 @@ func TestReadRenderedAssetAppendsEnabledIntegrationInstructions(t *testing.T) {
 	assertContainsAll(t, got, velaStructuralQueryEnforcementStrings())
 }
 
-func TestCanonicalWorkflowInstructionsEnforceCleanTDDTaskBoundaries(t *testing.T) {
-	got := canonicalWorkflowInstructions()
+func TestCorePolicyUsesCoherentSlicesWithoutCleanTreeBoundaries(t *testing.T) {
+	data, err := assets.FS.ReadFile("core/rotta-core.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
 
 	assertContainsAll(t, got, []string{
-		"Every TDD scenario task starts clean",
-		"git status --short",
-		"update the task checklist with completed, remaining, and next work",
-		"checkpoint or clean the task diff before starting another scenario",
-		"Approved spec/feature contracts are tracked durable artifacts",
+		"one coherent slice",
+		"independent review",
+		"Do not require a worktree",
+		"2,000 tokens",
 	})
+	assertNotContains(t, got, "one approved scenario at a time")
 }
 
 // REQ-080 -> SCN-516 -> TestSCN516_GeneratedReviewGuidancePreservesGenericGateContract

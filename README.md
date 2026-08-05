@@ -4,9 +4,9 @@
 
 # Rotta
 
-`rotta` is a contract-driven workflow for coding agents. It turns a feature request into a reviewed implementation through four gates: draft clarification, hard spec + Gherkin, strict TDD, and evidence-based review.
+`rotta` is a lightweight coding workflow for specialized agents. Fast mode delivers ordinary work through one coherent implementation slice, change-relevant verification, and an independent review. Strict mode adds a compact approved contract only for high-risk or explicitly contract-driven work.
 
-The primary installed agent is **Rotta-Orchestrator**. It coordinates the workflow and delegates focused work to `rotta-spec`, `rotta-impl`, and `rotta-review`.
+The primary installed agent is **Rotta-Orchestrator**. It routes focused work to `rotta-explore`, `rotta-impl`, `rotta-review`, and `rotta-ops`.
 
 ## Quick Start
 
@@ -31,36 +31,78 @@ curl -sSL https://raw.githubusercontent.com/Syfra3/Rotta/main/scripts/install-ro
 
 After installing generated opencode or Claude Code config, restart the coding agent so it reloads agents, skills, and MCP permissions.
 
-## What It Installs
+## Rotta Next
+
+Rotta Next replaces the old phase-led workflow with a lightweight default path. The practical change is that normal work no longer needs a worktree, a hard-spec artifact, Gherkin, per-scenario checkpoints, intermediate commits, or a follow-up `continue` prompt.
+
+For a normal request, expect this sequence:
+
+1. `rotta-orchestrator` recovers only relevant context and classifies risk.
+2. It optionally asks `rotta-explore` a bounded structural question.
+3. `rotta-impl` completes one coherent implementation slice and runs the relevant checks.
+4. `rotta-review` independently inspects the final diff, affected code, handoff, and test evidence.
+5. The orchestrator reports results, unresolved risk, and the next safe action.
+
+The workflow asks the human only for a material product decision, missing requirements, a Strict-mode approval, credentials, or an external or destructive operation. Passing review never authorizes a commit, push, release, graph index, or cleanup action.
+
+```mermaid
+flowchart TD
+    request[Task request] --> classify[Orchestrator recovers context and classifies risk]
+    classify --> strict{Strict trigger or explicit request?}
+
+    strict -- No: Fast --> explore[Optional bounded exploration]
+    explore --> implement[Implement one coherent slice]
+
+    strict -- Yes --> contract[Write compact contract under .rotta/strict/]
+    contract --> approval{Human approves?}
+    approval -- No --> clarify[Clarify, revise, or stop]
+    approval -- Yes --> examples{Behavioral examples needed?}
+    examples -- Yes --> gherkin[Write focused Gherkin]
+    examples -- No --> implement
+    gherkin --> implement
+
+    implement --> verify[Run change-relevant verification]
+    verify --> review[Independent diff and evidence review]
+    review --> operation{External or destructive action requested?}
+    operation -- No --> report[Report outcome and residual risk]
+    operation -- Yes --> consent[Require explicit user request]
+    consent --> ops[Run one bounded rotta-ops action]
+    ops --> report
+```
+
+## Roles And Installation
 
 | Item | Purpose |
 |------|---------|
 | `rotta` | Terminal installer and setup UI |
-| `Rotta-Orchestrator` / `rotta-orchestrator` | Primary agent that owns phase transitions and human gates |
-| `rotta-spec` | Sub-agent for hard specs and Gherkin contracts |
-| `rotta-impl` | Sub-agent for one-scenario-at-a-time strict TDD |
-| `rotta-review` | Sub-agent for objective quality evidence and review gates |
-| `.rotta/state-machine.yaml` | Workflow phase model for installed projects |
-| `.rotta/quality-gates.yaml` | Review thresholds used by the review phase |
-| Ancora (optional) | Persistent memory for compact workflow state indexes and recovery pointers |
-| Vela (optional) | Local graph extraction/retrieval for structural, dependency, and impact questions |
+| `rotta-orchestrator` | Primary router for risk, task capsules, delegation, and compact outcomes |
+| `rotta-explore` | Bounded read-only discovery, including optional graph evidence |
+| `rotta-impl` | One coherent implementation slice with focused verification |
+| `rotta-review` | Independent diff and evidence review |
+| `rotta-ops` | One explicit, bounded operational action such as an approved graph index or publication step |
+| `rotta-core` | Shared safety, routing, capsule, and evidence policy |
+| Ancora (optional) | Non-authoritative compact context continuity; workspace and Git remain authoritative |
+| Vela (optional) | Bounded advisory structural evidence; indexing is an explicit `rotta-ops` action |
 
 Generated files are written for the selected target:
 
 | Target | Generated integration |
 |--------|-----------------------|
-| opencode | Agent entries in `~/.config/opencode/opencode.json` and skill files under `~/.config/opencode/skills/` |
-| Claude Code | Skills under `~/.claude/skills/rotta/` and MCP permissions in `~/.claude/settings.json` |
-| Both | Installs both integrations and the project config files |
+| OpenCode | Agent entries in `~/.config/opencode/opencode.json` and skills under `~/.config/opencode/skills/rotta-next/` |
+| Claude Code | Role agents under `~/.claude/agents/` and skills under `~/.claude/skills/rotta-next/` |
+| Codex | Adapted instructions in `~/.codex/AGENTS.md` |
+| Both or all | Installs the selected host integrations |
 
-During the TUI setup, Ancora and Vela are independent choices. You can install neither, Ancora only, Vela only, or both.
+All core and role files are tracked in `~/.config/rotta/managed-artifacts.json` with SHA-256 digests. Reinstalling updates only Rotta-owned, unmodified files. Installation rejects unowned, modified, malformed, or symlinked managed targets instead of silently overwriting them.
 
-- If Ancora is skipped, generated instructions use workspace files as the only state source and do not require `ancora_*` tools.
-- If Vela is skipped, generated instructions use normal code exploration and do not require `vela_*` tools.
-- If Vela is enabled, generated instructions treat it as optional graph intelligence only. Rotta still controls phases, gates, and delegation.
-- If both are enabled, Ancora remains the primary memory surface while Vela provides graph retrieval through available `vela_*` tools.
+During setup, Ancora and Vela are independent choices.
 
-Vela setup initializes project graph storage but does not assume graph data is already fresh for a new codebase. Generated agents are instructed to check or trigger graph extraction before relying on Vela for dependency, impact, path, or architecture answers, and to report low-confidence or incomplete graph coverage back to the orchestrator.
+- If Ancora is enabled, agents recover concise relevant context and save compact decisions, discoveries, and end summaries. An Ancora failure is a warning, not a workflow failure.
+- If Ancora is skipped, agents work from the current workspace and Git state without calling `ancora_*` tools.
+- If Vela is enabled, agents may use it only for a named structural question, with a small call budget and source fallback.
+- Rotta does not install, index, refresh, or otherwise mutate Vela graph state during setup. Request a bounded `rotta-ops` action and explicitly consent when indexing is needed.
+
+Every delegated role receives a compact task capsule: objective, acceptance checks, declared scope, non-goals, baseline, relevant facts, verification commands, and expected result format. This prevents each role from re-reading the complete workflow or inventing scope.
 
 ## Compatible Coding Agents
 
@@ -71,67 +113,23 @@ It ships first-class installation paths for:
 - opencode
 - Claude Code
 
-Other agents can still use the workflow by reading the generated instructions in `assets/agents/` and `assets/skills/`, then following the same phase contracts and file gates.
+Other agents can use the same policy by reading `assets/core/rotta-core.md` and the matching role prompt under `assets/agents/`.
 
-## Workflow Steps
+## Workflow Modes
 
-```mermaid
-flowchart TD
-    A[Feature request] --> B[Phase 1: Draft]
-    B --> C{Open questions?}
-    C -- Yes --> D[Ask one critical question batch]
-    D --> B
-    C -- No --> E[Phase 2: Hard spec + Gherkin]
-    E --> F{Human approves contract?}
-    F -- No --> E
-    F -- Yes --> G[Phase 3: TDD loop]
-    G --> H[Implement one approved scenario]
-    H --> I{All scenarios done?}
-    I -- No --> G
-    I -- Yes --> J[Phase 4: Review gate]
-    J --> K{Objective gates pass?}
-    K -- No --> L[Return to TDD with remediation]
-    L --> G
-    K -- Yes --> M[Eligible for final human review]
-```
+Fast mode is the default. It recovers relevant context, classifies risk, optionally explores, implements one coherent slice, runs change-relevant checks, independently reviews the result, and reports the outcome. It does not require a worktree, lifecycle ledger, hard-spec artifact, mandatory Gherkin, intermediate commit, full repository suite, or `continue` prompt.
 
-| Phase | Owner | Output | Gate |
-|-------|-------|--------|------|
-| Draft | Rotta-Orchestrator + human | Clarified request and risk questions | No unresolved blockers |
-| Spec + Gherkin | `rotta-spec` | `specs/hard_spec.md` and `features/*.feature` | Human approves the contract |
-| TDD | `rotta-impl` | Tests and implementation for one scenario at a time | All approved scenarios are green |
-| Review | `rotta-review` | `reports/judge_report.md` with evidence | Objective gates pass or escalate |
-| Final review | Human | Merge-ready change | Semantic, design, and risk review pass |
+Strict mode applies to security, authentication, payments, migrations, destructive operations, public contracts, high-impact multi-component changes, or an explicit request. Before implementation, Rotta writes a compact contract under `.rotta/strict/` and obtains one explicit approval. A documented user exception may allow Fast mode.
 
-Objective gates make agent-written code eligible for review. They do not replace final human judgment.
+Gherkin is optional in Strict mode. Rotta uses it only when UI state transitions, validation, authorization, destructive confirmation, accessibility behavior, public interfaces, or workflow examples need observable examples to make approval unambiguous. Documentation, formatting, dependency remediation, behavior-preserving refactors, and cosmetic UI changes do not need it by default.
 
-## Main TDD Loop
+## What To Expect
 
-`rotta-impl` implements exactly one approved Gherkin scenario per cycle.
-
-1. Red: write the smallest failing test for the approved `@SCN-NNN` scenario.
-2. Green: write the minimum production code required to pass that test.
-3. Refactor: improve names, duplication, and structure without changing behavior.
-4. Record: append traceability and cycle evidence to `.rotta/tdd-log.md`.
-5. Repeat: move to the next approved scenario only after the current cycle is green.
-
-The loop protects scope. New behavior must come from an approved Gherkin scenario, not from opportunistic implementation.
-
-## Review Gate
-
-`rotta-review` evaluates evidence from the installed quality gates instead of doing taste-based line review. The active thresholds live in `.rotta/quality-gates.yaml`.
-
-The review phase checks:
-
-- Scenario-to-test traceability
-- Full test suite status
-- Changed-line and critical-path coverage
-- Mutation testing evidence
-- Architecture and dependency constraints
-- Static analysis results
-- Unauthorized file or scope changes
-
-If a hard gate fails, the workflow returns to TDD with specific remediation. If the evidence passes, the change is ready for final human review.
+- The default interaction is shorter and more autonomous, but it still ends with a fresh review.
+- Verification is proportional: changed behavior gets focused checks first; expensive full-suite, coverage, static-analysis, or audit runs happen only when policy, risk, evidence, or the user requires them.
+- Review findings are concrete and ordered by severity. If there are no findings, the review states that and names residual testing gaps.
+- Outcome reports include the selected mode, invoked roles, requested human decisions, tests run, review result, unresolved risk, elapsed active time, child sessions, and retries.
+- Historical v2-only tests remain available behind the `legacy_v2` Go build tag. Default `go test ./...` validates the active Rotta Next installer, CLI, and TUI behavior.
 
 ## Development
 
