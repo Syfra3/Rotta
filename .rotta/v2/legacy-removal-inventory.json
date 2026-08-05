@@ -1,0 +1,17 @@
+{
+  "format": "rotta-v2/legacy-removal-inventory/v1",
+  "status": "discovery_incomplete_no_deletion_authorized",
+  "discovery_inputs": [
+    "installer host dispatch", "workflow lifecycle package", "generated agents and skills", "host-specific integration tests"
+  ],
+  "candidates": [
+    {"asset_category":"installer_runtime_integration","path":"internal/installer/claudecode.go","semantic_role":"Claude host installer","classification":"legacy_only","proposed_disposition":"remove_after_reconciliation"},
+    {"asset_category":"installer_runtime_integration","path":"internal/installer/codex.go","semantic_role":"Codex host installer","classification":"legacy_only","proposed_disposition":"remove_after_reconciliation"},
+    {"asset_category":"compatibility_shim","path":"internal/installer/install_flow.go","semantic_role":"multi-host dispatch","classification":"mixed","proposed_disposition":"separate_OpenCode_v2_dispatch"},
+    {"asset_category":"workflow_code","path":"internal/workflow","semantic_role":"v1 lifecycle authority","classification":"legacy_only","proposed_disposition":"remove_after_reconciliation"},
+    {"asset_category":"skill_agent_asset","path":"assets/agents","semantic_role":"v1 generated role assets","classification":"legacy_only","proposed_disposition":"replace_with_v2_OpenCode_assets"},
+    {"asset_category":"configuration","path":"assets/config/state-machine.yaml","semantic_role":"v1 lifecycle state machine","classification":"legacy_only","proposed_disposition":"remove_after_reconciliation"},
+    {"asset_category":"fixture_test","path":"internal/installer/*_test.go","semantic_role":"host compatibility coverage","classification":"mixed","proposed_disposition":"separate_v2_coverage_before_removal"}
+  ],
+  "safe_remediation": "Complete semantic reachability reconciliation for every candidate before deleting any in-scope legacy asset."
+}

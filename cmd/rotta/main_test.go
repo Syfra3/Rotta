@@ -117,6 +117,34 @@ func TestSCN005_CLIBackupRestoreCommandsAreDiscoverableAndUnknownCommandsFail(t 
 	}
 }
 
+func TestSCN741_V2CLIRejectsRetiredHostBeforeInstallation(t *testing.T) {
+	// REQ-119 -> SCN-741
+	for _, command := range [][]string{{"install", "--target", "claude-code"}, {"backup", "--target", "codex"}} {
+		err := runCLI(command, &bytes.Buffer{}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "only opencode is supported") {
+			t.Fatalf("runCLI(%v) error = %v, want OpenCode-only rejection", command, err)
+		}
+	}
+}
+
+func TestSCN733_OpenCodeInstallationActivatesOnlyOpenCodeRuntime(t *testing.T) {
+	// REQ-118, REQ-119 -> SCN-733
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	project := filepath.Join(home, "project")
+	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{}`))
+	if err := runCLI([]string{"install", "--target", "opencode", "--project", project, "--spec"}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md")); err != nil {
+		t.Fatalf("OpenCode runtime was not activated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "rotta-orchestrator", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected non-OpenCode runtime path: %v", err)
+	}
+}
+
 func writeCLITestFile(t *testing.T, path string, content []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
