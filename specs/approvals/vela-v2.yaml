@@ -1,7 +1,7 @@
 format: rotta.feature-approval/v2
 contract_id: vela-v2
 status: approved
-approved_on: "2026-08-05"
+approved_on: "2026-08-04"
 approval_source: explicit_human
 submission_worktree: /home/geen/Documents/personal/Rotta-vela-v2
 feature_branch: feature/vela-v2
