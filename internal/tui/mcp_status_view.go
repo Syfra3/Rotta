@@ -44,23 +44,13 @@ func (m Model) viewVela() string {
 	b.WriteString(headerStyle.Render("Vela — Optional Graph Intelligence") + "\n\n")
 	b.WriteString(sectionStyle.Render("What Vela does") + "\n")
 	b.WriteString(menuItemStyle.Render("  Extracts local code graphs for structural, dependency, and impact questions") + "\n")
-	b.WriteString(menuItemStyle.Render("  Provides vela_* graph tools when graph data exists and is fresh") + "\n")
-	b.WriteString(menuItemStyle.Render("  Installs a freshness guard that schedules non-blocking refresh before graph queries") + "\n")
-	b.WriteString(menuItemStyle.Render("  Enriches workflow exploration with facts, provenance, confidence, and source") + "\n\n")
+	b.WriteString(menuItemStyle.Render("  Provides bounded advisory evidence for named structural questions") + "\n")
+	b.WriteString(menuItemStyle.Render("  Requires an explicit operations request before graph indexing") + "\n\n")
 	b.WriteString(sectionStyle.Render("Workflow boundary") + "\n")
-	b.WriteString(menuItemStyle.Render("  Rotta still controls phases, gates, and delegation") + "\n")
-	b.WriteString(menuItemStyle.Render("  Vela is advisory graph intelligence, not the workflow controller") + "\n")
-	if m.SetupAncora {
-		b.WriteString(menuItemStyle.Render("  Ancora remains the primary MCP surface; Vela graph tools are exposed through Ancora when available") + "\n\n")
-	} else {
-		b.WriteString(menuItemStyle.Render("  Vela is configured as a standalone MCP graph server") + "\n\n")
-	}
-	b.WriteString(sectionStyle.Render("Freshness guard") + "\n")
-	b.WriteString(menuItemStyle.Render("  OpenCode plugin: schedules background refresh before Vela graph tools") + "\n")
-	b.WriteString(menuItemStyle.Render("  Claude Code hook: schedules background refresh before Vela graph tools") + "\n")
-	b.WriteString(menuItemStyle.Render("  The cached graph may be used while refresh runs; run vela update/build manually for foreground refresh") + "\n\n")
-	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("If Vela is missing, the installer tries Homebrew. If unavailable, install Vela from source and rerun setup.") + "\n\n")
-	options := []struct{ label, desc string }{{"Install + configure Vela", "Install binary if needed, initialize the project graph, and install graph freshness guard/MCP"}, {"Skip", "Do not set up Vela — agents will use normal code exploration only"}}
+	b.WriteString(menuItemStyle.Render("  Vela is advisory only and cannot approve, block, or create workflow state") + "\n")
+	b.WriteString(menuItemStyle.Render("  Ancora is compact context, not a graph or lifecycle authority") + "\n\n")
+	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("Installation records advisory availability only; it does not install, index, or refresh Vela.") + "\n\n")
+	options := []struct{ label, desc string }{{"Enable advisory Vela guidance", "Do not create graph state; request rotta-ops when indexing is needed"}, {"Skip", "Do not enable Vela guidance — agents will use normal source exploration"}}
 	for i, opt := range options {
 		if m.VelaCursor == i {
 			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")

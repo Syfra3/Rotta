@@ -228,23 +228,7 @@ func resolveProjectPath(path, home string) string {
 }
 
 func installConfig(projectPath string) ([]string, error) {
-	dir := filepath.Join(projectPath, ".rotta")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("cannot create .rotta dir: %w", err)
-	}
-	configs := map[string]string{"config/quality-gates.yaml": filepath.Join(dir, "quality-gates.yaml")}
-	var files []string
-	for src, dst := range configs {
-		data, err := assets.FS.ReadFile(src)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read embedded %s: %w", src, err)
-		}
-		if err := os.WriteFile(dst, data, 0o600); err != nil {
-			return nil, fmt.Errorf("cannot write %s: %w", dst, err)
-		}
-		files = append(files, dst)
-	}
-	return files, nil
+	return nil, nil
 }
 
 func cleanPreviousInstallation(opts Options, home, projectPath string) error {
@@ -256,14 +240,6 @@ func cleanPreviousInstallation(opts Options, home, projectPath string) error {
 	return cleanSelectedIntegrationArtifacts(opts, home, projectPath)
 }
 func cleanSelectedIntegrationArtifacts(opts Options, home, projectPath string) error {
-	if opts.SetupVela {
-		if err := cleanVelaArtifacts(opts.Target, home, projectPath); err != nil {
-			return err
-		}
-	}
-	if opts.SetupAncora && (opts.Target == "claude-code" || opts.Target == "both") {
-		return removeIntegrationArtifacts(filepath.Join(home, ".claude", "mcp", "ancora.json"))
-	}
 	return nil
 }
 func cleanSelectedHosts(opts Options, home string) error {
@@ -315,25 +291,21 @@ func removeIntegrationArtifacts(paths ...string) error {
 }
 
 func copySkillsToDir(opts Options, skillsDir string) ([]string, error) {
-	modes := []struct {
-		enabled   bool
-		src, name string
-	}{{opts.InstallSpec, "skills/spec-mode", "spec-mode"}, {opts.InstallImpl, "skills/implementation-mode", "implementation-mode"}, {opts.InstallReview, "skills/review-mode", "review-mode"}}
-	var files []string
-	for _, mode := range modes {
-		if !mode.enabled {
-			continue
-		}
-		dst := filepath.Join(skillsDir, "rotta", mode.name)
-		if err := os.MkdirAll(dst, 0o750); err != nil {
-			return nil, fmt.Errorf("cannot create dir %s: %w", dst, err)
-		}
-		if err := copySkillTree(opts, mode.src, dst); err != nil {
-			return nil, fmt.Errorf("cannot copy %s: %w", mode.src, err)
-		}
-		files = append(files, filepath.Join(dst, "SKILL.md"))
+	managed := map[string][]byte{}
+	core, err := readRenderedAsset("core/rotta-core.md", opts)
+	if err != nil {
+		return nil, err
 	}
-	return files, nil
+	managed[filepath.Join(skillsDir, "rotta-next", "rotta-core", "SKILL.md")] = core
+	for _, agent := range rottaAgents {
+		data, err := readRenderedAsset(agent.assetPath, opts)
+		if err != nil {
+			return nil, err
+		}
+		managed[filepath.Join(skillsDir, "rotta-next", agent.skillName, "SKILL.md")] = data
+	}
+	home := filepath.Clean(filepath.Join(skillsDir, "..", ".."))
+	return installManagedFiles(home, managed)
 }
 func copySkillTree(opts Options, source, destination string) error {
 	return fs.WalkDir(assets.FS, source, func(path string, entry fs.DirEntry, walkErr error) error {

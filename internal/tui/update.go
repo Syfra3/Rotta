@@ -177,7 +177,7 @@ func (m Model) updateProjectPath(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.ProjectPath = path
 		m.PrevScreen = ScreenProjectPath
-		m.Screen = ScreenModeSelect
+		m.Screen = ScreenAncora
 	case "esc", "b":
 		m.Screen = ScreenTargetSelect
 		m.ProjectInput.Blur()
@@ -224,7 +224,7 @@ func (m Model) updateQualityGates(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.PrevScreen = ScreenQualityGates
 		m.Screen = ScreenAncora
 	case "esc", "b":
-		m.Screen = ScreenModeSelect
+		m.Screen = ScreenProjectPath
 	}
 	return m, nil
 }
@@ -244,7 +244,7 @@ func (m Model) updateAncora(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.PrevScreen = ScreenAncora
 		m.Screen = ScreenVela
 	case "esc", "b":
-		m.Screen = ScreenQualityGates
+		m.Screen = ScreenProjectPath
 	}
 	return m, nil
 }

@@ -52,9 +52,6 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	target := flags.String("target", "both", "install target: claude-code, opencode, or both")
 	projectPath := flags.String("project", "", "project path")
-	installSpec := flags.Bool("spec", false, "install spec workflow")
-	installImpl := flags.Bool("impl", false, "install implementation workflow")
-	installReview := flags.Bool("review", false, "install review workflow")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
 	if err := flags.Parse(args); err != nil {
@@ -63,9 +60,6 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	result, err := installer.Install(installer.Options{
 		Target:        *target,
 		ProjectPath:   *projectPath,
-		InstallSpec:   *installSpec,
-		InstallImpl:   *installImpl,
-		InstallReview: *installReview,
 		SetupAncora:   *setupAncora,
 		SetupVela:     *setupVela,
 		CommandStdin:  os.Stdin,
@@ -85,22 +79,16 @@ func runBackupCommand(args []string, stdout, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	target := flags.String("target", "both", "backup target: claude-code, opencode, or both")
 	projectPath := flags.String("project", "", "project path")
-	installSpec := flags.Bool("spec", false, "include spec workflow")
-	installImpl := flags.Bool("impl", false, "include implementation workflow")
-	installReview := flags.Bool("review", false, "include review workflow")
 	setupAncora := flags.Bool("ancora", false, "include Ancora integration")
 	setupVela := flags.Bool("vela", false, "include Vela integration")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	backupDir, err := installer.Backup(installer.Options{
-		Target:        *target,
-		ProjectPath:   *projectPath,
-		InstallSpec:   *installSpec,
-		InstallImpl:   *installImpl,
-		InstallReview: *installReview,
-		SetupAncora:   *setupAncora,
-		SetupVela:     *setupVela,
+		Target:      *target,
+		ProjectPath: *projectPath,
+		SetupAncora: *setupAncora,
+		SetupVela:   *setupVela,
 	})
 	if err != nil {
 		return err
