@@ -123,10 +123,10 @@ func TestSCN626_MissingQualityGatesInterfaceBlocksOnlyDependentBehavior(t *testi
 		policy      string
 		unavailable func(t *testing.T, repo string)
 	}{
-		{name: "v2 policy unavailable", policy: "format: rotta.quality-gates/v1\n"},
+		{name: "legacy policy unavailable", policy: "format: rotta.quality-gates/legacy\n"},
 		{
 			name:   "current review evidence unavailable",
-			policy: "format: rotta.quality-gates/v2\n",
+			policy: "format: rotta.quality-gates/v1\n",
 			unavailable: func(t *testing.T, repo string) {
 				t.Helper()
 				if err := os.Remove(filepath.Join(repo, ".rotta", "current", "review-evidence.yaml")); err != nil {
@@ -174,7 +174,7 @@ func TestSCN626_MissingQualityGatesInterfaceBlocksOnlyDependentBehavior(t *testi
 }
 
 func prepareSCN606FeatureWorkflow(t *testing.T) (string, string) {
-	return prepareFeatureWorkflowWithPolicy(t, "format: rotta.quality-gates/v2\n")
+	return prepareFeatureWorkflowWithPolicy(t, "format: rotta.quality-gates/v1\n")
 }
 
 func prepareFeatureWorkflowWithPolicy(t *testing.T, policy string) (string, string) {

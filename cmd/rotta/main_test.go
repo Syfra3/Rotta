@@ -2,186 +2,107 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage(t *testing.T) {
-	// REQ-005, REQ-010 → SCN-010 → TestSCN010_CLIInstallCannotSkipBackupDuringNormalUsage
-	// Scenario: CLI install path cannot skip backup during normal usage
-	projectPath, preInstallConfig, backupDir, stdout := installCLIWithBackup(t)
-	assertCLIBackup(t, backupDir, stdout, preInstallConfig)
-	assertCLIInstallRejectsSkipBackup(t, projectPath)
-	assertCLIVersionCommand(t)
-}
-
-func installCLIWithBackup(t *testing.T) (string, []byte, string, *bytes.Buffer) {
-	t.Helper()
-	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
-	preInstallConfig := []byte(`{"agent":{"rotta-spec":{"description":"stale"},"user-agent":{"description":"keep"}}}`)
-	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), preInstallConfig)
-	var stdout bytes.Buffer
-	if err := runCLI([]string{"install", "--target", "opencode", "--project", projectPath, "--spec"}, &stdout, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	return projectPath, preInstallConfig, singleCLIBackupDir(t, filepath.Join(home, ".local", "state", "rotta", "installer-transactions")), &stdout
-}
-
-func assertCLIBackup(t *testing.T, backupDir string, stdout *bytes.Buffer, preInstallConfig []byte) {
-	t.Helper()
-	manifest := readCLIBackupManifest(t, filepath.Join(backupDir, "manifest.json"))
-	if manifest["status"] != "complete" {
-		t.Fatalf("expected complete backup manifest, got %#v", manifest)
-	}
-	if !strings.Contains(stdout.String(), backupDir) {
-		t.Fatalf("expected install output to include backup location %s, got %q", backupDir, stdout.String())
-	}
-	backupConfig := filepath.Join(backupDir, "files", "home", ".config", "opencode", "opencode.json")
-	data, err := os.ReadFile(backupConfig)
-	if err != nil {
-		t.Fatalf("read backed-up config: %v", err)
-	}
-	if string(data) != string(preInstallConfig) {
-		t.Fatalf("expected CLI install backup to capture config before cleanup/install, got %s", data)
-	}
-
-}
-
-func assertCLIInstallRejectsSkipBackup(t *testing.T, projectPath string) {
-	t.Helper()
-	err := runCLI([]string{"install", "--skip-backup", "--target", "opencode", "--project", projectPath, "--spec"}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected CLI install to reject backup-skipping option")
-	}
-	if !strings.Contains(err.Error(), "skip-backup") {
-		t.Fatalf("expected rejected option to identify skip-backup, got %v", err)
-	}
-}
-
-func assertCLIVersionCommand(t *testing.T) {
-	t.Helper()
-	oldVersion := version
-	version = "test-version"
-	t.Cleanup(func() { version = oldVersion })
-	var versionOut bytes.Buffer
-	if err := runCLI([]string{"--version"}, &versionOut, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(versionOut.String(), "test-version") {
-		t.Fatalf("expected version output to remain available, got %q", versionOut.String())
-	}
-}
-
-func TestSCN005_CLIBackupRestoreCommandsAreDiscoverableAndUnknownCommandsFail(t *testing.T) {
-	// REQ-005 → SCN-005 → TestSCN005_CLIBackupRestoreCommandsAreDiscoverableAndUnknownCommandsFail
-	// Scenario: CLI exposes backup and restore commands and rejects unknown commands
-	home := t.TempDir()
-	projectPath := filepath.Join(home, "project")
-	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
-	writeCLITestFile(t, configPath, []byte(`{"before":true}`))
-
-	var backupOut bytes.Buffer
-	if err := runCLI([]string{"backup", "--target", "opencode", "--project", projectPath, "--spec"}, &backupOut, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	backupDir := singleCLIBackupDir(t, filepath.Join(home, ".rotta", "backups"))
-	if !strings.Contains(backupOut.String(), backupDir) {
-		t.Fatalf("expected backup command output to include backup location %s, got %q", backupDir, backupOut.String())
-	}
-
-	writeCLITestFile(t, configPath, []byte(`{"after":true}`))
-	var restoreOut bytes.Buffer
-	if err := runCLI([]string{"restore", backupDir}, &restoreOut, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read restored config: %v", err)
-	}
-	if string(data) != `{"before":true}` {
-		t.Fatalf("expected restore command to restore backup content, got %s", data)
-	}
-	if !strings.Contains(restoreOut.String(), backupDir) {
-		t.Fatalf("expected restore command output to include selected backup %s, got %q", backupDir, restoreOut.String())
-	}
-
-	if err := runCLI([]string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
-		t.Fatal("expected unknown command to fail")
-	}
-}
-
-func TestSCN741_V2CLIRejectsRetiredHostBeforeInstallation(t *testing.T) {
-	// REQ-119 -> SCN-741
-	for _, command := range [][]string{{"install", "--target", "claude-code"}, {"backup", "--target", "codex"}} {
-		err := runCLI(command, &bytes.Buffer{}, &bytes.Buffer{})
-		if err == nil || !strings.Contains(err.Error(), "only opencode is supported") {
-			t.Fatalf("runCLI(%v) error = %v, want OpenCode-only rejection", command, err)
+// REQ-001 -> SCN-001 -> TestSCN001_RetiredCommandsAndOptionsAreRejected
+func TestSCN001_RetiredCommandsAndOptionsAreRejected(t *testing.T) {
+	// Scenario: Retired workflow surfaces are unavailable
+	for _, args := range [][]string{
+		{"v2"},
+		{"backup"},
+		{"restore"},
+		{"install", "--target", "opencode"},
+		{"install", "--mode", "spec"},
+		{"install", "--project", "example"},
+		{"install", "--mcp", "vela"},
+	} {
+		err := runCLI(args, &bytes.Buffer{}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "supported commands") {
+			t.Fatalf("runCLI(%v) error = %v, want supported-command rejection", args, err)
 		}
 	}
 }
 
-func TestSCN733_OpenCodeInstallationActivatesOnlyOpenCodeRuntime(t *testing.T) {
-	// REQ-118, REQ-119 -> SCN-733
+// REQ-003 -> SCN-005 -> TestSCN005_StatusReportsWithoutMutation
+func TestSCN005_StatusReportsWithoutMutation(t *testing.T) {
+	// Scenario: Status reports without mutation
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
-	project := filepath.Join(home, "project")
-	writeCLITestFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"), []byte(`{}`))
-	if err := runCLI([]string{"install", "--target", "opencode", "--project", project, "--spec"}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+	var stdout bytes.Buffer
+	if err := runCLI([]string{"status"}, &stdout, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "skills", "rotta-orchestrator", "SKILL.md")); err != nil {
-		t.Fatalf("OpenCode runtime was not activated: %v", err)
+	if !strings.Contains(stdout.String(), "not installed") {
+		t.Fatalf("status output = %q, want bounded not-installed result", stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "rotta-orchestrator", "SKILL.md")); !os.IsNotExist(err) {
-		t.Fatalf("unexpected non-OpenCode runtime path: %v", err)
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode")); !os.IsNotExist(err) {
+		t.Fatalf("status created configuration path: %v", err)
 	}
 }
 
-func writeCLITestFile(t *testing.T, path string, content []byte) {
-	t.Helper()
+// REQ-004 -> SCN-006 -> TestSCN006_InstallWritesOnlyManagedOpenCodeAssets
+func TestSCN006_InstallWritesOnlyManagedOpenCodeAssets(t *testing.T) {
+	// Scenario: Install manages only OpenCode user configuration
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := runCLI([]string{"install"}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".config", "opencode")
+	for _, path := range []string{
+		filepath.Join(root, "agents", "rotta-orchestrator.md"),
+		filepath.Join(root, "agents", "rotta-spec.md"),
+		filepath.Join(root, "agents", "rotta-impl.md"),
+		filepath.Join(root, "agents", "rotta-review.md"),
+		filepath.Join(root, ".rotta", "rotta-manifest.json"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("managed asset %s was not installed: %v", path, err)
+		}
+	}
+	for _, name := range []string{"rotta-orchestrator.md", "rotta-spec.md", "rotta-impl.md", "rotta-review.md"} {
+		data, err := os.ReadFile(filepath.Join(root, "agents", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), ".rotta/workflow") || strings.Contains(strings.ToLower(string(data)), "v2") {
+			t.Fatalf("managed agent %s does not use only the non-versioned workflow root", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "rotta", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("install retained the retired managed skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("install created non-OpenCode configuration: %v", err)
+	}
+}
+
+// REQ-004 -> SCN-007 -> TestSCN007_UnmanagedConflictIsPreserved
+func TestSCN007_UnmanagedConflictIsPreserved(t *testing.T) {
+	// Scenario: Unmanaged configuration conflicts are preserved
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".config", "opencode", "agents", "rotta-orchestrator.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	const content = "user-owned configuration"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func singleCLIBackupDir(t *testing.T, backupRoot string) string {
-	t.Helper()
-	entries, err := os.ReadDir(backupRoot)
+	err := runCLI([]string{"install"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "conflict") || !strings.Contains(err.Error(), "move or remove") {
+		t.Fatalf("install error = %v, want bounded conflict and safe next action", err)
+	}
+	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read backup root: %v", err)
+		t.Fatal(err)
 	}
-	var dirs []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			dirs = append(dirs, filepath.Join(backupRoot, entry.Name()))
-		}
+	if string(got) != content {
+		t.Fatalf("unmanaged file changed to %q", got)
 	}
-	if len(dirs) != 1 {
-		t.Fatalf("expected one backup directory, got %#v", dirs)
-	}
-	return dirs[0]
-}
-
-func readCLIBackupManifest(t *testing.T, path string) map[string]interface{} {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	var manifest map[string]interface{}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatalf("parse manifest: %v", err)
-	}
-	return manifest
 }

@@ -22,8 +22,8 @@ func TestSCN501_GeneratedQualityGatesContainOnlyRequiredGenericCategories(t *tes
 	}
 
 	got := string(data)
-	if !strings.Contains(got, "format: rotta.quality-gates/v2") {
-		t.Errorf("generated quality gates do not use the v2 format:\n%s", got)
+	if !strings.Contains(got, "format: rotta.quality-gates/v1") {
+		t.Errorf("generated quality gates do not use the current format:\n%s", got)
 	}
 
 	for _, want := range []string{

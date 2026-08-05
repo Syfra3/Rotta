@@ -16,7 +16,7 @@ func TestSCN324_ValidFeatureApprovalAuthorizesOnlyItsApprovedScenarios(t *testin
 	runGit(t, repo, "add", "baseline")
 	runGit(t, repo, "commit", "-m", "test: approved contract baseline")
 	baseline := runGitOutput(t, repo, "rev-parse", "HEAD")
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), strings.ReplaceAll(`format: rotta.feature-approval/v2
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), strings.ReplaceAll(`format: rotta.feature-approval/v1
 contract_id: unified-workflow-authority
 status: approved
 feature_paths:
@@ -72,7 +72,7 @@ func TestSCN359_ValidStructuredScenarioReferenceAuthorizesExactScenario(t *testi
 	if err != nil {
 		t.Fatalf("fingerprint feature: %v", err)
 	}
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - scenario_id: SCN-359\n    requirement_ids: [REQ-001]\n    feature_path: features/unified-workflow-authority.feature\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: "+baseline+"\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - scenario_id: SCN-359\n    requirement_ids: [REQ-001]\n    feature_path: features/unified-workflow-authority.feature\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: "+baseline+"\n")
 
 	decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-359"})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestSCN360_MalformedStructuredScenarioReferenceBlocksWorkflowProgress(t *te
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 
 			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-360"})
@@ -148,7 +148,7 @@ func TestSCN361_NonCanonicalScenarioPathBlocksWorkflowProgress(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: " + featurePath + "\n    scenario_id: SCN-361\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: " + featurePath + "\n    scenario_id: SCN-361\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 
 			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-361"})
@@ -184,7 +184,7 @@ func TestSCN362_UnresolvedOrAmbiguousScenarioIDBlocksWorkflowProgress(t *testing
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-362\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-362\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 
 			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-362"})
@@ -215,7 +215,7 @@ func TestSCN363_RequirementTagMismatchBlocksWorkflowProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fingerprint feature: %v", err)
 	}
-	record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-363\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+	record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-363\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 
 	decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-363"})
@@ -244,7 +244,7 @@ func TestSCN364_DuplicateScenarioIdentityBlocksAuthorization(t *testing.T) {
 		},
 		{
 			name:              "present in another active feature record",
-			otherActiveRecord: "format: rotta.feature-approval/v2\ncontract_id: other\nstatus: approved\nfeature_paths:\n  - features/other.feature\napproved_scenarios:\n  - feature_path: features/other.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n",
+			otherActiveRecord: "format: rotta.feature-approval/v1\ncontract_id: other\nstatus: approved\nfeature_paths:\n  - features/other.feature\napproved_scenarios:\n  - feature_path: features/other.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestSCN364_DuplicateScenarioIdentityBlocksAuthorization(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n" + test.duplicateEntry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-364\n    requirement_ids: [REQ-001]\n" + test.duplicateEntry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 			if test.otherActiveRecord != "" {
 				mustWrite(t, filepath.Join(repo, "specs", "approvals", "other.yaml"), test.otherActiveRecord)
@@ -302,7 +302,7 @@ func TestSCN365_DisplayScenarioReferenceBlocksAuthorization(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
+			record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n" + test.entry + "contract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: confirmed\n  baseline_commit: " + baseline + "\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 
 			decision, err := EvaluateImplementationGate(repo, ContractScope{SpecPath: "specs/hard_spec.md", FeaturePath: "features/unified-workflow-authority.feature", ScenarioID: "SCN-365"})
@@ -333,7 +333,7 @@ func TestSCN366_PendingBaselineCannotStartTDDScenarioLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fingerprint feature: %v", err)
 	}
-	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-366\n    requirement_ids: [REQ-001, REQ-007]\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: pending\n  baseline_commit: "+baseline+"\n")
+	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-366\n    requirement_ids: [REQ-001, REQ-007]\ncontract_fingerprints:\n  specs/hard_spec.md: "+specFingerprint+"\n  features/unified-workflow-authority.feature: "+featureFingerprint+"\nbaseline_confirmation:\n  status: pending\n  baseline_commit: "+baseline+"\n")
 
 	delegated := false
 	decision, err := StartAutonomousScenarioLoop(repo, AutonomousScenarioLoopRequest{
@@ -372,7 +372,7 @@ func TestSCN367_ConfirmedImmutableBaselineAuthorizesApprovedScenarioLoop(t *test
 	if err != nil {
 		t.Fatalf("fingerprint feature: %v", err)
 	}
-	record := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-367\n    requirement_ids: [REQ-001, REQ-007]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: pending\n  baseline_commit: pending\n"
+	record := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-367\n    requirement_ids: [REQ-001, REQ-007]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: pending\n  baseline_commit: pending\n"
 	mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), record)
 	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-m", "test: pending immutable approval baseline")
@@ -445,7 +445,7 @@ func TestSCN368_InvalidBaselineConfirmationBlocksWorkflowProgress(t *testing.T) 
 			if err != nil {
 				t.Fatalf("fingerprint feature: %v", err)
 			}
-			pending := "format: rotta.feature-approval/v2\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-368\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: pending\n  baseline_commit: pending\n"
+			pending := "format: rotta.feature-approval/v1\ncontract_id: unified-workflow-authority\nstatus: approved\nfeature_paths:\n  - features/unified-workflow-authority.feature\napproved_scenarios:\n  - feature_path: features/unified-workflow-authority.feature\n    scenario_id: SCN-368\n    requirement_ids: [REQ-001]\ncontract_fingerprints:\n  specs/hard_spec.md: " + specFingerprint + "\n  features/unified-workflow-authority.feature: " + featureFingerprint + "\nbaseline_confirmation:\n  status: pending\n  baseline_commit: pending\n"
 			mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), pending)
 			runGit(t, repo, "add", ".")
 			runGit(t, repo, "commit", "-m", "test: immutable approval baseline")
@@ -487,7 +487,7 @@ func TestSCN325_InvalidFeatureApprovalFailsClosedWithSpecificReason(t *testing.T
 
 	t.Run("malformed", func(t *testing.T) {
 		repo := t.TempDir()
-		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v2\n")
+		mustWrite(t, filepath.Join(repo, "specs", "approvals", "unified-workflow-authority.yaml"), "format: rotta.feature-approval/v1\n")
 
 		decision, err := EvaluateImplementationGate(repo, ContractScope{
 			SpecPath:    "specs/hard_spec.md",
@@ -674,7 +674,7 @@ func TestSCN328_LegacyArtifactsDoNotAuthorizeOrAffectReview(t *testing.T) {
 	}
 }
 
-const validSCN325ApprovalRecord = `format: rotta.feature-approval/v2
+const validSCN325ApprovalRecord = `format: rotta.feature-approval/v1
 contract_id: unified-workflow-authority
 status: approved
 feature_paths:

@@ -6,16 +6,16 @@ import (
 )
 
 const (
-	qualityGatesPolicyV2Format = "rotta.quality-gates/v2"
-	currentReviewEvidencePath  = ".rotta/current/review-evidence.yaml"
+	currentQualityGatesPolicyFormat = "rotta.quality-gates/v1"
+	currentReviewEvidencePath       = ".rotta/current/review-evidence.yaml"
 )
 
-// requireQualityGatesInterface verifies only that the separately owned v2
+// requireQualityGatesInterface verifies only that the separately owned
 // interface artifacts are present. Gate semantics remain outside this package.
 func requireQualityGatesInterface(repoRoot string) error {
 	policy, err := readRepositoryFile(repoRoot, featureWorkflowPolicyPath)
-	if err != nil || qualityGatesPolicyFormat(policy) != qualityGatesPolicyV2Format {
-		return fmt.Errorf("quality-gates interface remediation: provide %s at %s", qualityGatesPolicyV2Format, featureWorkflowPolicyPath)
+	if err != nil || qualityGatesPolicyFormat(policy) != currentQualityGatesPolicyFormat {
+		return fmt.Errorf("quality-gates interface remediation: provide %s at %s", currentQualityGatesPolicyFormat, featureWorkflowPolicyPath)
 	}
 	if _, err := readRepositoryFile(repoRoot, currentReviewEvidencePath); err != nil {
 		return fmt.Errorf("quality-gates interface remediation: provide current review evidence at %s", currentReviewEvidencePath)

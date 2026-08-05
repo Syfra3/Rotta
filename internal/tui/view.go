@@ -36,29 +36,28 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenRecoveryList:    m.viewRecoveryList,
 		ScreenRecoveryPreview: m.viewRecoveryPreview,
 		ScreenRecoveryConfirm: m.viewRecoveryConfirm,
+		ScreenStatus:          m.viewStatus,
 	}
 }
 
 func (m Model) viewWelcome() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Rotta Installer") + "\n")
-	b.WriteString(subtitleStyle.Render("Contract-driven AI coding for Claude Code, OpenCode, and Codex") + "\n\n")
-
-	b.WriteString(sectionStyle.Render("What this installs") + "\n")
-	b.WriteString(menuItemStyle.Render("  Spec Mode        — Hard spec + Gherkin authoring with human approval gate") + "\n")
-	b.WriteString(menuItemStyle.Render("  Implementation Mode — Strict TDD: Red → Green → Refactor per scenario") + "\n")
-	b.WriteString(menuItemStyle.Render("  Review Mode       — Metrics-based quality gates, no line-by-line review") + "\n\n")
-
-	b.WriteString(cardStyle.Render(
-		warningStyle.Render("Philosophy")+"\n"+
-			"  AI should not write code freely. It should be constrained\n"+
-			"  by human-approved contracts, TDD loops, traceability,\n"+
-			"  and measurable quality gates. The human manages the system\n"+
-			"  at the level of behavior and risk — not implementation details.",
-	) + "\n\n")
-
-	b.WriteString(helpStyle.Render("Press Enter to start · r for recovery · q to quit"))
+	b.WriteString(titleStyle.Render("Rotta") + "\n\n")
+	for i, item := range []string{"Install", "Status", "Quit"} {
+		style := menuItemStyle
+		prefix := "  "
+		if i == m.MenuCursor {
+			style = menuSelectedStyle
+			prefix = "▸ "
+		}
+		b.WriteString(style.Render(prefix+item) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("j/k or arrows to select · Enter to continue · q to quit"))
 	return appStyle.Render(b.String())
+}
+
+func (m Model) viewStatus() string {
+	return appStyle.Render(headerStyle.Render("Status") + "\n\n" + menuItemStyle.Render(m.StatusText) + "\n\n" + helpStyle.Render("Press Enter, Esc, or q to exit"))
 }
 
 func (m Model) viewRecoveryList() string {

@@ -37,6 +37,7 @@ const (
 	ScreenRecoveryList
 	ScreenRecoveryPreview
 	ScreenRecoveryConfirm
+	ScreenStatus
 )
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
@@ -85,6 +86,8 @@ type Model struct {
 	PrevScreen Screen
 	Width      int
 	Height     int
+	MenuCursor int
+	StatusText string
 
 	// Target selection
 	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Both

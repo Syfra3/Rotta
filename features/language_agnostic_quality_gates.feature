@@ -8,18 +8,18 @@ Feature: Language-agnostic PR-readiness quality gates
   Scenario: A newly generated quality-gates configuration defines only required generic categories
     Given a project receives a newly generated Rotta quality-gates configuration
     When the configuration is validated
-    Then it uses the rotta.quality-gates/v2 format
+    Then it uses the current rotta.quality-gates format
     And it contains exactly build, tests, changed-file scope, static analysis, dependency checks, and security checks
     And it contains no coverage, mutation, complexity, named-function, or language-profile gate
 
   @REQ-073 @SCN-502
-  Scenario: A v1 configuration is rejected with migration remediation
-    Given the active quality-gates configuration uses rotta.quality-gates/v1
+  Scenario: An unsupported configuration is rejected with remediation
+    Given the active quality-gates configuration uses an unsupported format
     When Phase 4 review is requested
     Then the review state is blocked
-    And the result explicitly says that v1 is unsupported and is not automatically migrated
+    And the result explicitly says that the format is unsupported and is not automatically migrated
     And the result identifies the configuration remediation path
-    And no v1 command is executed
+    And no command from the unsupported configuration is executed
 
   @REQ-074 @SCN-503
   Scenario Outline: Declared project conventions resolve a reproducible generic gate plan
@@ -151,7 +151,7 @@ Feature: Language-agnostic PR-readiness quality gates
     Given a user opens the installer quality-gates screen
     When the user selects a generic threshold-default option
     Then the confirmation identifies .rotta/quality-gates.yaml as the generated configuration path
-    And the generated v2 configuration reflects only the selected threshold policy values
+    And the generated configuration reflects only the selected threshold policy values
     And the screen describes generic command detection and blocked remediation
     And the screen displays no language, profile, coverage, mutation, complexity, or named-function choice
 
@@ -168,7 +168,7 @@ Feature: Language-agnostic PR-readiness quality gates
   Scenario: Generated review guidance preserves the executable generic-gate contract
     Given Rotta installs or updates its supported host artifacts
     When the generated review guidance is inspected
-    Then it directs Phase 4 to use v2 generic-gate discovery and persisted current review evidence
+    Then it directs Phase 4 to use generic-gate discovery and persisted current review evidence
     And it states that unresolved commands block review rather than pass
     And it preserves waiver, final-human-review, and evidence-derived PR-handoff semantics
-    And it does not reintroduce v1, root TDD-log authority, Go-specific commands, or language-specific quality gates
+    And it does not reintroduce obsolete configuration formats, root TDD-log authority, Go-specific commands, or language-specific quality gates

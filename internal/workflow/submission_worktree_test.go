@@ -19,7 +19,7 @@ func TestSCN604_ResumeAndArchiveRetainVerifiedFeatureRecoveryBoundary(t *testing
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
 	runGit(t, repo, "checkout", "-b", "feature/recovery-boundary")
-	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	mustWrite(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\n")
 	mustWrite(t, filepath.Join(repo, "specs", "recovery-boundary_hard_spec.md"), "# approved contract\n")
 	mustWrite(t, filepath.Join(repo, "features", "recovery-boundary.feature"), "@SCN-604\n")
 	mustWrite(t, filepath.Join(repo, "specs", "approvals", "recovery-boundary.yaml"), "status: approved\n")
@@ -92,7 +92,7 @@ func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) 
 	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
 	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
 	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
-	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\n")
 	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
 	runGit(t, initiatingWorktree, "commit", "-m", "test: establish explicit bootstrap base")
 	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
@@ -127,7 +127,7 @@ func TestSCN601_BootstrapFullWorkflowUsesOnlyExplicitBaseWorktree(t *testing.T) 
 	if manifests, err := filepath.Glob(filepath.Join(bootstrap.WorktreePath, ".rotta", "current", "manifest*.yaml")); err != nil || len(manifests) != 1 {
 		t.Fatalf("feature worktree manifests = %v, %v; want exactly one", manifests, err)
 	}
-	if policy, err := os.ReadFile(filepath.Join(bootstrap.WorktreePath, ".rotta", "quality-gates.yaml")); err != nil || string(policy) != "format: rotta.quality-gates/v2\n" {
+	if policy, err := os.ReadFile(filepath.Join(bootstrap.WorktreePath, ".rotta", "quality-gates.yaml")); err != nil || string(policy) != "format: rotta.quality-gates/v1\n" {
 		t.Fatalf("feature-local policy = %q, %v; want copied policy", policy, err)
 	}
 	for _, path := range []string{"specs", "features", ".rotta/current", "specs/approvals"} {
@@ -149,7 +149,7 @@ func TestSCN602_FeatureWorktreesKeepProgressAndEvidenceIsolated(t *testing.T) {
 	runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
 	runGit(t, initiatingWorktree, "config", "user.name", "Test User")
 	mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
-	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+	mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\n")
 	runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
 	runGit(t, initiatingWorktree, "commit", "-m", "test: establish isolated runtime base")
 	baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")
@@ -291,7 +291,7 @@ func TestSCN603_UnsafeWorktreePreparationPreservesInitiatingCheckout(t *testing.
 			runGit(t, initiatingWorktree, "config", "user.email", "test@example.invalid")
 			runGit(t, initiatingWorktree, "config", "user.name", "Test User")
 			mustWrite(t, filepath.Join(initiatingWorktree, "README.md"), "base\n")
-			mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\n")
+			mustWrite(t, filepath.Join(initiatingWorktree, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\n")
 			runGit(t, initiatingWorktree, "add", "README.md", ".rotta/quality-gates.yaml")
 			runGit(t, initiatingWorktree, "commit", "-m", "test: establish unsafe preparation base")
 			baseSHA := runGitOutput(t, initiatingWorktree, "rev-parse", "HEAD")

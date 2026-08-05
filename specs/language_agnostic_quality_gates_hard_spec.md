@@ -8,7 +8,7 @@
 ## Hidden Assumptions
 - Project-controlled metadata and conventions can provide an unambiguous, executable command for a gate, or their absence can be detected before a readiness decision is made.
 - The current submission manifest and state identify the feature worktree, approved implementation snapshot, baseline comparison, and the only active TDD log.
-- A deterministic fingerprint can identify the exact resolved v2 configuration and plan used for a review.
+- A deterministic fingerprint can identify the exact resolved quality-gates configuration and plan used for a review.
 - Gate commands run in the recorded feature worktree against a committed review snapshot, with captured exit status and output available as evidence.
 - A human may authorize an exception without Rotta storing that person’s identity.
 
@@ -23,7 +23,7 @@
 | Accept a handoff request’s supplied status, SHA, or paths | Caller input is not durable review evidence and can be stale or forged. |
 
 ## Summary
-Replace the invalid Go-specific quality-gate configuration with a v2, language-agnostic Phase 4 system that always evaluates build, tests, changed-file scope, static analysis, dependency checks, and security checks. Rotta must deterministically discover each gate command only from project conventions and metadata, persist the resolved plan and command evidence, fail closed when discovery is incomplete, and calculate PR readiness from that persisted evidence. Durable, commit- and configuration-bound human waivers may produce `ready_with_waivers` but never turn a failed/blocked gate into a pass. The installer TUI configures only generic threshold defaults, while lifecycle and PR handoff consume trusted persisted review state.
+Replace the invalid Go-specific quality-gate configuration with a language-agnostic Phase 4 system that always evaluates build, tests, changed-file scope, static analysis, dependency checks, and security checks. Rotta must deterministically discover each gate command only from project conventions and metadata, persist the resolved plan and command evidence, fail closed when discovery is incomplete, and calculate PR readiness from that persisted evidence. Durable, commit- and configuration-bound human waivers may produce `ready_with_waivers` but never turn a failed/blocked gate into a pass. The installer TUI configures only generic threshold defaults, while lifecycle and PR handoff consume trusted persisted review state.
 
 ## Explicit Invariants
 - The only generic Phase 4 gate categories are `build`, `tests`, `changed_file_scope`, `static_analysis`, `dependency_checks`, and `security_checks`; each is required in every review.
@@ -37,32 +37,32 @@ Replace the invalid Go-specific quality-gate configuration with a v2, language-a
 
 ## Requirements
 
-### REQ-073: Replace v1 with a generic executable v2 configuration
-**Description:** Rotta must define and install `rotta.quality-gates/v2` as the only supported quality-gate configuration format. Its schema must declare the six required generic gate categories, their order, supported discovery inputs/rules, threshold defaults where applicable, and the evidence/waiver policy needed for review; it must contain no language-specific gate category or command.
+### REQ-073: Provide a generic executable quality-gates configuration
+**Description:** Rotta must define and install the current generic quality-gates configuration format. Its schema must declare the six required generic gate categories, their order, supported discovery inputs/rules, threshold defaults where applicable, and the evidence/waiver policy needed for review; it must contain no language-specific gate category or command.
 
 **Acceptance Criteria:**
-- A newly generated quality-gates configuration declares `format: rotta.quality-gates/v2` and exactly one enabled required entry for each invariant gate category.
+- A newly generated quality-gates configuration declares the current format and exactly one enabled required entry for each invariant gate category.
 - Configuration validation rejects missing, duplicate, disabled, unknown, or reordered-without-explicit-order required categories, malformed threshold values, and unsupported discovery rules before command execution.
-- `rotta.quality-gates/v1` is rejected with an explicit message that it is unsupported, is not migrated automatically, and identifies the generated/configuration remediation path.
-- Validation failure persists a blocked review result and remediation; it does not use v1 data, embedded Go commands, or an inferred default configuration.
-- The installed template and active project configuration use the same v2 contract.
+- An unsupported configuration is rejected with an explicit message that it is unsupported, is not migrated automatically, and identifies the generated/configuration remediation path.
+- Validation failure persists a blocked review result and remediation; it does not use unsupported configuration data, embedded Go commands, or an inferred default configuration.
+- The installed template and active project configuration use the same contract.
 
 **Edge Cases:**
-- A repository has a v1 file plus an otherwise-valid stale review-evidence artifact.
-- A user edits a v2 category name to a former Go-specific gate.
+- A repository has an unsupported configuration plus an otherwise-valid stale review-evidence artifact.
+- A user edits a generic category name to a former Go-specific gate.
 - A config omits a numeric threshold for a category whose selected policy requires one.
 
 **Out of Scope:**
-- Automatic conversion, compatibility execution, or preservation of v1 semantics.
-- Adding language-specific coverage, mutation, complexity, or named-function gates to v2.
+- Automatic conversion, compatibility execution, or preservation of obsolete format semantics.
+- Adding language-specific coverage, mutation, complexity, or named-function gates to the generic configuration.
 
 ### REQ-074: Deterministically resolve all generic gate plans without language selection
 **Description:** For the recorded review snapshot, Rotta must resolve one executable plan for every required generic category from declared project conventions/metadata using documented deterministic precedence. The resolver may construct a conventional invocation only when the selected metadata/rule explicitly authorizes it; it must not use a language/profile setting or expose one in UX.
 
 **Acceptance Criteria:**
-- Resolution considers only supported project-controlled evidence such as declared package scripts, task-runner targets, lockfiles/manifests, repository-local tool configuration, and explicitly configured v2 discovery rules.
+- Resolution considers only supported project-controlled evidence such as declared package scripts, task-runner targets, lockfiles/manifests, repository-local tool configuration, and explicitly configured discovery rules.
 - For every category, the persisted plan records category/gate ID, resolved command or built-in changed-file comparison, working directory, metadata source path, discovery rule, target/snapshot inputs, and a plan/configuration fingerprint.
-- Given unchanged repository metadata, v2 configuration, baseline, and review snapshot, repeated resolution produces the same plan and command order.
+- Given unchanged repository metadata, configuration, baseline, and review snapshot, repeated resolution produces the same plan and command order.
 - If no permitted command can be resolved, if candidates of the same precedence conflict, if the command/tool is unavailable, or if a command is unsafe/invalid under the execution policy, that gate and the overall review become `blocked` with actionable remediation. Rotta does not run a guessed fallback.
 - Changed-file scope compares the recorded review snapshot to the recorded baseline/approved scope and records the comparison inputs and result; it is not derived from an arbitrary caller path list or the host’s uncommitted diff.
 - The TUI and generated instructions do not offer language or profile selection.
@@ -154,12 +154,12 @@ Replace the invalid Go-specific quality-gate configuration with a v2, language-a
 - Automated publication or resolving ambiguous remote ownership.
 
 ### REQ-079: Make the installer TUI meaningful and language-neutral
-**Description:** The installer TUI must make a real selection only for generic threshold defaults and must accurately disclose the generated v2 configuration path, generic-gate detection/readiness model, and blocked metrics. It must remove the inert “review later” behavior and all language-specific threshold/profile text.
+**Description:** The installer TUI must make a real selection only for generic threshold defaults and must accurately disclose the generated configuration path, generic-gate detection/readiness model, and blocked metrics. It must remove the inert “review later” behavior and all language-specific threshold/profile text.
 
 **Acceptance Criteria:**
 - The quality-gate screen describes the six generic categories and states that commands are detected from project conventions/metadata during review, not selected by language.
 - For the selected project path, the screen presents each generic category's detection/readiness preview: the resolved command/source when detected, or its blocked category/metric and remediation when it cannot be resolved. This preview is informational and does not execute Phase 4 or create readiness evidence.
-- Every selectable default option changes only the generated v2 threshold values/policy values it names; selection is reflected in the generated `.rotta/quality-gates.yaml` and confirmation summary.
+- Every selectable default option changes only the generated threshold values/policy values it names; selection is reflected in the generated `.rotta/quality-gates.yaml` and confirmation summary.
 - The screen displays the generated configuration path `.rotta/quality-gates.yaml`, the count/list of blocked preview metrics, and explains that unresolved required commands result in `blocked` readiness with remediation.
 - The screen identifies the persisted review-evidence location and the four possible readiness states, including that waivers remain visible as `ready_with_waivers`.
 - The UI contains no coverage, mutation, complexity, named-function, Go-specific, language, or profile choice; it does not offer an option whose behavior is identical to another option.
@@ -173,7 +173,7 @@ Replace the invalid Go-specific quality-gate configuration with a v2, language-a
 - Interactive command editing, runtime language detection, or executing Phase 4 from the installer.
 
 ### REQ-080: Propagate the canonical contract across generated surfaces
-**Description:** The v2 schema, generic discovery, evaluator/evidence, waiver, lifecycle, handoff, and TUI semantics must be consistently represented in embedded assets, installer output, host instructions, state-machine/workflow logic, and verification fixtures so generated hosts cannot revive obsolete Phase 4 behavior.
+**Description:** The generic schema, discovery, evaluator/evidence, waiver, lifecycle, handoff, and TUI semantics must be consistently represented in embedded assets, installer output, host instructions, state-machine/workflow logic, and verification fixtures so generated hosts cannot revive obsolete Phase 4 behavior.
 
 **Acceptance Criteria:**
 - All generated review guidance directs reviewers to the executable evaluator and `.rotta/current/review-evidence.yaml`, required generic categories, fail-closed discovery, waiver semantics, and evidence-derived readiness.
@@ -182,8 +182,8 @@ Replace the invalid Go-specific quality-gate configuration with a v2, language-a
 - Focused regression tests cover config validation, deterministic discovery, evaluator evidence, waiver validity, TDD-log scope, lifecycle transition, trusted handoff, and TUI output/selection behavior.
 
 **Edge Cases:**
-- An old generated host asset remains on disk while the workspace has v2 configuration.
-- Installation is retried into a repository containing v1 configuration or legacy root evidence.
+- An old generated host asset remains on disk while the workspace has current configuration.
+- Installation is retried into a repository containing an unsupported configuration or legacy root evidence.
 - Ancora is unavailable; workspace artifacts remain the sole authority and no readiness rule is bypassed.
 
 **Out of Scope:**

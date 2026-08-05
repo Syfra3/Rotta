@@ -10,16 +10,16 @@ import (
 	"testing"
 )
 
-// REQ-073 → SCN-502 → TestSCN502_V1ConfigurationBlocksReviewWithoutExecution
-func TestSCN502_V1ConfigurationBlocksReviewWithoutExecution(t *testing.T) {
-	// Scenario: A v1 configuration is rejected with migration remediation
+// REQ-073 → SCN-502 → TestSCN502_LegacyConfigurationBlocksReviewWithoutExecution
+func TestSCN502_LegacyConfigurationBlocksReviewWithoutExecution(t *testing.T) {
+	// Scenario: A legacy configuration is rejected with remediation.
 	repo := t.TempDir()
 	configPath := filepath.Join(repo, ".rotta", "quality-gates.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatalf("create quality-gates directory: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("format: rotta.quality-gates/v1\ncommand: must-not-run\n"), 0o600); err != nil {
-		t.Fatalf("write v1 quality-gates configuration: %v", err)
+	if err := os.WriteFile(configPath, []byte("format: rotta.quality-gates/legacy\ncommand: must-not-run\n"), 0o600); err != nil {
+		t.Fatalf("write legacy quality-gates configuration: %v", err)
 	}
 
 	executed := false
@@ -34,16 +34,14 @@ func TestSCN502_V1ConfigurationBlocksReviewWithoutExecution(t *testing.T) {
 		t.Errorf("review state = %q, want %q", review.State, QualityGatesReviewBlocked)
 	}
 	for _, want := range []string{
-		"v1 is unsupported",
-		"not automatically migrated",
-		".rotta/quality-gates.yaml",
+		"unavailable",
 	} {
 		if !strings.Contains(review.Result, want) {
 			t.Errorf("review result %q does not contain %q", review.Result, want)
 		}
 	}
 	if executed {
-		t.Fatal("v1 configuration command was executed")
+		t.Fatal("legacy configuration command was executed")
 	}
 }
 
@@ -62,7 +60,7 @@ func TestSCN503_DeclaredConventionsResolveReproducibleGenericGatePlans(t *testin
 	} {
 		t.Run(convention.category, func(t *testing.T) {
 			repo := t.TempDir()
-			writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+			writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 			metadataPath := filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml")
 			writeSCN503File(t, metadataPath, fmt.Sprintf("baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  %s:\n    command: %s\n", convention.category, convention.command))
 
@@ -116,7 +114,7 @@ func TestSCN503_DeclaredConventionsResolveReproducibleGenericGatePlans(t *testin
 func TestSCN505_MissingSecurityCheckConventionBlocksReviewWithoutExecution(t *testing.T) {
 	// Scenario: Missing required command discovery blocks review instead of guessing
 	repo := t.TempDir()
-	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  build:\n    command: task build\n")
 
 	executed := false
@@ -144,7 +142,7 @@ func TestSCN505_MissingSecurityCheckConventionBlocksReviewWithoutExecution(t *te
 func TestSCN506_AmbiguousStaticAnalysisConventionsBlockReviewWithoutExecution(t *testing.T) {
 	// Scenario: Ambiguous command candidates block review
 	repo := t.TempDir()
-	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  static_analysis:\n    command: task lint\n  static_analysis:\n    command: make lint\n  security_checks:\n    command: task security\n")
 
 	executed := false
@@ -190,7 +188,7 @@ func TestSCN507_SuccessfulGenericReviewWritesEvidenceAndEntersFinalHumanReview(t
 	runSCN504Git(t, repo, "commit", "-m", "snapshot")
 	snapshot := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
 
-	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), fmt.Sprintf("baseline: %s\nsnapshot: %s\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n", baseline, snapshot))
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), fmt.Sprintf("phase: review\nbaseline_commit: %s\ncompleted_scenarios: [SCN-501]\n", baseline))
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-501\nvalid current TDD evidence\n")
@@ -262,7 +260,7 @@ func TestSCN509_FailedBuildGateWritesNotReadyEvidence(t *testing.T) {
 	runSCN504Git(t, repo, "commit", "-m", "snapshot")
 	snapshot := strings.TrimSpace(runSCN504Git(t, repo, "rev-parse", "HEAD"))
 
-	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), fmt.Sprintf("baseline: %s\nsnapshot: %s\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n", baseline, snapshot))
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), fmt.Sprintf("phase: review\nbaseline_commit: %s\ncompleted_scenarios: [SCN-501]\n", baseline))
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "tdd-log.md"), "## SCN-501\nvalid current TDD evidence\n")
@@ -382,7 +380,7 @@ func TestSCN511_InvalidWaiversBlockReadiness(t *testing.T) {
 func TestSCN508_RootAndArchivedTDDLogsDoNotSatisfyCurrentEvidence(t *testing.T) {
 	// Scenario: Root and archived TDD logs cannot satisfy current review evidence
 	repo := t.TempDir()
-	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v2\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
+	writeSCN503File(t, filepath.Join(repo, ".rotta", "quality-gates.yaml"), "format: rotta.quality-gates/v1\ngate_order:\n  - build\n  - tests\n  - changed_file_scope\n  - static_analysis\n  - dependency_checks\n  - security_checks\ndiscovery:\n  supported_inputs:\n    - declared_project_metadata\n  rules:\n    - declared_convention_only\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "review-snapshot.yaml"), "baseline: baseline-sha\nsnapshot: snapshot-sha\nconventions:\n  build:\n    command: task build\n  tests:\n    command: task test\n  changed_file_scope:\n    command: task scope\n  static_analysis:\n    command: task lint\n  dependency_checks:\n    command: task dependencies\n  security_checks:\n    command: task security\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "current", "state.yaml"), "phase: review\nbaseline_commit: baseline-sha\ncompleted_scenarios: [SCN-501]\n")
 	writeSCN503File(t, filepath.Join(repo, ".rotta", "tdd-log.md"), "## SCN-501\nroot evidence\n")

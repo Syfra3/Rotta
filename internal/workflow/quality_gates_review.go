@@ -112,12 +112,6 @@ func RequestPhase4Review(repoRoot string, execute func(string) error) (QualityGa
 	}
 	format := qualityGatesFormat(config)
 	if format == "rotta.quality-gates/v1" {
-		return QualityGatesReview{
-			State:  QualityGatesReviewBlocked,
-			Result: "quality-gates v1 is unsupported and is not automatically migrated; replace .rotta/quality-gates.yaml with the generated rotta.quality-gates/v2 configuration before requesting Phase 4 review",
-		}, nil
-	}
-	if format == "rotta.quality-gates/v2" {
 		plan, err := ResolvePhase4ReviewPlan(repoRoot)
 		var ambiguousStaticAnalysis ambiguousStaticAnalysisConventionError
 		if errors.As(err, &ambiguousStaticAnalysis) {
@@ -135,17 +129,17 @@ func RequestPhase4Review(repoRoot string, execute func(string) error) (QualityGa
 		}, nil
 	}
 
-	return QualityGatesReview{}, fmt.Errorf("quality-gates review is unavailable for the active configuration")
+	return QualityGatesReview{State: QualityGatesReviewBlocked, Result: "legacy quality-gates configuration is unavailable; replace .rotta/quality-gates.yaml with the current configuration before requesting Phase 4 review"}, nil
 }
 
-// ResolvePhase4ReviewPlan uses only explicitly declared v2 convention metadata.
+// ResolvePhase4ReviewPlan uses only explicitly declared convention metadata.
 func ResolvePhase4ReviewPlan(repoRoot string) (Phase4ReviewPlan, error) {
 	configPath := filepath.Join(repoRoot, ".rotta", "quality-gates.yaml")
 	config, err := os.ReadFile(configPath)
 	if err != nil {
 		return Phase4ReviewPlan{}, fmt.Errorf("read quality-gates configuration: %w", err)
 	}
-	if qualityGatesFormat(config) != "rotta.quality-gates/v2" {
+	if qualityGatesFormat(config) != "rotta.quality-gates/v1" {
 		return Phase4ReviewPlan{}, fmt.Errorf("resolve review plan: unsupported quality-gates configuration")
 	}
 	if !supportsDeclaredConventionDiscovery(config) {

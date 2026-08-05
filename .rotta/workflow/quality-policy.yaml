@@ -1,0 +1,20 @@
+{
+  "format": "rotta-quality-policy/v1",
+  "id": "default",
+  "version": "1",
+  "analyzers": [
+    {"id":"manual-evidence","adapter":"manual-evidence","supported_dimensions":["code_smells","duplication","complexity","maintainability","good_practices","security","risk","tests","static_analysis","coverage"],"applies_when":"all","parser":"quality-result/v1"}
+  ],
+  "dimensions": [
+    {"id":"code_smells","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"duplication","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"complexity","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"maintainability","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"good_practices","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"security","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"risk","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"tests","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"static_analysis","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"},
+    {"id":"coverage","analyzer":"manual-evidence","gate":"required","applies_when":"all","severity_scale":["info","warning","error"],"blocking_severity":"error"}
+  ]
+}

@@ -8,8 +8,9 @@ openspec/
 .rotta/*
 !.rotta/quality-gates.yaml
 !.rotta/critical-path-coverage.json
-!.rotta/v2/
-!.rotta/v2/quality-policy.yaml
+!.rotta/workflow/
+!.rotta/workflow/removal-inventory.json
+!.rotta/workflow/quality-policy.yaml
 .rotta/state*
 .rotta/session*
 .rotta/tmp/

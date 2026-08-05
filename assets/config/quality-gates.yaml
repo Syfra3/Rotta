@@ -1,6 +1,6 @@
 # Rotta — Quality Gates
 # This ordered list is the complete generic Phase 4 review plan.
-format: rotta.quality-gates/v2
+format: rotta.quality-gates/v1
 gate_order:
   - build
   - tests

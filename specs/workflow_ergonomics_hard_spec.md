@@ -21,7 +21,7 @@
 - Git can resolve an immutable explicit base SHA and create a distinct feature branch/worktree before any submission write.
 - The selected OpenCode version exposes a schema and a documented resolution/diagnostic path sufficient to validate the configuration it consumes; otherwise installation can stop visibly.
 - Full workflow command/test output can be retained in the feature worktree even when the host prunes conversation tool output; installer transaction evidence has a separate host-local retention boundary before a worktree exists.
-- The language-agnostic quality-gates feature will expose its documented v2 policy and current review-evidence fingerprints before a gate-targeted override is used.
+- The language-agnostic quality-gates feature will expose its documented policy and current review-evidence fingerprints before a gate-targeted override is used.
 
 ## Edge Case Sweep
 - Concurrent requests with the same slug, a stale `.rotta/current`, an interrupted checkpoint, a rebased branch, a missing policy file, or a malformed approval must not merge state or silently restart from a different base.
@@ -114,7 +114,7 @@ Installer transaction evidence is retained for 30 days under its transaction dir
 - A generated host instruction still names a legacy path after a successful installer run.
 
 **Out of Scope:**
-- Defining v2 gate contents or migrating v1 quality-gate semantics.
+- Defining generic gate contents or migrating obsolete quality-gate semantics.
 
 ### REQ-083: Bind compact human acknowledgements to the displayed action
 **Description:** A compact affirmative reply may authorize exactly one currently displayed action only when it is bound to the current feature and unchanged contract/review snapshot.
@@ -254,7 +254,7 @@ Installer transaction evidence is retained for 30 days under its transaction dir
 - Automatic merge ordering, historical state repair by heuristics, or implementation of generic quality-gate execution.
 
 ## Compatibility and Migration
-The only essential dependency on `feature/language-agnostic-quality-gates` is its published interface: `.rotta/quality-gates.yaml` in `rotta.quality-gates/v2` form and `.rotta/current/review-evidence.yaml` carrying the recorded baseline, snapshot, and policy/configuration fingerprint used by its evaluator. This feature consumes those identities for policy binding and gate-override envelopes; it must not duplicate gate categories, discovery, commands, thresholds, status calculation, waiver interpretation, or readiness rules. Until that interface exists, gate-targeted overrides and dependent review continuation are blocked with remediation, while lifecycle-only work remains independently testable.
+The only essential dependency on `feature/language-agnostic-quality-gates` is its published interface: `.rotta/quality-gates.yaml` in the current generic format and `.rotta/current/review-evidence.yaml` carrying the recorded baseline, snapshot, and policy/configuration fingerprint used by its evaluator. This feature consumes those identities for policy binding and gate-override envelopes; it must not duplicate gate categories, discovery, commands, thresholds, status calculation, waiver interpretation, or readiness rules. Until that interface exists, gate-targeted overrides and dependent review continuation are blocked with remediation, while lifecycle-only work remains independently testable.
 
 Legacy root logs/state, `specs/.approved`, `assets/config/state-machine.yaml`, `.rotta/state-machine.yaml`, other legacy state-machine references, hard-coded approval IDs, differing approval filename derivations, and v1/v2 mixed approval readers are detected as retired inputs. They are never fallback authority. The source/runtime-owned `rotta.lifecycle/v1` model replaces the legacy state-machine asset. The new writer and validator share `rotta.feature-approval/v2`, derive `specs/approvals/<feature-id>.yaml` from the manifest feature ID, and require the same canonical contract fingerprints.
 

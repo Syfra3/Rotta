@@ -49,8 +49,8 @@ func TestSCN515_QualityGateDefaultsAreLanguageNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated quality-gates configuration: %v", err)
 	}
-	if !strings.Contains(string(config), "format: rotta.quality-gates/v2") {
-		t.Fatalf("generated quality-gates configuration is not v2:\n%s", config)
+	if !strings.Contains(string(config), "format: rotta.quality-gates/v1") {
+		t.Fatalf("generated quality-gates configuration does not use the current format:\n%s", config)
 	}
 	for _, prohibited := range []string{"language", "profile", "coverage", "mutation", "complexity", "named-function"} {
 		if strings.Contains(strings.ToLower(qualityGates), prohibited) {

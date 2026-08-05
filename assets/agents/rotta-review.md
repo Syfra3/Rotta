@@ -38,7 +38,7 @@ You DO:
 ## Preconditions
 
 Before evaluating any gate, load and validate `.rotta/quality-gates.yaml` as
-`rotta.quality-gates/v2`, the current submission state, and
+`rotta.quality-gates/v1`, the current submission state, and
 `.rotta/current/tdd-log.md`. Root and archived TDD logs are not current review evidence.
 
 ---
@@ -47,7 +47,7 @@ Before evaluating any gate, load and validate `.rotta/quality-gates.yaml` as
 
 Derive completed approved scope from durable current-submission state and the
 matching feature record; do not accept externally supplied scope. Resolve the
-`rotta.quality-gates/v2` generic-gate plan from the recorded snapshot for only
+`rotta.quality-gates/v1` generic-gate plan from the recorded snapshot for only
 `build`, `tests`, `changed_file_scope`, `static_analysis`,
 `dependency_checks`, and `security_checks`.
 

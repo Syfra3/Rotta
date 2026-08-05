@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// REQ-085 → SCN-614 → TestSCN614_OpenCodeContextProfileUsesCurrentV2Schema
-func TestSCN614_OpenCodeContextProfileUsesCurrentV2Schema(t *testing.T) {
+// REQ-085 → SCN-614 → TestSCN614_OpenCodeContextProfileUsesCurrentSchema
+func TestSCN614_OpenCodeContextProfileUsesCurrentSchema(t *testing.T) {
 	// Scenario: OpenCode context limits retain complete local failure evidence
 	home := t.TempDir()
 	if _, err := installOpenCode(Options{}, home); err != nil {

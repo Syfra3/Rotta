@@ -270,7 +270,7 @@ Feature: Ergonomic, isolated Rotta workflow
 
   @REQ-090 @SCN-626
   Scenario: Missing quality-gates interface blocks only dependent workflow behavior
-    Given the language-agnostic quality-gates v2 policy or current review-evidence interface is unavailable
+    Given the language-agnostic quality-gates policy or current review-evidence interface is unavailable
     When a gate-targeted override or dependent review continuation is requested
     Then Rotta blocks that request with interface remediation
     And lifecycle-only work remains independently traceable

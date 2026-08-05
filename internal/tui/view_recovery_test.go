@@ -18,8 +18,9 @@ func TestSCN004_TUIListsAvailableBackupsFromRecovery(t *testing.T) {
 	writeBackupManifest(t, home, "20260629T121500Z", `/tmp/project-beta`, "opencode")
 
 	model := New()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
-	view := updated.(Model).View()
+	model.Screen = ScreenRecoveryList
+	model.RecoveryBackups, model.RecoveryError = loadRecoveryBackups()
+	view := model.View()
 
 	for _, want := range []string{
 		"Recovery",
@@ -45,8 +46,9 @@ func TestSCN005_TUIPreviewsBackupContentsAndMetadata(t *testing.T) {
 	writeBackupManifest(t, home, "20260629T123000Z", projectPath, "both")
 
 	model := New()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
-	preview, _ := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model.Screen = ScreenRecoveryList
+	model.RecoveryBackups, model.RecoveryError = loadRecoveryBackups()
+	preview, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	view := preview.(Model).View()
 
 	for _, want := range []string{
@@ -76,8 +78,9 @@ func TestSCN006_TUIRequiresConfirmationBeforeFullRestore(t *testing.T) {
 	writeBackupManifest(t, home, "20260629T124500Z", projectPath, "both")
 
 	model := New()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
-	preview, _ := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model.Screen = ScreenRecoveryList
+	model.RecoveryBackups, model.RecoveryError = loadRecoveryBackups()
+	preview, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	confirm, cmd := preview.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	confirmedModel := confirm.(Model)
 	view := confirmedModel.View()
@@ -113,8 +116,9 @@ func TestSCN007_TUIConfirmationExecutesFullRestore(t *testing.T) {
 	writeTestFile(t, missingPath, []byte("remove during restore"))
 
 	model := New()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
-	preview, _ := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model.Screen = ScreenRecoveryList
+	model.RecoveryBackups, model.RecoveryError = loadRecoveryBackups()
+	preview, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	confirm, _ := preview.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	restoring, cmd := confirm.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 
@@ -155,6 +159,9 @@ if [ "$1" = setup ]; then
   echo "external setup output should be discarded"
   exit 0
 fi
+`)
+	writeTUITestExecutable(t, filepath.Join(binDir, "npx"), `#!/bin/sh
+exit 0
 `)
 
 	model := New()

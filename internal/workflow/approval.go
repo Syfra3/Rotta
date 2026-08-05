@@ -182,7 +182,7 @@ func featureApprovalContains(repoRoot string, scope ContractScope) (approved, fo
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		switch line {
-		case "format: rotta.feature-approval/v2":
+		case "format: rotta.feature-approval/v1":
 			hasFormat = true
 		case "contract_id:", "contract_id: unified-workflow-authority":
 			hasContractID = true
@@ -377,7 +377,7 @@ func duplicateScenarioIDInAnotherActiveRecord(repoRoot, approvalPath, scenarioID
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			canonical = canonical || line == "format: rotta.feature-approval/v2"
+			canonical = canonical || line == "format: rotta.feature-approval/v1"
 			active = active || line == "status: approved"
 			containsScenarioID = containsScenarioID || line == "scenario_id: "+scenarioID
 		}

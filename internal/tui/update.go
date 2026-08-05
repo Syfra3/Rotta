@@ -69,7 +69,7 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 		ScreenModeSelect: m.updateModeSelect, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
 		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
-		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
+		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm, ScreenStatus: m.updateDone,
 	}
 	handler, ok := handlers[m.Screen]
 	return handler, ok
@@ -77,17 +77,45 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 
 func (m Model) updateWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "j", "down":
+		if m.MenuCursor < 2 {
+			m.MenuCursor++
+		}
+	case "k", "up":
+		if m.MenuCursor > 0 {
+			m.MenuCursor--
+		}
 	case "enter", " ":
-		m.PrevScreen = ScreenWelcome
-		m.Screen = ScreenTargetSelect
-	case "r":
-		m.PrevScreen = ScreenWelcome
-		m.Screen = ScreenRecoveryList
-		m.RecoveryBackups, m.RecoveryError = loadRecoveryBackups()
+		switch m.MenuCursor {
+		case 0:
+			m.Installing = true
+			m.Screen = ScreenInstalling
+			return m, tea.Batch(m.InstallSpinner.Tick, runSafeInstall())
+		case 1:
+			home, err := os.UserHomeDir()
+			if err != nil {
+				m.StatusText = "OpenCode installation: uncertain"
+			} else {
+				m.StatusText = "OpenCode installation: " + installer.OpenCodeStatus(home).State
+			}
+			m.Screen = ScreenStatus
+		case 2:
+			return m, tea.Quit
+		}
 	case "q":
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func runSafeInstall() tea.Cmd {
+	return func() tea.Msg {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			_, err = installer.InstallOpenCode(home)
+		}
+		return installDoneMsg{err: err}
+	}
 }
 
 func (m Model) updateRecoveryList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
