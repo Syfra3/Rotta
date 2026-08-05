@@ -306,16 +306,6 @@ func setupVelaWithTransaction(opts Options, result *Result, home, projectPath st
 	result.VelaInstalled = vr.Installed
 	result.VelaBin = vr.BinPath
 	if len(vr.MCPAvailability) != 0 {
-		markBackedUpVelaConfigurations(vr, result.BackupDir, home)
-		if velaConfigurationNeedsRestore(vr) {
-			if transaction != nil {
-				if _, err := transaction.recover(fmt.Errorf("Vela configuration was not newly validated")); err != nil {
-					return err
-				}
-			} else if _, err := RestoreBackup(result.BackupDir); err != nil {
-				return fmt.Errorf("restore previous Vela configuration: %w", err)
-			}
-		}
 		recordVelaMCPAvailability(result, vr)
 		return nil
 	}

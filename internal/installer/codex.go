@@ -14,22 +14,17 @@ const (
 
 func installCodex(opts Options, home string) ([]string, error) {
 	path := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, fmt.Errorf("cannot create Codex instructions dir: %w", err)
+	instructions, err := codexInstructions(opts)
+	if err != nil {
+		return nil, err
 	}
-	if err := writePrivateFile(path, []byte(codexInstructions(opts)), 0o600); err != nil {
-		return nil, fmt.Errorf("cannot write Codex instructions: %w", err)
+	if _, err := installManagedFiles(home, map[string][]byte{path: []byte(instructions)}); err != nil {
+		return nil, err
 	}
 	return []string{path}, nil
 }
 
-func cleanPreviousCodexInstallation(home string) error {
-	path := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("cannot remove stale Codex instructions: %w", err)
-	}
-	return nil
-}
+func cleanPreviousCodexInstallation(_ string) error { return nil }
 
 func configureCodexMCPServers(opts Options, home string) ([]string, error) {
 	path := filepath.Join(home, ".codex", "config.toml")
@@ -83,21 +78,22 @@ func codexManagedMCPBlock(opts Options) string {
 	return b.String()
 }
 
-func codexInstructions(opts Options) string {
+func codexInstructions(opts Options) (string, error) {
+	core, err := readRenderedAsset("core/rotta-core.md", opts)
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	b.WriteString("# Rotta Codex Instructions\n\n")
-	b.WriteString("Rotta is installed for Codex. Follow the canonical Rotta workflow, including its proportional workflow-selection policy; keep workspace artifacts as the source of truth and preserve human approval gates for full-workflow requests.\n\n")
-	if opts.InstallSpec {
-		b.WriteString("- Full workflow spec mode: draft hard specs and Gherkin scenarios before implementation.\n")
+	b.WriteString("Codex adapts Rotta Next roles into this instruction file. Route work through the orchestrator and follow the shared policy below.\n\n")
+	b.Write(core)
+	for _, agent := range rottaAgents {
+		role, err := readRenderedAsset(agent.assetPath, opts)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString("\n\n")
+		b.Write(role)
 	}
-	if opts.InstallImpl {
-		b.WriteString("- Full workflow implementation mode: use strict Red/Green/Refactor TDD for one approved scenario at a time.\n")
-		b.WriteString("- Each TDD scenario task must start from a clean worktree; after the scenario passes, update the task checklist and checkpoint or clean the diff before starting the next scenario.\n")
-	}
-	if opts.InstallReview {
-		b.WriteString("- Full workflow review mode: judge persisted current evidence from the v2 generic-gate plan.\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(integrationInstructions(opts))
-	return b.String()
+	return b.String(), nil
 }

@@ -42,19 +42,18 @@ func (m Model) screenViews() map[Screen]func() string {
 func (m Model) viewWelcome() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Rotta Installer") + "\n")
-	b.WriteString(subtitleStyle.Render("Contract-driven AI coding for Claude Code, OpenCode, and Codex") + "\n\n")
+	b.WriteString(subtitleStyle.Render("Lightweight reviewed coding workflow for Claude Code, OpenCode, and Codex") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("What this installs") + "\n")
-	b.WriteString(menuItemStyle.Render("  Spec Mode        — Hard spec + Gherkin authoring with human approval gate") + "\n")
-	b.WriteString(menuItemStyle.Render("  Implementation Mode — Strict TDD: Red → Green → Refactor per scenario") + "\n")
-	b.WriteString(menuItemStyle.Render("  Review Mode       — Metrics-based quality gates, no line-by-line review") + "\n\n")
+	b.WriteString(menuItemStyle.Render("  Fast mode        — One coherent slice, focused tests, independent review") + "\n")
+	b.WriteString(menuItemStyle.Render("  Strict mode      — Approved compact contract for high-risk work") + "\n")
+	b.WriteString(menuItemStyle.Render("  Five roles       — Orchestrator, Explore, Implementation, Review, Operations") + "\n\n")
 
 	b.WriteString(cardStyle.Render(
 		warningStyle.Render("Philosophy")+"\n"+
-			"  AI should not write code freely. It should be constrained\n"+
-			"  by human-approved contracts, TDD loops, traceability,\n"+
-			"  and measurable quality gates. The human manages the system\n"+
-			"  at the level of behavior and risk — not implementation details.",
+			"  Fast mode minimizes coordination without skipping practical\n"+
+			"  safeguards: focused verification and a fresh independent\n"+
+			"  review. Strict mode adds approval only where risk warrants it.",
 	) + "\n\n")
 
 	b.WriteString(helpStyle.Render("Press Enter to start · r for recovery · q to quit"))
@@ -179,8 +178,8 @@ func (m Model) viewTargetSelect() string {
 		label string
 		desc  string
 	}{
-		{"Claude Code", "SKILL.md files → ~/.claude/skills/rotta/"},
-		{"OpenCode", "Agent entries + skill files for rotta-orchestrator, rotta-spec, rotta-impl, rotta-review"},
+		{"Claude Code", "Managed core and role skills → ~/.claude/skills/rotta-next/"},
+		{"OpenCode", "Agent entries + managed core and role skills for Rotta Next"},
 		{"Codex", "Codex instructions → ~/.codex/AGENTS.md"},
 		{"Both", "Install for both tools"},
 	}
@@ -238,9 +237,9 @@ func (m Model) viewAncora() string {
 	b.WriteString(headerStyle.Render("Ancora — Persistent Memory") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("What Ancora does") + "\n")
-	b.WriteString(menuItemStyle.Render("  Persists workflow state across sessions (phase, approved scenarios, TDD logs)") + "\n")
-	b.WriteString(menuItemStyle.Render("  Rotta agents call ancora_save / ancora_search to remember decisions") + "\n")
-	b.WriteString(menuItemStyle.Render("  Survives compaction — the Judge can always recover prior run context") + "\n\n")
+	b.WriteString(menuItemStyle.Render("  Stores compact decisions, discoveries, and result pointers across sessions") + "\n")
+	b.WriteString(menuItemStyle.Render("  Rotta agents recover relevant context without making memory workflow authority") + "\n")
+	b.WriteString(menuItemStyle.Render("  Workspace and Git state remain authoritative when memory is unavailable") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("What gets configured") + "\n")
 	if m.Target == "claude-code" || m.Target == "both" {
@@ -392,10 +391,9 @@ func (m Model) viewSuccess() string {
 	}
 
 	b.WriteString(sectionStyle.Render("Next steps") + "\n")
-	b.WriteString(menuItemStyle.Render("  1. In your project, run /rotta-spec-mode to start a feature spec") + "\n")
-	b.WriteString(menuItemStyle.Render("  2. The Spec Partner will ask clarifying questions") + "\n")
-	b.WriteString(menuItemStyle.Render("  3. Approve the Gherkin contract to unlock Implementation Mode") + "\n")
-	b.WriteString(menuItemStyle.Render("  4. After TDD, run /rotta-review-mode for quality gate evaluation") + "\n\n")
+	b.WriteString(menuItemStyle.Render("  1. Start a task with Rotta-Orchestrator") + "\n")
+	b.WriteString(menuItemStyle.Render("  2. Fast mode delegates one coherent slice and an independent review") + "\n")
+	b.WriteString(menuItemStyle.Render("  3. Strict mode asks for approval only when the risk triggers it") + "\n\n")
 
 	b.WriteString(helpStyle.Render("Press Enter or q to exit"))
 	return appStyle.Render(b.String())
