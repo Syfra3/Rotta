@@ -1,0 +1,62 @@
+format: rotta.feature-approval/v2
+contract_id: vela-v2
+status: approved
+approved_on: "2026-08-05"
+approval_source: explicit_human
+submission_worktree: /home/geen/Documents/personal/Rotta-vela-v2
+feature_branch: feature/vela-v2
+base_branch: main
+spec_path: specs/hard_spec.md
+feature_paths:
+  - features/vela_v2_workflow.feature
+approved_scenarios:
+  - scenario_id: SCN-701
+  - scenario_id: SCN-702
+  - scenario_id: SCN-703
+  - scenario_id: SCN-704
+  - scenario_id: SCN-705
+  - scenario_id: SCN-706
+  - scenario_id: SCN-707
+  - scenario_id: SCN-708
+  - scenario_id: SCN-709
+  - scenario_id: SCN-710
+  - scenario_id: SCN-711
+  - scenario_id: SCN-712
+  - scenario_id: SCN-713
+  - scenario_id: SCN-714
+  - scenario_id: SCN-715
+  - scenario_id: SCN-716
+  - scenario_id: SCN-717
+  - scenario_id: SCN-718
+  - scenario_id: SCN-719
+  - scenario_id: SCN-720
+  - scenario_id: SCN-721
+  - scenario_id: SCN-722
+  - scenario_id: SCN-723
+  - scenario_id: SCN-724
+  - scenario_id: SCN-725
+  - scenario_id: SCN-726
+  - scenario_id: SCN-727
+  - scenario_id: SCN-728
+  - scenario_id: SCN-729
+  - scenario_id: SCN-730
+  - scenario_id: SCN-731
+  - scenario_id: SCN-732
+  - scenario_id: SCN-733
+  - scenario_id: SCN-734
+  - scenario_id: SCN-735
+  - scenario_id: SCN-736
+  - scenario_id: SCN-737
+  - scenario_id: SCN-738
+  - scenario_id: SCN-739
+  - scenario_id: SCN-740
+  - scenario_id: SCN-741
+  - scenario_id: SCN-742
+  - scenario_id: SCN-743
+contract_fingerprints:
+  specs/hard_spec.md: 1b785a5f917526c924206119be0ff828cc276c50c8ae7f632cb752b0a9723aa9
+  features/vela_v2_workflow.feature: c1dfbe767a6a4e860d881404b766765fbe5aa3c2946ad60e63b940708c286700
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: a0f0fc6fc6a6bce15b501a4c60c5461432a8d249
+  reviewed_commit: null
