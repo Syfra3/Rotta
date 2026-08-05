@@ -4,9 +4,9 @@
 
 # Rotta
 
-`rotta` is a contract-driven workflow for coding agents. It turns a feature request into a reviewed implementation through four gates: draft clarification, hard spec + Gherkin, strict TDD, and evidence-based review.
+`rotta` is a lightweight coding workflow for specialized agents. Fast mode delivers ordinary work through one coherent implementation slice, change-relevant verification, and an independent review. Strict mode adds a compact approved contract only for high-risk or explicitly contract-driven work.
 
-The primary installed agent is **Rotta-Orchestrator**. It coordinates the workflow and delegates focused work to `rotta-spec`, `rotta-impl`, and `rotta-review`.
+The primary installed agent is **Rotta-Orchestrator**. It routes focused work to `rotta-explore`, `rotta-impl`, `rotta-review`, and `rotta-ops`.
 
 ## Quick Start
 
@@ -36,14 +36,14 @@ After installing generated opencode or Claude Code config, restart the coding ag
 | Item | Purpose |
 |------|---------|
 | `rotta` | Terminal installer and setup UI |
-| `Rotta-Orchestrator` / `rotta-orchestrator` | Primary agent that owns phase transitions and human gates |
-| `rotta-spec` | Sub-agent for hard specs and Gherkin contracts |
-| `rotta-impl` | Sub-agent for one-scenario-at-a-time strict TDD |
-| `rotta-review` | Sub-agent for objective quality evidence and review gates |
-| `.rotta/state-machine.yaml` | Workflow phase model for installed projects |
-| `.rotta/quality-gates.yaml` | Review thresholds used by the review phase |
-| Ancora (optional) | Persistent memory for compact workflow state indexes and recovery pointers |
-| Vela (optional) | Local graph extraction/retrieval for structural, dependency, and impact questions |
+| `rotta-orchestrator` | Primary router for risk, capsules, and compact outcomes |
+| `rotta-explore` | Bounded read-only discovery, including optional graph evidence |
+| `rotta-impl` | One coherent implementation slice with focused verification |
+| `rotta-review` | Independent diff and evidence review |
+| `rotta-ops` | One explicit operational action |
+| `rotta-core` | Shared safety, routing, capsule, and evidence policy |
+| Ancora (optional) | Non-authoritative compact context continuity |
+| Vela (optional) | Bounded advisory structural evidence; indexing needs explicit consent |
 
 Generated files are written for the selected target:
 
@@ -73,65 +73,13 @@ It ships first-class installation paths for:
 
 Other agents can still use the workflow by reading the generated instructions in `assets/agents/` and `assets/skills/`, then following the same phase contracts and file gates.
 
-## Workflow Steps
+## Workflow Modes
 
-```mermaid
-flowchart TD
-    A[Feature request] --> B[Phase 1: Draft]
-    B --> C{Open questions?}
-    C -- Yes --> D[Ask one critical question batch]
-    D --> B
-    C -- No --> E[Phase 2: Hard spec + Gherkin]
-    E --> F{Human approves contract?}
-    F -- No --> E
-    F -- Yes --> G[Phase 3: TDD loop]
-    G --> H[Implement one approved scenario]
-    H --> I{All scenarios done?}
-    I -- No --> G
-    I -- Yes --> J[Phase 4: Review gate]
-    J --> K{Objective gates pass?}
-    K -- No --> L[Return to TDD with remediation]
-    L --> G
-    K -- Yes --> M[Eligible for final human review]
-```
+Fast mode is the default: recover relevant context, classify risk, optionally explore, implement one coherent slice, run relevant checks, independently review, and report. It does not require a worktree, lifecycle ledger, hard-spec artifact, mandatory Gherkin, intermediate commit, or `continue` prompt.
 
-| Phase | Owner | Output | Gate |
-|-------|-------|--------|------|
-| Draft | Rotta-Orchestrator + human | Clarified request and risk questions | No unresolved blockers |
-| Spec + Gherkin | `rotta-spec` | `specs/hard_spec.md` and `features/*.feature` | Human approves the contract |
-| TDD | `rotta-impl` | Tests and implementation for one scenario at a time | All approved scenarios are green |
-| Review | `rotta-review` | `reports/judge_report.md` with evidence | Objective gates pass or escalate |
-| Final review | Human | Merge-ready change | Semantic, design, and risk review pass |
+Strict mode applies to security, authentication, payments, migrations, destructive operations, public contracts, high-impact multi-component changes, or an explicit request. It records a compact contract under `.rotta/strict/` and requires approval before implementation. Gherkin is used only when observable examples are material to an unambiguous behavioral contract.
 
-Objective gates make agent-written code eligible for review. They do not replace final human judgment.
-
-## Main TDD Loop
-
-`rotta-impl` implements exactly one approved Gherkin scenario per cycle.
-
-1. Red: write the smallest failing test for the approved `@SCN-NNN` scenario.
-2. Green: write the minimum production code required to pass that test.
-3. Refactor: improve names, duplication, and structure without changing behavior.
-4. Record: append traceability and cycle evidence to `.rotta/tdd-log.md`.
-5. Repeat: move to the next approved scenario only after the current cycle is green.
-
-The loop protects scope. New behavior must come from an approved Gherkin scenario, not from opportunistic implementation.
-
-## Review Gate
-
-`rotta-review` evaluates evidence from the installed quality gates instead of doing taste-based line review. The active thresholds live in `.rotta/quality-gates.yaml`.
-
-The review phase checks:
-
-- Scenario-to-test traceability
-- Full test suite status
-- Changed-line and critical-path coverage
-- Mutation testing evidence
-- Architecture and dependency constraints
-- Static analysis results
-- Unauthorized file or scope changes
-
-If a hard gate fails, the workflow returns to TDD with specific remediation. If the evidence passes, the change is ready for final human review.
+Every subagent receives a compact capsule with objective, acceptance checks, scope, non-goals, baseline, relevant facts, verification commands, and expected result format. The reviewer receives the final diff, affected code, implementation handoff, and test evidence, then reports concrete findings in severity order.
 
 ## Development
 

@@ -22,28 +22,22 @@ type VelaResult struct {
 	MCPAvailability            map[string]map[string]MCPStatusResult
 }
 
-// SetupVela detects or installs Vela, initializes the project graph, and sets
-// up agent MCP integration when Vela is the standalone graph surface.
-func SetupVela(opts Options, home, projectPath string) (*VelaResult, error) {
-	if _, err := exec.LookPath("vela"); err != nil {
-		result := unavailableVelaMCPResult(opts, home)
-		if len(result.MCPAvailability) != 0 {
-			return result, nil
+// SetupVela records advisory availability only. Graph indexing is a separate,
+// explicitly consented rotta-ops action and must not be an install side effect.
+func SetupVela(opts Options, home, _ string) (*VelaResult, error) {
+	result := &VelaResult{MCPAvailability: map[string]map[string]MCPStatusResult{}}
+	for _, host := range selectedHosts(opts.Target) {
+		if host == "codex" {
+			continue
 		}
+		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": {
+			Status:          MCPStatusSkipped,
+			Reason:          "Vela indexing requires an explicit rotta-ops request.",
+			Remediation:     "Request a bounded rotta-ops Vela indexing action when structural evidence is needed.",
+			RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved},
+		}}
 	}
-	binPath, installed, err := resolveVelaBin(opts)
-	if err != nil {
-		result := unavailableVelaMCPResult(opts, home)
-		if len(result.MCPAvailability) != 0 {
-			return result, nil
-		}
-		return nil, err
-	}
-	result := &VelaResult{BinPath: binPath, Installed: installed}
-	if err := runVelaClusteringInstallIfConfigured(opts, binPath, projectPath); err != nil {
-		return nil, err
-	}
-	return configureVelaHosts(opts, result, home, projectPath)
+	return result, nil
 }
 
 func unavailableVelaMCPResult(opts Options, home string) *VelaResult {

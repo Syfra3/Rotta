@@ -17,55 +17,59 @@ type agentEntry struct {
 	prompt      string
 	assetPath   string // path inside assets.FS for the SKILL.md content
 	skillName   string // directory name under ~/.config/opencode/skills/
-	modeFlag    func(opts Options) bool
 }
 
-// rottaAgents defines all four Rotta agents in dependency order.
-// The orchestrator is always installed; sub-agents depend on mode selection.
+// rottaAgents defines the complete Rotta Next role surface.
 var rottaAgents = []agentEntry{
 	{
 		key:         "rotta-orchestrator",
-		description: "Rotta-Orchestrator — Senior Architect Orchestrator",
+		description: "Rotta Next — lightweight Fast/Strict router",
 		mode:        "primary",
 		hidden:      false,
-		tools:       map[string]bool{"bash": true, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are Rotta-Orchestrator, the Rotta orchestrator (Senior Architect). Do NOT be a sub-agent executor. Read your full instructions at ~/.config/opencode/skills/rotta-orchestrator/SKILL.md and follow them exactly.",
+		tools:       map[string]bool{"bash": false, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": false, "read": true, "write": false},
+		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Do not implement code or execute ordinary operations.",
 		assetPath:   "agents/rotta-orchestrator.md",
 		skillName:   "rotta-orchestrator",
-		modeFlag:    func(_ Options) bool { return true }, // always install
 	},
 	{
-		key:         "rotta-spec",
-		description: "Rotta — Spec Partner + Gherkin Author",
+		key:         "rotta-explore",
+		description: "Rotta Next — bounded discovery",
 		mode:        "subagent",
 		hidden:      true,
-		tools:       map[string]bool{"bash": false, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Rotta Spec sub-agent (Spec Partner + Gherkin Author). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/rotta-spec/SKILL.md and follow them exactly.",
-		assetPath:   "agents/rotta-spec.md",
-		skillName:   "rotta-spec",
-		modeFlag:    func(o Options) bool { return o.InstallSpec },
+		tools:       map[string]bool{"bash": false, "edit": false, "read": true, "write": false},
+		prompt:      "You are the Rotta Explore subagent. Load rotta-core and rotta-explore from ~/.config/opencode/skills/rotta-next/ before acting. Perform bounded read-only discovery only.",
+		assetPath:   "agents/rotta-explore.md",
+		skillName:   "rotta-explore",
 	},
 	{
 		key:         "rotta-impl",
-		description: "Rotta — TDD Craftsman",
+		description: "Rotta Next — coherent implementation slices",
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
-		prompt:      "You are the Rotta Implementation sub-agent (TDD Craftsman). Do NOT delegate to other agents. Read your full instructions at ~/.config/opencode/skills/rotta-impl/SKILL.md and follow them exactly.",
+		prompt:      "You are the Rotta Implementation subagent. Load rotta-core and rotta-impl from ~/.config/opencode/skills/rotta-next/ before acting. Implement only the assigned coherent slice.",
 		assetPath:   "agents/rotta-impl.md",
 		skillName:   "rotta-impl",
-		modeFlag:    func(o Options) bool { return o.InstallImpl },
 	},
 	{
 		key:         "rotta-review",
-		description: "Rotta — Judge (Metrics-based Quality Auditor)",
+		description: "Rotta Next — independent diff review",
 		mode:        "subagent",
 		hidden:      true,
-		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": true},
-		prompt:      "You are the Rotta Review sub-agent (Judge). Do NOT delegate to other agents. You review evidence, not code. Read your full instructions at ~/.config/opencode/skills/rotta-review/SKILL.md and follow them exactly.",
+		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": false},
+		prompt:      "You are the Rotta Review subagent. Load rotta-core and rotta-review from ~/.config/opencode/skills/rotta-next/ before acting. Inspect the diff and affected code independently.",
 		assetPath:   "agents/rotta-review.md",
 		skillName:   "rotta-review",
-		modeFlag:    func(o Options) bool { return o.InstallReview },
+	},
+	{
+		key:         "rotta-ops",
+		description: "Rotta Next — explicit operations",
+		mode:        "subagent",
+		hidden:      true,
+		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": false},
+		prompt:      "You are the Rotta Operations subagent. Load rotta-core and rotta-ops from ~/.config/opencode/skills/rotta-next/ before acting. Execute only explicit bounded operations.",
+		assetPath:   "agents/rotta-ops.md",
+		skillName:   "rotta-ops",
 	},
 }
 
@@ -86,7 +90,6 @@ var legacyCleanOpenCodeAgentKeys = []string{
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
-	skillsBase := filepath.Join(home, ".config", "opencode", "skills")
 	resolution, err := resolveOpenCodeConfig(opts, home)
 	if err != nil {
 		return nil, err
@@ -103,19 +106,99 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if agentMap == nil {
 		agentMap = map[string]interface{}{}
 	}
-	removeLegacyOpenCodeAgents(config, agentMap)
-
-	files, err := installOpenCodeAgents(opts, skillsBase, agentMap)
+	if err := validateOpenCodeAgentOwnership(home, resolution.Path, agentMap); err != nil {
+		return nil, err
+	}
+	managed, err := openCodeManagedSkills(opts, home)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := validateManagedFiles(home, managed); err != nil {
+		return nil, err
+	}
+	original, readErr := readPrivateFile(resolution.Path)
+	originalExists := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, fmt.Errorf("read existing OpenCode config: %w", readErr)
+	}
+	for _, agent := range rottaAgents {
+		agentMap[agent.key] = openCodeAgentEntry(agent)
+	}
+	delete(agentMap, "rotta-spec")
+	removeLegacyOpenCodeAgents(config, agentMap)
 	config["agent"] = agentMap
 	if err := writeResolvedOpenCodeConfig(document); err != nil {
+		return nil, err
+	}
+	files, err := installManagedFiles(home, managed)
+	if err != nil {
+		if restoreErr := restoreOpenCodeConfig(resolution.Path, original, originalExists); restoreErr != nil {
+			return nil, fmt.Errorf("install OpenCode role files: %w; restore config: %v", err, restoreErr)
+		}
+		return nil, err
+	}
+	if err := recordOpenCodeAgentOwnership(home, resolution.Path, agentMap); err != nil {
 		return nil, err
 	}
 	files = append(files, resolution.Path)
 
 	return files, nil
+}
+
+func restoreOpenCodeConfig(path string, data []byte, existed bool) error {
+	if !existed {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writePrivateFile(path, data, 0o600)
+}
+
+func validateOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}) error {
+	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+	manifest, err := readManagedArtifactsManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+	for _, agent := range rottaAgents {
+		current, exists := agentMap[agent.key]
+		if !exists {
+			continue
+		}
+		want, managed := manifest.Files[openCodeAgentOwnershipKey(configPath, agent.key)]
+		if !managed {
+			return fmt.Errorf("refusing to overwrite unmanaged OpenCode agent: %s", agent.key)
+		}
+		data, err := json.Marshal(current)
+		if err != nil {
+			return fmt.Errorf("serialize OpenCode agent %s: %w", agent.key, err)
+		}
+		if contentDigest(data) != want {
+			return fmt.Errorf("refusing to overwrite modified managed OpenCode agent: %s", agent.key)
+		}
+	}
+	return nil
+}
+
+func recordOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}) error {
+	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+	manifest, err := readManagedArtifactsManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+	for _, agent := range rottaAgents {
+		data, err := json.Marshal(agentMap[agent.key])
+		if err != nil {
+			return fmt.Errorf("serialize OpenCode agent %s: %w", agent.key, err)
+		}
+		manifest.Files[openCodeAgentOwnershipKey(configPath, agent.key)] = contentDigest(data)
+	}
+	return writeManagedArtifactsManifest(home, manifest)
+}
+
+func openCodeAgentOwnershipKey(configPath, agentKey string) string {
+	return configPath + "#agent:" + agentKey
 }
 
 func applyOpenCodeContextProfile(config map[string]interface{}) error {
@@ -149,38 +232,22 @@ func openCodeConfigurationObject(config map[string]interface{}, key string) (map
 	return object, nil
 }
 
-func installOpenCodeAgents(opts Options, skillsBase string, agentMap map[string]interface{}) ([]string, error) {
-	var files []string
+func openCodeManagedSkills(opts Options, home string) (map[string][]byte, error) {
+	skillsBase := filepath.Join(home, ".config", "opencode", "skills")
+	managed := map[string][]byte{}
 	for _, agent := range rottaAgents {
-		if !agent.modeFlag(opts) {
-			continue
-		}
-		skillFile, err := writeOpenCodeSkill(opts, skillsBase, agent)
+		data, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
-		files = append(files, skillFile)
-		if _, exists := agentMap[agent.key]; !exists {
-			agentMap[agent.key] = openCodeAgentEntry(agent)
-		}
+		managed[filepath.Join(skillsBase, "rotta-next", agent.skillName, "SKILL.md")] = data
 	}
-	return files, nil
-}
-
-func writeOpenCodeSkill(opts Options, skillsBase string, agent agentEntry) (string, error) {
-	skillDir := filepath.Join(skillsBase, agent.skillName)
-	if err := os.MkdirAll(skillDir, 0o750); err != nil {
-		return "", fmt.Errorf("cannot create skill dir %s: %w", skillDir, err)
-	}
-	data, err := readRenderedAsset(agent.assetPath, opts)
+	core, err := readRenderedAsset("core/rotta-core.md", opts)
 	if err != nil {
-		return "", fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
+		return nil, err
 	}
-	skillFile := filepath.Join(skillDir, "SKILL.md")
-	if err := writePrivateFile(skillFile, data, 0o600); err != nil {
-		return "", fmt.Errorf("cannot write %s: %w", skillFile, err)
-	}
-	return skillFile, nil
+	managed[filepath.Join(skillsBase, "rotta-next", "rotta-core", "SKILL.md")] = core
+	return managed, nil
 }
 
 func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
@@ -200,53 +267,7 @@ func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
 	return entry
 }
 
-func cleanPreviousOpenCodeInstallation(opts Options, home string) error {
-	resolution, err := resolveOpenCodeConfig(opts, home)
-	if err != nil {
-		return err
-	}
-	document, err := readResolvedOpenCodeConfig(resolution)
-	if err != nil {
-		return err
-	}
-	config := document.config
-	agentMap, _ := config["agent"].(map[string]interface{})
-	if agentMap != nil {
-		changed := false
-		for _, agent := range rottaAgents {
-			if _, exists := agentMap[agent.key]; exists {
-				delete(agentMap, agent.key)
-				changed = true
-			}
-		}
-		if removeLegacyOpenCodeAgents(config, agentMap) {
-			changed = true
-		}
-		if changed {
-			config["agent"] = agentMap
-			if err := writeResolvedOpenCodeConfig(document); err != nil {
-				return err
-			}
-		}
-	}
-
-	for _, agent := range rottaAgents {
-		path := filepath.Join(home, ".config", "opencode", "skills", agent.skillName)
-		if err := os.RemoveAll(path); err != nil {
-			return fmt.Errorf("cannot remove stale opencode skill %s: %w", path, err)
-		}
-	}
-	for _, skillName := range append(legacyBobOpenCodeAgentKeys, legacyCleanOpenCodeAgentKeys...) {
-		path := filepath.Join(home, ".config", "opencode", "skills", skillName)
-		if err := os.RemoveAll(path); err != nil {
-			return fmt.Errorf("cannot remove legacy opencode skill %s: %w", path, err)
-		}
-	}
-	if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
-		return err
-	}
-	return nil
-}
+func cleanPreviousOpenCodeInstallation(_ Options, _ string) error { return nil }
 
 func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[string]interface{}) bool {
 	changed := false
