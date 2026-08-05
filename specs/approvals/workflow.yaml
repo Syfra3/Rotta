@@ -1,0 +1,51 @@
+format: rotta.feature-approval
+contract_id: workflow
+status: approved
+approved_on: "2026-08-04"
+approval_source: explicit_human
+submission_worktree: /home/geen/Documents/personal/Rotta-vela-v2
+feature_branch: feature/vela-v2
+base_branch: main
+spec_path: specs/hard_spec.md
+feature_paths:
+  - features/workflow.feature
+approved_scenarios:
+  - scenario_id: SCN-001
+    requirement_ids: [REQ-001]
+  - scenario_id: SCN-002
+    requirement_ids: [REQ-002]
+  - scenario_id: SCN-003
+    requirement_ids: [REQ-001, REQ-002]
+  - scenario_id: SCN-004
+    requirement_ids: [REQ-003]
+  - scenario_id: SCN-005
+    requirement_ids: [REQ-003]
+  - scenario_id: SCN-006
+    requirement_ids: [REQ-004]
+  - scenario_id: SCN-007
+    requirement_ids: [REQ-004]
+  - scenario_id: SCN-008
+    requirement_ids: [REQ-005]
+  - scenario_id: SCN-009
+    requirement_ids: [REQ-006]
+  - scenario_id: SCN-010
+    requirement_ids: [REQ-007]
+  - scenario_id: SCN-011
+    requirement_ids: [REQ-007]
+  - scenario_id: SCN-012
+    requirement_ids: [REQ-008]
+  - scenario_id: SCN-013
+    requirement_ids: [REQ-008]
+  - scenario_id: SCN-014
+    requirement_ids: [REQ-009]
+  - scenario_id: SCN-015
+    requirement_ids: [REQ-009]
+  - scenario_id: SCN-016
+    requirement_ids: [REQ-010]
+contract_fingerprints:
+  specs/hard_spec.md: dee3e52d10d26f6821bd36069055f0378a8a5ed7e77c9a9103eb4f028bc65831
+  features/workflow.feature: 223d0b4ce050b15787e0a06e7a29545c4cee3e74da0e31ecd7d8ebfa7df983cb
+baseline_confirmation:
+  status: confirmed
+  baseline_commit: aca0c5cba5ab79f2095093df3d7c27b87dbd7d29
+  reviewed_commit: null
