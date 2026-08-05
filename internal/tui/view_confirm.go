@@ -18,8 +18,7 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	b.WriteString(sectionStyle.Render("Summary") + "\n")
 	writeConfirmValue(b, "Target:", m.Target)
 	writeConfirmValue(b, "Project path:", m.ProjectPath)
-	writeConfirmValue(b, "Modes:", strings.Join(selectedConfirmModes(m.SelectedModes), ", "))
-	writeConfirmValue(b, "Quality gates:", confirmGateLabel())
+	writeConfirmValue(b, "Workflow:", "Rotta Next Fast mode with Strict escalation")
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
@@ -54,27 +53,18 @@ func confirmSetupLabel(enabled bool) string {
 
 func (m Model) writeConfirmFiles(b *strings.Builder) {
 	m.writeConfirmHostFiles(b)
-	writeConfirmFile(b, "  .rotta/state-machine.yaml")
-	writeConfirmFile(b, "  .rotta/quality-gates.yaml")
 	m.writeConfirmIntegrationFiles(b)
 }
 
 func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
-		writeSelectedConfirmFiles(b, m.SelectedModes, []string{
-			"  ~/.claude/skills/rotta/spec-mode/SKILL.md",
-			"  ~/.claude/skills/rotta/implementation-mode/SKILL.md",
-			"  ~/.claude/skills/rotta/review-mode/SKILL.md",
-		})
+		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/rotta-core/SKILL.md")
+		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/<role>/SKILL.md")
 	}
 	if m.Target == TargetOpenCode || m.Target == TargetBoth {
 		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (agent entries)")
-		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-orchestrator/SKILL.md")
-		writeSelectedConfirmFiles(b, m.SelectedModes, []string{
-			"  ~/.config/opencode/skills/rotta-spec/SKILL.md",
-			"  ~/.config/opencode/skills/rotta-impl/SKILL.md",
-			"  ~/.config/opencode/skills/rotta-review/SKILL.md",
-		})
+		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/rotta-core/SKILL.md")
+		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/<role>/SKILL.md")
 	}
 	if m.Target == TargetCodex {
 		writeConfirmFile(b, "  ~/.codex/AGENTS.md  (Codex instructions)")
@@ -117,22 +107,8 @@ func (m Model) writeConfirmAncoraFiles(b *strings.Builder) {
 }
 
 func (m Model) writeConfirmVelaFiles(b *strings.Builder) {
-	writeConfirmFile(b, "  <project>/.vela/graph.db  (initialized, not extracted)")
-	writeConfirmFile(b, "  graph freshness guard  (non-blocking refresh before Vela graph queries)")
-	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
-		writeConfirmFile(b, "  ~/.claude/hooks/rotta-vela-freshness-guard.sh")
-		writeConfirmFile(b, "  ~/.claude/settings.json  (PreToolUse hook)")
-	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
-		writeConfirmFile(b, "  ~/.config/opencode/plugin/rotta-vela-freshness-guard.js")
-		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (plugin entry)")
-	}
-	if !m.SetupAncora && (m.Target == TargetClaudeCode || m.Target == TargetBoth) {
-		writeConfirmFile(b, "  ~/.claude/vela-mcp.json")
-	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
-		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (mcp.vela)")
-	}
+	writeConfirmFile(b, "  No graph state is created during installation")
+	writeConfirmFile(b, "  Request a bounded rotta-ops action to index Vela when needed")
 }
 
 func (m Model) writeConfirmChoices(b *strings.Builder) {

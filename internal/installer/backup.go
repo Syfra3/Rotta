@@ -414,6 +414,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 	paths := append([]string{
 		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
 		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
+		filepath.Join(home, ".config", "rotta", "managed-artifacts.json"),
 	}, filepath.Join(projectPath, ".vela", "graph.db"))
 	paths = append(paths, targetBackupPaths(opts.Target, home)...)
 	if opts.SetupContext7 {
@@ -438,7 +439,7 @@ func targetBackupPaths(target, home string) []string {
 
 func openCodeBackupPaths(home string) []string {
 	root := filepath.Join(home, ".config", "opencode")
-	paths := []string{filepath.Join(root, "opencode.json"), filepath.Join(root, "opencode.jsonc"), filepath.Join(root, "instructions.md"), filepath.Join(root, "plugin", "rotta-vela-freshness-guard.js")}
+	paths := []string{filepath.Join(root, "opencode.json"), filepath.Join(root, "opencode.jsonc"), filepath.Join(root, "instructions.md"), filepath.Join(root, "plugin", "rotta-vela-freshness-guard.js"), filepath.Join(root, "skills", "rotta-next")}
 	for _, skill := range append(append([]string{}, []string{"rotta-orchestrator", "rotta-spec", "rotta-impl", "rotta-review"}...), append(legacyCleanOpenCodeAgentKeys, legacyBobOpenCodeAgentKeys...)...) {
 		paths = append(paths, filepath.Join(root, "skills", skill))
 	}
@@ -446,7 +447,11 @@ func openCodeBackupPaths(home string) []string {
 }
 func claudeCodeBackupPaths(home string) []string {
 	root := filepath.Join(home, ".claude")
-	return []string{filepath.Join(root, "settings.json"), filepath.Join(root, "hooks", "rotta-vela-freshness-guard.sh"), filepath.Join(root, "skills", "rotta"), filepath.Join(root, "skills", "clean-workflow"), filepath.Join(root, "mcp", "ancora.json"), filepath.Join(root, "vela-mcp.json"), filepath.Join(root, "vela-instructions.md")}
+	paths := []string{filepath.Join(root, "settings.json"), filepath.Join(root, "hooks", "rotta-vela-freshness-guard.sh"), filepath.Join(root, "skills", "rotta-next"), filepath.Join(root, "mcp", "ancora.json"), filepath.Join(root, "vela-mcp.json"), filepath.Join(root, "vela-instructions.md")}
+	for _, agent := range rottaAgents {
+		paths = append(paths, filepath.Join(root, "agents", agent.key+".md"))
+	}
+	return paths
 }
 
 func appendUniquePaths(paths []string, candidates ...string) []string {

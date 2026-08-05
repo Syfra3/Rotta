@@ -1,3 +1,5 @@
+//go:build legacy_v2
+
 package tui
 
 import (
