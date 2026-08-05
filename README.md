@@ -45,6 +45,31 @@ For a normal request, expect this sequence:
 
 The workflow asks the human only for a material product decision, missing requirements, a Strict-mode approval, credentials, or an external or destructive operation. Passing review never authorizes a commit, push, release, graph index, or cleanup action.
 
+```mermaid
+flowchart TD
+    request[Task request] --> classify[Orchestrator recovers context and classifies risk]
+    classify --> strict{Strict trigger or explicit request?}
+
+    strict -- No: Fast --> explore[Optional bounded exploration]
+    explore --> implement[Implement one coherent slice]
+
+    strict -- Yes --> contract[Write compact contract under .rotta/strict/]
+    contract --> approval{Human approves?}
+    approval -- No --> clarify[Clarify, revise, or stop]
+    approval -- Yes --> examples{Behavioral examples needed?}
+    examples -- Yes --> gherkin[Write focused Gherkin]
+    examples -- No --> implement
+    gherkin --> implement
+
+    implement --> verify[Run change-relevant verification]
+    verify --> review[Independent diff and evidence review]
+    review --> operation{External or destructive action requested?}
+    operation -- No --> report[Report outcome and residual risk]
+    operation -- Yes --> consent[Require explicit user request]
+    consent --> ops[Run one bounded rotta-ops action]
+    ops --> report
+```
+
 ## Roles And Installation
 
 | Item | Purpose |
