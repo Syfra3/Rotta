@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.0](https://github.com/Syfra3/Rotta/compare/v1.11.0...v1.12.0) (2026-08-05)
+
+
+### Features
+
+* implement Rotta Next workflow ([3bbc55e](https://github.com/Syfra3/Rotta/commit/3bbc55e819d4db93bf05f3fac5e0f6a2bb47373b))
+* implement Rotta Next workflow ([aebb135](https://github.com/Syfra3/Rotta/commit/aebb1352bac22ee37ebd37f7d8e23088d15471fc))
+
+
+### Documentation
+
+* add Rotta Next workflow diagram ([372d9ac](https://github.com/Syfra3/Rotta/commit/372d9acb1f7a85e84bb4ce6c42ed0f7df4e377b9))
+* explain Rotta Next workflow ([389ff92](https://github.com/Syfra3/Rotta/commit/389ff9295d3f4fbfa150a25a27fe4113f9f51acb))
+
 ## [1.11.0](https://github.com/Syfra3/Rotta/compare/v1.10.1...v1.11.0) (2026-08-04)
 
 
