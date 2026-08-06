@@ -30,6 +30,8 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenVela:            m.viewVela,
 		ScreenVelaConfirm:     m.viewVelaConfirm,
 		ScreenContext7:        m.viewContext7,
+		ScreenRTK:             m.viewRTK,
+		ScreenRTKConfirm:      m.viewRTKConfirm,
 		ScreenConfirm:         m.viewConfirm,
 		ScreenInstalling:      m.viewInstalling,
 		ScreenSuccess:         m.viewSuccess,
@@ -158,7 +160,11 @@ func formatRecoveryIntegrations(integrations recoveryOptionalIntegrations) strin
 	if integrations.Context7 {
 		context7 = "Context7: yes"
 	}
-	return ancora + ", " + vela + ", " + context7
+	rtk := "RTK: no"
+	if integrations.RTK {
+		rtk = "RTK: yes"
+	}
+	return ancora + ", " + vela + ", " + context7 + ", " + rtk
 }
 
 func writeRecoveryPaths(b *strings.Builder, paths []string) {
@@ -302,6 +308,38 @@ func (m Model) viewContext7() string {
 	return appStyle.Render(b.String())
 }
 
+func (m Model) viewRTK() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("RTK — Optional Command Output Presentation") + "\n\n")
+	b.WriteString(menuItemStyle.Render("RTK compacts agent-facing command output only.") + "\n")
+	b.WriteString(menuItemStyle.Render("Full durable evidence and workflow correctness never depend on RTK.") + "\n\n")
+	options := []struct{ label, desc string }{
+		{"Install RTK (optional)", "After a separate host-action confirmation, install and verify rtk --version"},
+		{"Skip RTK", "Do not prompt for or run an RTK host action; use deterministic bounded summaries"},
+	}
+	for i, option := range options {
+		if m.RTKCursor == i {
+			b.WriteString(menuSelectedStyle.Render("▸ "+option.label) + "\n")
+			b.WriteString("    " + inputHintStyle.Render(option.desc) + "\n\n")
+		} else {
+			b.WriteString(menuItemStyle.Render("  "+option.label) + "\n\n")
+		}
+	}
+	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewRTKConfirm() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Confirm RTK Host Action") + "\n\n")
+	b.WriteString(warningStyle.Render("RTK installation has not started") + "\n")
+	b.WriteString(menuItemStyle.Render("This host-level installation action runs the approved RTK installer.") + "\n")
+	b.WriteString(menuItemStyle.Render("After installation it resolves the executable and verifies rtk --version.") + "\n")
+	b.WriteString(menuItemStyle.Render("Success, Skip, or failure is recorded only in host-local installer evidence.") + "\n\n")
+	b.WriteString(helpStyle.Render("Enter/y to confirm host-level installation action · Esc/n to cancel"))
+	return appStyle.Render(b.String())
+}
+
 func (m Model) viewQualityGates() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Quality Gates Configuration") + "\n\n")
@@ -389,6 +427,10 @@ func (m Model) viewSuccess() string {
 		}
 		b.WriteString("\n")
 		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
+		b.WriteString(labelStyle.Render("RTK output presentation:") + " " + valueStyle.Render(string(m.InstallResult.RTK.Status)) + "\n")
+		if m.InstallResult.RTK.FailureReason != "" {
+			b.WriteString(inputHintStyle.Render("  "+m.InstallResult.RTK.FailureReason) + "\n")
+		}
 	}
 
 	b.WriteString(sectionStyle.Render("Next steps") + "\n")

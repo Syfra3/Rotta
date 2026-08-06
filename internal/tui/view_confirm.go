@@ -22,6 +22,7 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
+	writeConfirmValue(b, "RTK output presentation:", confirmSetupLabel(m.SetupRTK && m.ConfirmRTK))
 	b.WriteString("\n")
 }
 

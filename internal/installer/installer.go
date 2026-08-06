@@ -26,6 +26,8 @@ type Options struct {
 	SetupVela       bool // whether to install/configure Vela graph intelligence
 	ConfirmVela     bool // set only after the dedicated OpenCode Vela confirmation
 	SetupContext7   bool // whether to configure Context7 documentation MCP
+	SetupRTK        bool // whether RTK was explicitly selected in the TUI
+	ConfirmRTK      bool // set only after the dedicated RTK host-action confirmation
 	CommandStdin    io.Reader
 	CommandStdout   io.Writer
 	CommandStderr   io.Writer
@@ -46,6 +48,7 @@ type Result struct {
 	VelaInstalled                   bool   // true if Vela binary was installed during this run
 	VelaBin                         string // resolved path to the vela binary
 	Context7                        Context7Result
+	RTK                             RTKInstallResult
 	MCPStatuses                     map[string]map[string]MCPStatusResult
 }
 
@@ -150,6 +153,17 @@ type HostInstallResult struct {
 func install(opts Options) (*Result, error) {
 	result, home, projectPath, err := prepareInstall(opts)
 	if err != nil {
+		return result, err
+	}
+	rtkResult, err := setupRTK(opts, homebrewRTKInstaller{})
+	if err != nil {
+		return result, err
+	}
+	result.RTK = rtkResult
+	if err := writeRTKTransactionEvidence(result.BackupDir, rtkResult); err != nil {
+		return result, err
+	}
+	if err := writeRTKRuntimeState(home, rtkResult); err != nil {
 		return result, err
 	}
 	if err := validateSelectedOpenCodeConfiguration(opts, home); err != nil {

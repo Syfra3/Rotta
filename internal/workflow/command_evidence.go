@@ -28,6 +28,7 @@ type LifecycleCommandRequest struct {
 	HostMaxLines     int
 	HostMaxBytes     int
 	CommandMetadata  json.RawMessage
+	RTKPresentation  *RTKPresentation
 }
 
 // LifecycleCommandReport separates durable evidence from a bounded chat
@@ -105,6 +106,9 @@ func CaptureLifecycleCommand(ctx context.Context, request LifecycleCommandReques
 		Passing:      runErr == nil && !timedOut,
 	}
 	report.ChatSummary = boundedCommandSummary(evidence, evidencePath, commandSummaryLimits(request))
+	if request.RTKPresentation != nil {
+		report.ChatSummary = request.RTKPresentation.Present(report, report.ChatSummary).Output
+	}
 	return report, nil
 }
 
@@ -117,8 +121,8 @@ func commandOutputHash(stdout, stderr string) string {
 }
 
 func writeLifecycleCommandEvidence(featureWorktree string, evidence lifecycleCommandEvidence) (string, error) {
-	directory := filepath.Join(featureWorktree, ".rotta", "current", "evidence")
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	directory, err := lifecycleEvidenceDirectory(featureWorktree)
+	if err != nil {
 		return "", err
 	}
 	contents, err := json.MarshalIndent(evidence, "", "  ")
@@ -130,6 +134,34 @@ func writeLifecycleCommandEvidence(featureWorktree string, evidence lifecycleCom
 		return "", err
 	}
 	return path, nil
+}
+
+// lifecycleEvidenceDirectory creates only regular directory components below
+// the supplied worktree. Refusing symlink components keeps durable evidence
+// local rather than allowing a pre-existing path to redirect it outside.
+func lifecycleEvidenceDirectory(featureWorktree string) (string, error) {
+	worktree, err := filepath.Abs(featureWorktree)
+	if err != nil {
+		return "", fmt.Errorf("resolve feature worktree: %w", err)
+	}
+	directory := worktree
+	for _, name := range []string{".rotta", "current", "evidence"} {
+		directory = filepath.Join(directory, name)
+		info, err := os.Lstat(directory)
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(directory, 0o700); err != nil && !os.IsExist(err) {
+				return "", err
+			}
+			info, err = os.Lstat(directory)
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", fmt.Errorf("durable evidence directory %q is not a worktree-local directory", directory)
+		}
+	}
+	return directory, nil
 }
 
 type commandSummaryLimit struct {

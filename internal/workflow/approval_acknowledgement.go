@@ -27,8 +27,7 @@ type ApprovalAcknowledgementContext struct {
 	PendingActions      int
 }
 
-// FinalHumanReview is the recorded final-review state for one feature. It
-// contains no human identity because final acknowledgement is actor-less.
+// FinalHumanReview is the recorded final-review state for one feature.
 type FinalHumanReview struct {
 	FeatureID                   string
 	Phase                       string
@@ -42,8 +41,9 @@ type FinalHumanReview struct {
 	Completed                   bool
 }
 
-// DisplayedFinalApprovalAction binds a final approval prompt to one feature
-// and its reviewed commit.
+// DisplayedFinalApprovalAction is retained only to reject callers of the
+// retired free-form final-approval path. Final completion requires a bound
+// native Question decision.
 type DisplayedFinalApprovalAction struct {
 	featureID      string
 	reviewedCommit string
@@ -72,86 +72,21 @@ func NewDisplayedFinalApprovalAction(featureID, reviewedCommit string) *Displaye
 	return &DisplayedFinalApprovalAction{featureID: featureID, reviewedCommit: reviewedCommit}
 }
 
-// Approve completes the final review represented by this displayed action.
+// Approve rejects the retired free-form final-review completion path.
 func (action *DisplayedFinalApprovalAction) Approve(acknowledgement string, review *FinalHumanReview) error {
-	if strings.TrimSpace(strings.ToLower(acknowledgement)) != "approve" {
-		return fmt.Errorf("final approval requires the exact acknowledgement approve")
-	}
-	if review.Phase != "final_human_review" {
-		return fmt.Errorf("final approval requires final_human_review")
-	}
-	if review.CurrentCommit != review.ReviewedCommit {
-		return fmt.Errorf("final approval requires the current commit to match reviewed_commit")
-	}
-	if review.CurrentEvidenceFingerprint != review.ReviewedEvidenceFingerprint {
-		return fmt.Errorf("final approval requires the current evidence fingerprint to match reviewed_commit")
-	}
-	if review.CurrentPolicyFingerprint != review.ReviewedPolicyFingerprint {
-		return fmt.Errorf("final approval requires the current policy fingerprint to match reviewed_commit")
-	}
-	if action.featureID != review.FeatureID {
-		return fmt.Errorf("displayed final approval action does not match its feature")
-	}
-	if action.reviewedCommit != review.ReviewedCommit {
-		return fmt.Errorf("displayed final approval action does not match reviewed_commit")
-	}
-	if review.PendingActions != 1 {
-		return fmt.Errorf("final approval requires exactly one displayed action")
-	}
-	review.Phase = "complete"
-	review.Completed = true
-	return nil
+	return fmt.Errorf("free-form final approval cannot complete review; use a bound native Question decision")
 }
 
 // ConsumeAcknowledgement advances only this displayed action once when the
 // reply and its current feature and contract bindings match the display.
 func (action *DisplayedApprovalAction) ConsumeAcknowledgement(acknowledgement, featureID, contractFingerprint string, advance func(string) error) error {
-	if action.consumed {
-		return fmt.Errorf("displayed approval action has already been consumed")
-	}
-	if action.featureID != featureID || action.contractFingerprint != contractFingerprint {
-		return fmt.Errorf("displayed approval action does not match its feature or contract")
-	}
-	if !isCompactAcknowledgement(acknowledgement) {
-		return fmt.Errorf("acknowledgement is not an exact approval token")
-	}
-	return action.advance(advance)
+	return fmt.Errorf("legacy free-form approval acknowledgements cannot advance workflow state; use a bound native Question")
 }
 
 // ConsumeContextualAcknowledgement advances only an unambiguous, current
 // displayed action. Rejections occur before the lifecycle callback is called.
 func (action *DisplayedApprovalAction) ConsumeContextualAcknowledgement(acknowledgement string, current ApprovalAcknowledgementContext, advance func(string) error) error {
-	if action.consumed {
-		return fmt.Errorf("displayed approval action has already been consumed")
-	}
-	if action.context.PromptID != current.PromptID {
-		return fmt.Errorf("acknowledgement prompt was replaced")
-	}
-	if action.context.SessionID != current.SessionID {
-		return fmt.Errorf("acknowledgement session was restarted")
-	}
-	if action.context.FeatureID != current.FeatureID {
-		return fmt.Errorf("displayed approval action does not match its feature")
-	}
-	if action.context.ContractFingerprint != current.ContractFingerprint {
-		return fmt.Errorf("displayed approval action does not match its contract")
-	}
-	if action.context.PolicyFingerprint != current.PolicyFingerprint {
-		return fmt.Errorf("displayed approval action does not match its policy")
-	}
-	if action.context.FinalSnapshot != current.FinalSnapshot {
-		return fmt.Errorf("displayed approval action does not match its final snapshot")
-	}
-	if current.PendingActions != 1 {
-		return fmt.Errorf("more than one approval action is pending")
-	}
-	if len(strings.Fields(strings.TrimSpace(acknowledgement))) > 1 {
-		return fmt.Errorf("acknowledgement contains multiple intents")
-	}
-	if !isCompactAcknowledgement(acknowledgement) {
-		return fmt.Errorf("acknowledgement is not an exact approval token")
-	}
-	return action.advance(advance)
+	return fmt.Errorf("legacy free-form approval acknowledgements cannot advance workflow state; use a bound native Question")
 }
 
 func (action *DisplayedApprovalAction) advance(advance func(string) error) error {
@@ -162,6 +97,8 @@ func (action *DisplayedApprovalAction) advance(advance func(string) error) error
 	return nil
 }
 
+// isCompactAcknowledgement is retained for the separate feature-local
+// override flow; it is not a final-review completion mechanism.
 func isCompactAcknowledgement(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "x", "yes", "agree", "approved", "approve":

@@ -53,6 +53,34 @@ func TestRottaNextHandoffGuidancePreservesOrchestratorBoundary(t *testing.T) {
 	}
 }
 
+func TestREQ096_InstalledAdvisoryGuidancePreservesBudgetsFallbacksAndNoOperations(t *testing.T) {
+	for _, asset := range []struct {
+		path string
+		want []string
+	}{
+		{"agents/rotta-explore.md", []string{"at most two calls", "Never install, set up, index, re-index, or retry Vela"}},
+		{"agents/rotta-orchestrator.md", []string{"once through the task-scoped advisory context", "at most two exploration calls or one review call", "stale, conflicting, absent, or out-of-module evidence falls back to source", "Never install, set up, index, re-index, retry, or otherwise operate"}},
+		{"agents/rotta-impl.md", []string{"Do not recover Ancora or call Vela yourself", "Missing, stale, conflicting, or out-of-module advisory evidence requires workspace/Git or source fallback", "never an operation, setup, indexing, or retry"}},
+		{"agents/rotta-review.md", []string{"at most one Vela review call", "missing, stale, conflicting, or out-of-module evidence", "Never install, set up, index, re-index, retry, or operate"}},
+	} {
+		data, err := assets.FS.ReadFile(asset.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range asset.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing REQ-096 guidance %q", asset.path, want)
+			}
+		}
+	}
+	if got := memoryInstructions(true); !strings.Contains(got, "once at task start or resume") || !strings.Contains(got, "workspace/Git") {
+		t.Fatalf("Ancora instructions omit REQ-096 bounded fallback: %s", got)
+	}
+	if got := velaInstructions(true); !strings.Contains(got, "two-call exploration or one-call review budget") || !strings.Contains(got, "Never automatically install, set up, index, re-index, or retry Vela") {
+		t.Fatalf("Vela instructions omit REQ-096 budget/no-operation policy: %s", got)
+	}
+}
+
 func TestRottaNextInstallsCoreAndAllRoles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG", "")

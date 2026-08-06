@@ -83,6 +83,27 @@ func TestSCN614_LowerHostLimitRetainsEvidenceReference(t *testing.T) {
 	}
 }
 
+func TestREQ093_CaptureLifecycleCommandUsesOptionalRecordedRTKPresentation(t *testing.T) {
+	repo := t.TempDir()
+	record := RTKExecutableRecord{Status: RTKStatusSuccess, ExecutablePath: "/trusted/rtk", Version: "rtk 1.0", ExecutableHash: "same"}
+	resolver := &fakeRTKResolver{executable: &fakeRTKExecutable{path: record.ExecutablePath, version: record.Version, hash: record.ExecutableHash}}
+	filter := &fakeRTKFilter{output: "filtered chat view"}
+	report, err := CaptureLifecycleCommand(context.Background(), LifecycleCommandRequest{
+		FeatureWorktree: repo, Command: []string{"sh", "-c", "printf original-output"}, WorkingDirectory: repo,
+		RTKPresentation: &RTKPresentation{StatePath: "fake-state", Loader: func(string) (RTKExecutableRecord, error) { return record, nil }, Resolver: resolver, Filter: filter},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ChatSummary != "filtered chat view" || !report.Passing || resolver.calls != 1 || filter.calls != 1 {
+		t.Fatalf("presentation = %#v resolver=%d filter=%d", report, resolver.calls, filter.calls)
+	}
+	evidence, err := os.ReadFile(report.EvidencePath)
+	if err != nil || !strings.Contains(string(evidence), "original-output") {
+		t.Fatalf("durable underlying evidence = %q, %v", evidence, err)
+	}
+}
+
 // REQ-085 → SCN-614 → TestSCN614_SerializationFailureDoesNotAuthorizePassing
 func TestSCN614_SerializationFailureDoesNotAuthorizePassing(t *testing.T) {
 	// Scenario: OpenCode context limits retain complete local failure evidence
@@ -105,5 +126,29 @@ func TestSCN614_SerializationFailureDoesNotAuthorizePassing(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("serialized evidence = %v, want none after serialization failure", entries)
+	}
+}
+
+func TestCaptureLifecycleCommandRejectsSymlinkedEvidenceDirectory(t *testing.T) {
+	repo := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".rotta", "current"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(repo, ".rotta", "current", "evidence")); err != nil {
+		t.Fatal(err)
+	}
+	report, err := CaptureLifecycleCommand(context.Background(), LifecycleCommandRequest{
+		FeatureWorktree: repo, Command: []string{"sh", "-c", "printf success"}, WorkingDirectory: repo,
+	})
+	if err == nil || report.Passing || !strings.Contains(err.Error(), "worktree-local directory") {
+		t.Fatalf("CaptureLifecycleCommand() = %#v, %v; want rejected external evidence path", report, err)
+	}
+	entries, readErr := os.ReadDir(external)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("external evidence directory received data: %v", entries)
 	}
 }
