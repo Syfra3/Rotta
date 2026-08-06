@@ -48,12 +48,16 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 }
 
 func runInstallCommand(args []string, stdout, stderr io.Writer) error {
+	for _, arg := range args {
+		if arg == "--vela" || arg == "-vela" || len(arg) > len("--vela=") && arg[:len("--vela=")] == "--vela=" {
+			return fmt.Errorf("rotta install --vela is TUI-only: use the dedicated OpenCode Vela selection and confirmation")
+		}
+	}
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	target := flags.String("target", "both", "install target: claude-code, opencode, or both")
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
-	setupVela := flags.Bool("vela", false, "set up Vela integration")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -61,7 +65,6 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 		Target:        *target,
 		ProjectPath:   *projectPath,
 		SetupAncora:   *setupAncora,
-		SetupVela:     *setupVela,
 		CommandStdin:  os.Stdin,
 		CommandStdout: stdout,
 		CommandStderr: stderr,

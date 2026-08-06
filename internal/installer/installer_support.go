@@ -62,6 +62,7 @@ func openCodeMCPStatus(result *Result, name string, status MCPStatusResult) MCPS
 	}
 
 	status.FileWrite, status.SchemaValidity = openCodeMCPConfigurationObservations(result.Hosts["opencode"].OpenCodeConfig, name)
+	status.EffectiveConfigPath = result.Hosts["opencode"].OpenCodeConfig.Path
 	status.OpenCodeServerResolution = resolveOpenCodeMCPServer(name)
 	status.ToolDiscovery = openCodeToolDiscovery(name, result.Context7)
 	return status
