@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +153,274 @@ func TestSCN013_NamespacedWorkflowPolicyArtifactsStopAtRequiredWriteFailures(t *
 		}
 		assertFileDoesNotExist(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"))
 	})
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRemoveStagedPairWhenSecondPublishFails(t *testing.T) {
+	repo := t.TempDir()
+	originalPublish := publishWorkflowArtifact
+	publishCalls := 0
+	publishWorkflowArtifact = func(root *os.Root, stagedPath, artifactPath string) error {
+		publishCalls++
+		if publishCalls == 2 {
+			return os.ErrPermission
+		}
+		return originalPublish(root, stagedPath, artifactPath)
+	}
+	t.Cleanup(func() { publishWorkflowArtifact = originalPublish })
+
+	_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{
+		ContractID: "workflow_artifact_lifecycle",
+		HardSpec:   "# pending hard spec\n",
+		Feature:    "Feature: pending workflow artifact lifecycle\n",
+	})
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected forced second publish failure, got %v", err)
+	}
+	if !errors.Is(err, errWorkflowArtifactPairIncomplete) {
+		t.Fatalf("expected incomplete pair failure, got %v", err)
+	}
+	var incomplete *WorkflowArtifactPairIncompleteError
+	if !errors.As(err, &incomplete) || incomplete.Artifacts.SpecPath != "specs/workflow_artifact_lifecycle.md" || incomplete.Artifacts.FeaturePath != "features/workflow_artifact_lifecycle.feature" || incomplete.Status != (WorkflowArtifactPairPublicationStatus{Spec: WorkflowArtifactPublished, Feature: WorkflowArtifactNotPublished}) {
+		t.Fatalf("expected explicit retained-partial pair report, got %#v", incomplete)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# pending hard spec\n")
+	assertFileDoesNotExist(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"))
+	assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "specs"))
+	assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "features"))
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRetainForeignReplacementWhenSecondPublishFails(t *testing.T) {
+	repo := t.TempDir()
+	originalPublish := publishWorkflowArtifact
+	publishCalls := 0
+	foreignSpec := "# foreign replacement\n"
+	publishWorkflowArtifact = func(root *os.Root, stagedPath, artifactPath string) error {
+		publishCalls++
+		if publishCalls == 2 {
+			if err := os.Remove(filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md")); err != nil {
+				t.Fatalf("replace published spec: %v", err)
+			}
+			mustWrite(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), foreignSpec)
+			return os.ErrPermission
+		}
+		return originalPublish(root, stagedPath, artifactPath)
+	}
+	t.Cleanup(func() { publishWorkflowArtifact = originalPublish })
+
+	_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{
+		ContractID: "workflow_artifact_lifecycle",
+		HardSpec:   "# pending hard spec\n",
+		Feature:    "Feature: pending workflow artifact lifecycle\n",
+	})
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected forced second publish failure, got %v", err)
+	}
+	if !errors.Is(err, errWorkflowArtifactPairIncomplete) {
+		t.Fatalf("expected incomplete pair failure, got %v", err)
+	}
+	assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), foreignSpec)
+	assertFileDoesNotExist(t, filepath.Join(repo, "features", "workflow_artifact_lifecycle.feature"))
+	assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "specs"))
+	assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "features"))
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRetainForeignReplacementAfterFailedPublicationCleanup(t *testing.T) {
+	tests := []struct {
+		name      string
+		forceFail func(t *testing.T, repo, target, foreign string)
+	}{
+		{
+			name: "copy failure",
+			forceFail: func(t *testing.T, repo, target, foreign string) {
+				t.Helper()
+				originalCopy := copyWorkflowArtifact
+				copyWorkflowArtifact = func(destination io.Writer, source io.Reader) (int64, error) {
+					file, ok := destination.(*os.File)
+					if !ok || !strings.HasSuffix(filepath.ToSlash(file.Name()), target) {
+						return originalCopy(destination, source)
+					}
+					if _, err := destination.Write([]byte("partial")); err != nil {
+						t.Fatalf("write partial artifact: %v", err)
+					}
+					if err := os.Remove(filepath.Join(repo, target)); err != nil {
+						t.Fatalf("remove invocation-owned target: %v", err)
+					}
+					mustWrite(t, filepath.Join(repo, target), foreign)
+					return 0, os.ErrPermission
+				}
+				t.Cleanup(func() { copyWorkflowArtifact = originalCopy })
+			},
+		},
+		{
+			name: "close failure",
+			forceFail: func(t *testing.T, repo, target, foreign string) {
+				t.Helper()
+				originalClose := closeWorkflowArtifact
+				closeWorkflowArtifact = func(file *os.File) error {
+					if !strings.HasSuffix(filepath.ToSlash(file.Name()), target) {
+						return originalClose(file)
+					}
+					if err := originalClose(file); err != nil {
+						t.Fatalf("close invocation-owned target: %v", err)
+					}
+					if err := os.Remove(filepath.Join(repo, target)); err != nil {
+						t.Fatalf("remove invocation-owned target: %v", err)
+					}
+					mustWrite(t, filepath.Join(repo, target), foreign)
+					return os.ErrPermission
+				}
+				t.Cleanup(func() { closeWorkflowArtifact = originalClose })
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			const target = "features/workflow_artifact_lifecycle.feature"
+			const foreign = "Feature: foreign replacement\n"
+			tt.forceFail(t, repo, target, foreign)
+
+			_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{
+				ContractID: "workflow_artifact_lifecycle",
+				HardSpec:   "# pending hard spec\n",
+				Feature:    "Feature: pending workflow artifact lifecycle\n",
+			})
+			if !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("expected forced publication failure, got %v", err)
+			}
+			if !errors.Is(err, errWorkflowArtifactCleanupIncomplete) {
+				t.Fatalf("expected explicit incomplete cleanup status, got %v", err)
+			}
+			if !errors.Is(err, errWorkflowArtifactPairIncomplete) {
+				t.Fatalf("expected incomplete pair failure, got %v", err)
+			}
+			var incomplete *WorkflowArtifactPairIncompleteError
+			if !errors.As(err, &incomplete) || incomplete.Status.Complete() {
+				t.Fatalf("expected incomplete publication status, got %#v", incomplete)
+			}
+			assertFileContent(t, filepath.Join(repo, target), foreign)
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "specs"))
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "features"))
+		})
+	}
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRejectExistingFinalTargets(t *testing.T) {
+	tests := []struct {
+		name          string
+		existingPath  string
+		existing      string
+		expectedOther string
+		otherContent  string
+	}{
+		{name: "spec", existingPath: "specs/workflow_artifact_lifecycle.md", existing: "# existing spec\n", expectedOther: "features/workflow_artifact_lifecycle.feature"},
+		{name: "feature", existingPath: "features/workflow_artifact_lifecycle.feature", existing: "Feature: existing\n", expectedOther: "specs/workflow_artifact_lifecycle.md", otherContent: "# pending hard spec\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			mustWrite(t, filepath.Join(repo, tt.existingPath), tt.existing)
+
+			_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{
+				ContractID: "workflow_artifact_lifecycle",
+				HardSpec:   "# pending hard spec\n",
+				Feature:    "Feature: pending workflow artifact lifecycle\n",
+			})
+			if !errors.Is(err, errWorkflowArtifactCollision) {
+				t.Fatalf("expected final target collision, got %v", err)
+			}
+			assertFileContent(t, filepath.Join(repo, tt.existingPath), tt.existing)
+			if tt.otherContent == "" {
+				assertFileDoesNotExist(t, filepath.Join(repo, tt.expectedOther))
+			} else {
+				if !errors.Is(err, errWorkflowArtifactPairIncomplete) {
+					t.Fatalf("expected incomplete pair failure, got %v", err)
+				}
+				assertFileContent(t, filepath.Join(repo, tt.expectedOther), tt.otherContent)
+			}
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "specs"))
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "features"))
+		})
+	}
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRejectTargetsCreatedDuringPublication(t *testing.T) {
+	tests := []struct {
+		name             string
+		collisionPath    string
+		collisionContent string
+	}{
+		{name: "before first publish", collisionPath: "specs/workflow_artifact_lifecycle.md", collisionContent: "# concurrent spec\n"},
+		{name: "during second publish", collisionPath: "features/workflow_artifact_lifecycle.feature", collisionContent: "Feature: concurrent\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			originalPublish := publishWorkflowArtifact
+			publishCalls := 0
+			publishWorkflowArtifact = func(root *os.Root, stagedPath, artifactPath string) error {
+				publishCalls++
+				if (tt.name == "before first publish" && publishCalls == 1) || (tt.name == "during second publish" && publishCalls == 2) {
+					mustWrite(t, filepath.Join(repo, tt.collisionPath), tt.collisionContent)
+				}
+				return originalPublish(root, stagedPath, artifactPath)
+			}
+			t.Cleanup(func() { publishWorkflowArtifact = originalPublish })
+
+			_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{
+				ContractID: "workflow_artifact_lifecycle",
+				HardSpec:   "# pending hard spec\n",
+				Feature:    "Feature: pending workflow artifact lifecycle\n",
+			})
+			if !errors.Is(err, errWorkflowArtifactCollision) {
+				t.Fatalf("expected final target collision, got %v", err)
+			}
+			assertFileContent(t, filepath.Join(repo, tt.collisionPath), tt.collisionContent)
+			if tt.collisionPath == "features/workflow_artifact_lifecycle.feature" {
+				if !errors.Is(err, errWorkflowArtifactPairIncomplete) {
+					t.Fatalf("expected incomplete pair failure, got %v", err)
+				}
+				assertFileContent(t, filepath.Join(repo, "specs", "workflow_artifact_lifecycle.md"), "# pending hard spec\n")
+			}
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "specs"))
+			assertNoStagedWorkflowArtifacts(t, filepath.Join(repo, "features"))
+		})
+	}
+}
+
+func assertNoStagedWorkflowArtifacts(t *testing.T, directory string) {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read %s: %v", directory, err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".tmp-") {
+			t.Fatalf("expected no staged workflow artifacts in %s, found %s", directory, entry.Name())
+		}
+	}
+}
+
+func TestSCN013_NamespacedWorkflowPolicyArtifactsRejectSymlinkedArtifactDirectories(t *testing.T) {
+	for _, directory := range []string{"specs", "features"} {
+		t.Run(directory, func(t *testing.T) {
+			repo, outside := t.TempDir(), t.TempDir()
+			if err := os.Symlink(outside, filepath.Join(repo, directory)); err != nil {
+				t.Fatalf("create %s symlink: %v", directory, err)
+			}
+			_, err := GenerateNamespacedWorkflowPolicyArtifacts(repo, WorkflowPolicyArtifactRequest{ContractID: "symlink-escape", HardSpec: "# pending\n", Feature: "Feature: pending\n"})
+			if err == nil {
+				t.Fatalf("expected %s symlink escape rejection", directory)
+			}
+			assertFileDoesNotExist(t, filepath.Join(outside, "symlink-escape.md"))
+			assertFileDoesNotExist(t, filepath.Join(outside, "symlink-escape.feature"))
+			assertFileDoesNotExist(t, filepath.Join(repo, "specs", "symlink-escape.md"))
+			assertFileDoesNotExist(t, filepath.Join(repo, "features", "symlink-escape.feature"))
+		})
+	}
 }
 
 func TestSCN014_ImplementedFeatureFileClassifiesAsActiveRegressionContract(t *testing.T) {
