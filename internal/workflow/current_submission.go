@@ -18,6 +18,7 @@ type CurrentSubmissionRequest struct {
 	SpecPath     string
 	FeaturePaths []string
 	ScenarioIDs  []string
+	Advisory     *AdvisoryContext
 }
 
 type CurrentSubmissionManifest struct {
@@ -80,6 +81,9 @@ type CurrentSubmissionResume struct {
 }
 
 func InitializeCurrentSubmission(repoRoot string, request CurrentSubmissionRequest) (CurrentSubmission, error) {
+	if request.Advisory != nil {
+		request.Advisory.RecoverAncoraOnce()
+	}
 	manifest := CurrentSubmissionManifest{
 		SubmissionID: request.ID,
 		SpecPath:     request.SpecPath,
@@ -138,7 +142,10 @@ func LoadCurrentSubmission(repoRoot string) (CurrentSubmission, error) {
 // files. A supplied Ancora pointer is checked and returned in repaired form for
 // the caller to save when memory is available; it is never used as contract
 // content or a recovery source.
-func ResumeCurrentSubmission(repoRoot string, pointer *CurrentSubmissionAncoraPointer) (CurrentSubmissionResume, error) {
+func ResumeCurrentSubmission(repoRoot string, pointer *CurrentSubmissionAncoraPointer, advisory ...*AdvisoryContext) (CurrentSubmissionResume, error) {
+	if len(advisory) > 0 && advisory[0] != nil {
+		advisory[0].RecoverAncoraOnce()
+	}
 	submission, err := LoadCurrentSubmission(repoRoot)
 	if err != nil {
 		return CurrentSubmissionResume{}, err

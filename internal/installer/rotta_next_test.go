@@ -33,10 +33,10 @@ func TestRottaNextHandoffGuidancePreservesOrchestratorBoundary(t *testing.T) {
 	}{
 		{"core/rotta-core.md", []string{"`rotta.handoff/v1`", "never authority", "newest valid matching mirror by sequence"}},
 		{"agents/rotta-orchestrator.md", []string{"Only the orchestrator may record `rotta.handoff/v1` status", "Ancora/mirror agreement", "degraded recovery"}},
-		{"agents/rotta-impl.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-cleaner.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-architect.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-review.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
+		{"agents/rotta-impl.md", []string{"Ordinary in-session implementation-to-review evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-cleaner.md", []string{"ordinary in-session evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-architect.md", []string{"ordinary in-session evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-review.md", []string{"Ordinary in-session implementation-to-review evidence is ephemeral", "Do not create, accept, block, complete"}},
 	} {
 		data, err := assets.FS.ReadFile(asset.path)
 		if err != nil {
@@ -50,6 +50,74 @@ func TestRottaNextHandoffGuidancePreservesOrchestratorBoundary(t *testing.T) {
 	}
 	if got := memoryInstructions(true); !strings.Contains(got, "atomic matching `.rotta/handoffs/` mirror") || !strings.Contains(got, "never timestamp") {
 		t.Fatalf("enabled Ancora instructions omit handoff recovery guidance: %s", got)
+	}
+}
+
+func TestPR49PolicySimplifiesAdvisoryRoutingAndDurableHandoffs(t *testing.T) {
+	core, err := assets.FS.ReadFile("core/rotta-core.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRottaNextAssetContainsAll(t, string(core), []string{
+		"enumerates its approved scenarios",
+		"needs no generic continuation",
+		"workflow policy, not native host-runtime enforcement",
+		"Fast and Strict routes budget two child sessions",
+		"deep review has a maximum of four",
+		"stop and report the unfinished work",
+		"Create or refresh one feature-level binding/manifest",
+		"Refresh managed-asset hashes once at final verification",
+		"only for Strict approval, resume/recovery, an explicit operation, or isolated remediation",
+		"Ordinary in-session implementation-to-review evidence is ephemeral",
+		"newest valid matching mirror by sequence, never timestamp",
+	})
+	orchestrator, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRottaNextAssetContainsAll(t, string(orchestrator), []string{
+		"One Strict feature-contract approval enumerates its approved scenarios",
+		"not native host enforcement",
+		"only one isolated remediation plus one fresh independent final review may raise a route to four",
+		"Ordinary in-session implementation-to-review evidence is ephemeral",
+		"only for Strict approval, resume/recovery, an explicit operation, or isolated remediation",
+	})
+}
+
+func assertRottaNextAssetContainsAll(t *testing.T, contents string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("asset missing %q", want)
+		}
+	}
+}
+
+func TestREQ096_InstalledAdvisoryGuidancePreservesBudgetsFallbacksAndNoOperations(t *testing.T) {
+	for _, asset := range []struct {
+		path string
+		want []string
+	}{
+		{"agents/rotta-explore.md", []string{"at most two calls", "Never install, set up, index, re-index, or retry Vela"}},
+		{"agents/rotta-orchestrator.md", []string{"once through the task-scoped advisory context", "at most two exploration calls or one review call", "stale, conflicting, absent, or out-of-module evidence falls back to source", "Never install, set up, index, re-index, retry, or otherwise operate"}},
+		{"agents/rotta-impl.md", []string{"Do not recover Ancora or call Vela yourself", "Missing, stale, conflicting, or out-of-module advisory evidence requires workspace/Git or source fallback", "never an operation, setup, indexing, or retry"}},
+		{"agents/rotta-review.md", []string{"at most one Vela review call", "missing, stale, conflicting, or out-of-module evidence", "Never install, set up, index, re-index, retry, or operate"}},
+	} {
+		data, err := assets.FS.ReadFile(asset.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range asset.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing REQ-096 guidance %q", asset.path, want)
+			}
+		}
+	}
+	if got := memoryInstructions(true); !strings.Contains(got, "once at task start or resume") || !strings.Contains(got, "workspace/Git") {
+		t.Fatalf("Ancora instructions omit REQ-096 bounded fallback: %s", got)
+	}
+	if got := velaInstructions(true); !strings.Contains(got, "two-call exploration or one-call review budget") || !strings.Contains(got, "Never automatically install, set up, index, re-index, or retry Vela") {
+		t.Fatalf("Vela instructions omit REQ-096 budget/no-operation policy: %s", got)
 	}
 }
 

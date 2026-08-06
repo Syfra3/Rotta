@@ -29,7 +29,7 @@
 - Gherkin remains optional in Fast mode. It is required only when a Strict behavioral contract needs observable examples to make approval unambiguous.
 - `rotta-cleaner` and `rotta-architect` are installed roles, but neither is invoked by default for a Fast-mode slice.
 - `rotta-hardener` is deferred. Cleaner owns targeted robustness/mutation evidence until a future approved spec proves a separate role is needed.
-- Ancora is the primary handoff index. A compact project-local recovery mirror lives under `.rotta/handoffs/` so a later Ancora outage does not erase an already recorded handoff.
+- For Strict approval, resume/recovery, explicit operations, and isolated remediation, Ancora is the primary durable handoff index. A compact project-local recovery mirror lives under `.rotta/handoffs/` so a later Ancora outage does not erase an already recorded handoff. Ordinary in-session implementation-to-review evidence is ephemeral.
 - The workspace, Git baseline/snapshot, approved Strict contract, and applicable Gherkin remain authoritative. Handoff records are routing and recovery metadata only.
 - A recovered handoff is valid only when its baseline SHA, snapshot SHA, scope, role transition, and referenced artifacts agree with the current workspace. Any mismatch is `blocked`, never merged or inferred.
 - An explicit Vela selection and confirmation in the Rotta TUI authorizes host-level Vela CLI installation/update and MCP configuration for the selected coding host. Graph indexing remains a separate, bounded `rotta-ops` operation requiring explicit user authorization naming the project.
@@ -77,7 +77,7 @@ Ancora context -> orchestrator -> optional explore [Vela: up to 2 calls]
 
 ### Proposed Quality And Handoff Flow
 
-Ancora records the compact handoff index after each role transition and is consulted before resuming a task. It never substitutes for the current Git baseline, snapshot, contract, or test evidence.
+Ancora records the compact handoff index only for Strict approval, resume/recovery, explicit operations, and isolated remediation, and is consulted before resuming a task. It never substitutes for the current Git baseline, snapshot, contract, or test evidence. Ordinary in-session implementation-to-review evidence is ephemeral.
 
 Vela remains a structural tool, not a routine quality metric. Cleaner uses local changed-code evidence and does not call Vela by default. Architect may use at most two targeted calls for one named dependency, impact, ownership, or boundary question. Final review may use one more call only to verify a material architectural finding or contradictory graph evidence.
 
@@ -86,11 +86,11 @@ Ancora recovery
   -> orchestrator
   -> optional explore [Vela: up to 2 calls]
   -> impl
-  -> Ancora handoff index
+  -> ephemeral evidence
   -> optional cleaner [local quality evidence; no Vela by default]
   -> optional architect [Vela: up to 2 calls]
   -> review [Vela: up to 1 validation call]
-  -> Ancora handoff index and outcome summary
+  -> outcome summary
 ```
 
 Vela call budgets are per coherent slice. A missing, stale, ambiguous, or unavailable graph requires source fallback and a reported evidence gap; it never blocks Fast work. The only exception is an explicitly requested `rotta-ops` indexing action, which remains operational work and requires named user authorization.
@@ -117,7 +117,7 @@ Cleaner may edit only behavior-preserving, approved cleanup in its capsule. It m
 
 ### Record Schema
 
-Each handoff uses `rotta.handoff/v1` and contains only compact routing/evidence metadata:
+Each eligible durable handoff uses `rotta.handoff/v1` and contains only compact routing/evidence metadata; ordinary in-session implementation-to-review evidence does not create one:
 
 ```yaml
 format: rotta.handoff/v1
@@ -152,6 +152,8 @@ The record must not contain credentials, full specifications, complete Gherkin c
 5. If Ancora is unavailable, the orchestrator selects the newest valid matching `.rotta/handoffs/` record, reports degraded recovery, and continues only after the same Git/workspace validation.
 6. If Ancora and the mirror disagree, if either record is malformed, or if more than one valid record claims the same next role and sequence, stop with a recovery action. Never pick by timestamp alone.
 7. The outcome report includes handoff ID, recovery source, validation result, active elapsed time, child-session count, and retry count.
+
+One feature-level binding/manifest is reused until scope, baseline, or policy changes. Managed-asset hashes refresh once at final verification; this is a policy refresh, not a host-runtime enforcement mechanism.
 
 ## Verification Escalation
 
@@ -209,7 +211,7 @@ Architect checks only the affected modules and interfaces for dependency directi
 
 **Acceptance Criteria:**
 
-- Every delegated implementation, cleaner, architect, and review transition has a `rotta.handoff/v1` record with ID, sequence, roles, status, priority, baseline SHA, snapshot SHA, scope, evidence summary, and disposition.
+- A delegated transition has a `rotta.handoff/v1` record only for Strict approval, resume/recovery, an explicit operation, or isolated remediation; each such record has ID, sequence, roles, status, priority, baseline SHA, snapshot SHA, scope, evidence summary, and disposition. Ordinary in-session implementation-to-review evidence is ephemeral.
 - Ancora uses one stable task-scoped topic; the project mirror is written atomically and excludes sensitive/large payloads.
 - Recovery from Ancora and from the mirror rejects a changed/missing baseline, changed snapshot, illegal role transition, malformed record, conflicting sequence, or incompatible scope.
 - An Ancora failure reports degraded recovery and can use only a valid project mirror; it never fabricates a handoff from conversational memory.

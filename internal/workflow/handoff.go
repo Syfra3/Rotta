@@ -113,8 +113,8 @@ func (index *OrchestratorHandoffIndex) Record(record HandoffRecord) (HandoffReco
 // Recover validates a matching Ancora/mirror pair. On an Ancora outage only a
 // valid mirror selected by sequence (not timestamp) may be used.
 func (index *OrchestratorHandoffIndex) Recover(taskID string) HandoffRecovery {
-	if !handoffTaskID.MatchString(taskID) {
-		return blockedHandoff(errors.New("invalid handoff task ID; use a lowercase hyphenated task ID"))
+	if !canonicalWorkflowHandoffTaskID(taskID) {
+		return blockedHandoff(fmt.Errorf("invalid handoff task ID; use a lowercase hyphenated task ID of at most %d bytes", maxCanonicalHandoffIDBytes))
 	}
 	mirrors, err := index.mirrors(taskID)
 	if err != nil {
@@ -124,11 +124,11 @@ func (index *OrchestratorHandoffIndex) Recover(taskID string) HandoffRecovery {
 		return blockedHandoff(errors.New("no local handoff mirror exists; restore the local mirror and reconcile it with Ancora before continuing"))
 	}
 	if index.ancora == nil {
-		return index.recoverMirror(taskID, mirrors, "Ancora is unavailable; restore Ancora and confirm the selected mirror before continuing")
+		return index.recoverMirror(taskID, mirrors, "Ancora is unavailable; the Git-validated mirror may continue and Ancora can be restored separately")
 	}
 	remote, err := index.ancora.ReadHandoff(handoffTopic(taskID))
 	if err != nil {
-		return index.recoverMirror(taskID, mirrors, "Ancora handoff read failed; restore Ancora and confirm the selected mirror before continuing")
+		return index.recoverMirror(taskID, mirrors, "Ancora handoff read failed; the Git-validated mirror may continue and Ancora can be restored separately")
 	}
 	if err := index.validateStructural(remote); err != nil {
 		return blockedHandoff(fmt.Errorf("malformed Ancora handoff: %w; repair the Ancora record and matching mirror", err))
@@ -263,7 +263,7 @@ func (index *OrchestratorHandoffIndex) validateCurrentWorkspace(record HandoffRe
 		return fmt.Errorf("validate handoff untracked files: %w", err)
 	}
 	for _, path := range strings.Fields(untracked) {
-		if !isHandoffMirrorPath(path) {
+		if !isHandoffMirrorPath(path) && !isWorkflowCommandEvidencePath(path) {
 			return fmt.Errorf("handoff workspace has untracked path %q after the snapshot; add, stash, or remove it before continuing", path)
 		}
 	}
@@ -487,8 +487,8 @@ func oneOf(value string, choices ...string) bool {
 func handoffTopic(taskID string) string { return "handoff/" + taskID }
 func handoffTask(record HandoffRecord) (string, error) {
 	task, sequence, ok := strings.Cut(record.HandoffID, "/")
-	if !ok || !handoffTaskID.MatchString(task) {
-		return "", errors.New("handoff ID must be <lowercase-task-id>/<sequence>")
+	if !ok || len(record.HandoffID) > maxCanonicalHandoffIDBytes || !canonicalWorkflowHandoffTaskID(task) {
+		return "", fmt.Errorf("handoff ID must be <lowercase-task-id>/<sequence> and at most %d bytes", maxCanonicalHandoffIDBytes)
 	}
 	n, err := strconv.ParseUint(sequence, 10, 64)
 	if err != nil || n != record.Sequence {
@@ -515,6 +515,9 @@ func isHandoffMirrorPath(path string) bool {
 	}
 	_, err := strconv.ParseUint(match[2], 10, 64)
 	return err == nil
+}
+func isWorkflowCommandEvidencePath(path string) bool {
+	return strings.HasPrefix(path, ".rotta/current/evidence/command-") && strings.HasSuffix(path, ".json")
 }
 func hasSensitiveHandoffData(record HandoffRecord) bool {
 	data := serializeHandoff(record)

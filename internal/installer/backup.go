@@ -50,6 +50,7 @@ type optionalIntegrations struct {
 	Ancora   bool `json:"ancora"`
 	Vela     bool `json:"vela"`
 	Context7 bool `json:"context7"`
+	RTK      bool `json:"rtk"`
 }
 
 type RestoreResult struct {
@@ -154,6 +155,7 @@ func optionsFromManifest(manifest backupManifest) Options {
 		SetupAncora:   manifest.OptionalIntegrations.Ancora,
 		SetupVela:     manifest.OptionalIntegrations.Vela,
 		SetupContext7: manifest.OptionalIntegrations.Context7,
+		SetupRTK:      manifest.OptionalIntegrations.RTK,
 	}
 }
 
@@ -282,6 +284,7 @@ func newBackupManifest(opts Options, timestamp, projectPath string) backupManife
 			Ancora:   opts.SetupAncora,
 			Vela:     opts.SetupVela,
 			Context7: opts.SetupContext7,
+			RTK:      opts.SetupRTK,
 		},
 		Status: "complete",
 	}
@@ -415,6 +418,7 @@ func backupScope(opts Options, home, projectPath string) []string {
 		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
 		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
 		filepath.Join(home, ".config", "rotta", "managed-artifacts.json"),
+		runtimeRTKStatePath(home),
 	}, filepath.Join(projectPath, ".vela", "graph.db"))
 	paths = append(paths, targetBackupPaths(opts.Target, home)...)
 	if opts.SetupContext7 {

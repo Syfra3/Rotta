@@ -31,6 +31,8 @@ const (
 	ScreenVela
 	ScreenVelaConfirm
 	ScreenContext7
+	ScreenRTK
+	ScreenRTKConfirm
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -77,6 +79,7 @@ type recoveryOptionalIntegrations struct {
 	Ancora   bool
 	Vela     bool
 	Context7 bool
+	RTK      bool
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
@@ -115,6 +118,11 @@ type Model struct {
 	// Context7 documentation MCP
 	Context7Cursor int  // 0=Install+configure, 1=Skip
 	SetupContext7  bool // resolved choice
+
+	// RTK command-output presentation (optional and separately confirmed)
+	RTKCursor  int  // 0=Install RTK (optional), 1=Skip RTK
+	SetupRTK   bool // resolved choice
+	ConfirmRTK bool // dedicated host-action confirmation
 
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
@@ -163,6 +171,8 @@ func New() Model {
 		SetupVela:      false,
 		Context7Cursor: 0, // default to "Install + configure"
 		SetupContext7:  true,
+		RTKCursor:      1, // default to Skip RTK
+		SetupRTK:       false,
 		ConfirmCursor:  1, // default to "Install", not "Cancel"
 		InstallSpinner: sp,
 	}

@@ -149,6 +149,37 @@ Useful targets:
 | `make verify` | Run format check, lint, race tests, and build |
 | `make hooks-install` | Install repository git hooks |
 
+### REQ-091 retained benchmark input
+
+Rotta does not execute a model or configure a provider. A host adapter (for
+example, an OpenCode export integration) must collect telemetry externally and
+write an explicit JSON input with format `rotta.workflow-benchmark-input/v1`:
+
+```json
+{"format":"rotta.workflow-benchmark-input/v1","runs":["three complete rotta.workflow-outcome/v1 records"]}
+```
+
+Each of the **exactly three** records must declare the same fixed
+`provider_identifier`, `model_identifier`, and `model_family`, complete run
+identity, field-level telemetry source, separate cache tokens, and retained
+validation/review evidence. Required unavailable metrics use
+`{"status":"not_observable","source":"host export omitted ..."}`; they are
+not zero and produce `not_evaluable`. Provider cost, inferred tokens, and
+fabricated reasoning telemetry are unsupported.
+
+Persist and compare an already-collected input deterministically:
+
+```bash
+rotta workflow benchmark --worktree . --input .rotta/req-091-input.json \
+  --records-dir .rotta/benchmarks/req-091
+```
+
+The command confines paths to the worktree, writes immutable local records
+(`0600`) under `--records-dir`, and then invokes the existing comparator over
+those three records. It emits one versioned benchmark-result JSON value. It
+does not read credentials, access the network, select a provider, or claim a
+real benchmark passed; external adapter/provider configuration remains required.
+
 ## Inspiration
 
 The workflow is inspired by Clean Architecture fundamentals, strict test-driven development, and John Ousterhout's _A Philosophy of Software Design_. The project also carries forward the user's historical Uncle Bob reference as inspiration, but the product identity is now `Rotta`.

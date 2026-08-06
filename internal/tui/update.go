@@ -67,7 +67,7 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
 		ScreenModeSelect: m.updateModeSelect, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
-		ScreenVela: m.updateVela, ScreenVelaConfirm: m.updateVelaConfirm, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
+		ScreenVela: m.updateVela, ScreenVelaConfirm: m.updateVelaConfirm, ScreenContext7: m.updateContext7, ScreenRTK: m.updateRTK, ScreenRTKConfirm: m.updateRTKConfirm, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
 	}
@@ -308,9 +308,50 @@ func (m Model) updateContext7(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.SetupContext7 = m.Context7Cursor == 0
 		m.PrevScreen = ScreenContext7
-		m.Screen = ScreenConfirm
+		m.Screen = ScreenRTK
 	case "esc", "b":
 		m.Screen = ScreenVela
+	}
+	return m, nil
+}
+
+func (m Model) updateRTK(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.RTKCursor < 1 {
+			m.RTKCursor++
+		}
+	case "k", "up":
+		if m.RTKCursor > 0 {
+			m.RTKCursor--
+		}
+	case "enter", " ":
+		m.SetupRTK = m.RTKCursor == 0
+		m.ConfirmRTK = false
+		if m.SetupRTK {
+			m.PrevScreen = ScreenRTK
+			m.Screen = ScreenRTKConfirm
+			return m, nil
+		}
+		m.PrevScreen = ScreenRTK
+		m.Screen = ScreenConfirm
+	case "esc", "b":
+		m.Screen = ScreenContext7
+	}
+	return m, nil
+}
+
+func (m Model) updateRTKConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "y":
+		m.ConfirmRTK = true
+		m.PrevScreen = ScreenRTKConfirm
+		m.Screen = ScreenConfirm
+	case "esc", "b", "n":
+		m.SetupRTK = false
+		m.ConfirmRTK = false
+		m.RTKCursor = 1
+		m.Screen = ScreenRTK
 	}
 	return m, nil
 }
@@ -360,6 +401,8 @@ func runInstall(m Model) tea.Cmd {
 			SetupVela:       m.SetupVela,
 			ConfirmVela:     m.VelaConfirmed,
 			SetupContext7:   m.SetupContext7,
+			SetupRTK:        m.SetupRTK,
+			ConfirmRTK:      m.ConfirmRTK,
 			CommandStdin:    bytes.NewReader(nil),
 			CommandStdout:   io.Discard,
 			CommandStderr:   io.Discard,
