@@ -24,6 +24,7 @@ type Options struct {
 	UseDefaultGates bool
 	SetupAncora     bool // whether to install/configure Ancora memory
 	SetupVela       bool // whether to install/configure Vela graph intelligence
+	ConfirmVela     bool // set only after the dedicated OpenCode Vela confirmation
 	SetupContext7   bool // whether to configure Context7 documentation MCP
 	CommandStdin    io.Reader
 	CommandStdout   io.Writer
@@ -101,6 +102,7 @@ type MCPStatusResult struct {
 	OpenCodeServerResolution MCPObservation     `json:"opencode_resolved,omitempty"`
 	ToolDiscovery            MCPObservation     `json:"tools_discovered,omitempty"`
 	ResolvedCommandPath      string             `json:"resolved_command_path,omitempty"`
+	EffectiveConfigPath      string             `json:"effective_config_path,omitempty"`
 }
 
 type FileChangeCategory string
@@ -305,44 +307,34 @@ func setupVelaWithTransaction(opts Options, result *Result, home, projectPath st
 	result.Files = append(result.Files, vr.Files...)
 	result.VelaInstalled = vr.Installed
 	result.VelaBin = vr.BinPath
+	if opts.ConfirmVela && targetsOpenCode(opts.Target) {
+		if err := observeOpenCodeVelaStatus(result, home, opts); err != nil {
+			return err
+		}
+	}
 	if len(vr.MCPAvailability) != 0 {
 		recordVelaMCPAvailability(result, vr)
-		return nil
 	}
-	files, err := installVelaFreshnessGuards(opts, home)
-	if err != nil {
-		return fmt.Errorf("vela freshness guard setup: %w", err)
-	}
-	result.Files = append(result.Files, files...)
 	return nil
 }
 
-func markBackedUpVelaConfigurations(result *VelaResult, backupDir, home string) {
-	// Host cleanup precedes Vela setup, so use the transaction backup to
-	// distinguish a missing configuration from one that must be restored.
-	manifest, err := loadBackupManifest(filepath.Join(backupDir, "manifest.json"))
-	if err != nil {
-		return
-	}
-	backedUp := map[string]bool{}
-	for _, path := range manifest.BackedUpPaths {
-		backedUp[path] = true
-	}
-	for host, statuses := range result.MCPAvailability {
-		agent, configDir := velaHostConfig(host, home)
-		if statuses["vela"].Status == MCPStatusSkipped && backedUp[velaMCPConfigPath(agent, configDir)] {
-			statuses["vela"] = preservedVelaMCPStatus()
-		}
-	}
-}
+// Retained for older availability callers; REQ-005A performs no restoration
+// for a skipped Vela selection because it never mutates host configuration.
+func markBackedUpVelaConfigurations(_ *VelaResult, _ string, _ string) {}
 
-func velaConfigurationNeedsRestore(result *VelaResult) bool {
-	for _, hostStatuses := range result.MCPAvailability {
-		if hostStatuses["vela"].Status == MCPStatusDegraded {
-			return true
-		}
+func velaConfigurationNeedsRestore(_ *VelaResult) bool { return false }
+
+func observeOpenCodeVelaStatus(result *Result, home string, opts Options) error {
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return fmt.Errorf("Vela effective config resolution failed: %w", err)
 	}
-	return false
+	status := openCodeMCPStatus(result, "vela", MCPStatusResult{Status: MCPStatusConfigured})
+	status.EffectiveConfigPath = resolution.Path
+	if status.CommandResolution.Status != MCPObservationCompleted || status.FileWrite.Status != MCPObservationCompleted || status.SchemaValidity.Status != MCPObservationCompleted || status.OpenCodeServerResolution.Status != MCPObservationCompleted {
+		return fmt.Errorf("Vela OpenCode status failed for effective config %s: %s", resolution.Path, status.OpenCodeServerResolution.Detail)
+	}
+	return nil
 }
 
 func recordVelaMCPAvailability(result *Result, vela *VelaResult) {
@@ -403,14 +395,59 @@ func resolveOpenCodeMCPServer(name string) MCPObservation {
 	if err != nil {
 		return MCPObservation{Status: MCPObservationFailed, Detail: fmt.Sprintf("OpenCode mcp list failed: %v", err)}
 	}
-	text := strings.ToLower(string(output))
-	if !strings.Contains(text, strings.ToLower(name)) {
+	if !openCodeMCPListMentionsServer(string(output), name) {
 		return MCPObservation{Status: MCPObservationNotObservable, Detail: "OpenCode mcp list did not expose a status for the selected server."}
 	}
-	if strings.Contains(text, "connected") {
+	if openCodeMCPListServerHasStatus(string(output), name, "disconnected") {
+		return MCPObservation{Status: MCPObservationFailed, Detail: "OpenCode mcp list reported the selected server disconnected."}
+	}
+	if openCodeMCPListServerHasStatus(string(output), name, "connected") {
 		return MCPObservation{Status: MCPObservationCompleted, Detail: "OpenCode mcp list reported the server connected."}
 	}
 	return MCPObservation{Status: MCPObservationFailed, Detail: "OpenCode mcp list reported the selected server without a connected status."}
+}
+
+// openCodeMCPListServerHasStatus requires both the selected server and its
+// status to appear in one CLI row (including a one-line structured entry).
+// It intentionally never combines a server mention from one row with a status
+// from another server's row.
+func openCodeMCPListServerHasStatus(output, name, status string) bool {
+	for _, line := range strings.Split(strings.ToLower(output), "\n") {
+		if containsOpenCodeMCPToken(line, name) && containsOpenCodeMCPToken(line, status) {
+			return true
+		}
+	}
+	return false
+}
+
+func openCodeMCPListMentionsServer(output, name string) bool {
+	for _, line := range strings.Split(strings.ToLower(output), "\n") {
+		if containsOpenCodeMCPToken(line, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOpenCodeMCPToken(value, token string) bool {
+	value, token = strings.ToLower(value), strings.ToLower(token)
+	for start := 0; start < len(value); {
+		index := strings.Index(value[start:], token)
+		if index < 0 {
+			return false
+		}
+		index += start
+		end := index + len(token)
+		if (index == 0 || !isOpenCodeMCPTokenCharacter(value[index-1])) && (end == len(value) || !isOpenCodeMCPTokenCharacter(value[end])) {
+			return true
+		}
+		start = end
+	}
+	return false
+}
+
+func isOpenCodeMCPTokenCharacter(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9' || value == '_' || value == '-'
 }
 
 func recordSelectedHostFailure(result *Result, opts Options, err error) {

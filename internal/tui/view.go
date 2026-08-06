@@ -28,6 +28,7 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenQualityGates:    m.viewQualityGates,
 		ScreenAncora:          m.viewAncora,
 		ScreenVela:            m.viewVela,
+		ScreenVelaConfirm:     m.viewVelaConfirm,
 		ScreenContext7:        m.viewContext7,
 		ScreenConfirm:         m.viewConfirm,
 		ScreenInstalling:      m.viewInstalling,
