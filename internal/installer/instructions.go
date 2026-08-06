@@ -33,7 +33,7 @@ func integrationInstructions(opts Options) string {
 
 func memoryInstructions(enabled bool) string {
 	if enabled {
-		return "Ancora is enabled. Recover concise relevant context at task start and save only compact decisions, discoveries, fix summaries, and end-of-session summaries. Handoff records use injected Ancora only as a non-authoritative index with an atomic matching `.rotta/handoffs/` mirror; on failure report degraded recovery and validate the newest matching mirror by sequence, never timestamp. Workspace and Git state remain authoritative."
+		return "Ancora is enabled. Recover concise relevant context at task start and save only compact decisions, discoveries, fix summaries, and end-of-session summaries. A failure is a bounded warning; workspace and Git state remain authoritative."
 	}
 	return "Ancora is disabled. Do not call `ancora_*`; recover from the current workspace and Git state."
 }

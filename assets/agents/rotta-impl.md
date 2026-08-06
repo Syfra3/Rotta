@@ -14,6 +14,4 @@ Load the `rotta-core` skill before acting. Implement and test one coherent slice
 
 Stop and return to the orchestrator for a requirement contradiction, unapproved scope expansion, missing baseline, or a Fast-to-Strict risk trigger. An existing unrelated failing test is reported separately, not hidden.
 
-Return handoff evidence only. Do not create, accept, block, complete, overwrite, or recover a `rotta.handoff/v1` record; the orchestrator validates and records those routing metadata transitions.
-
 Return changed paths, commands run with actual results, acceptance checks covered, remaining risks, and a recommended next action.
