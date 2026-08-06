@@ -71,6 +71,26 @@ var rottaAgents = []agentEntry{
 		assetPath:   "agents/rotta-ops.md",
 		skillName:   "rotta-ops",
 	},
+	{
+		key:         "rotta-cleaner",
+		description: "Rotta Next — conditional behavior-preserving cleanup",
+		mode:        "subagent",
+		hidden:      true,
+		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
+		prompt:      "You are the Rotta Cleaner subagent. Load rotta-core and rotta-cleaner from ~/.config/opencode/skills/rotta-next/ before acting. Perform only approved behavior-preserving cleanup and targeted evidence collection.",
+		assetPath:   "agents/rotta-cleaner.md",
+		skillName:   "rotta-cleaner",
+	},
+	{
+		key:         "rotta-architect",
+		description: "Rotta Next — conditional read-only architecture review",
+		mode:        "subagent",
+		hidden:      true,
+		tools:       map[string]bool{"bash": false, "edit": false, "read": true, "write": false},
+		prompt:      "You are the Rotta Architect subagent. Load rotta-core and rotta-architect from ~/.config/opencode/skills/rotta-next/ before acting. Perform read-only architecture analysis and return findings or remediation capsules.",
+		assetPath:   "agents/rotta-architect.md",
+		skillName:   "rotta-architect",
+	},
 }
 
 var legacyBobOpenCodeAgentKeys = []string{
