@@ -67,7 +67,7 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
 		ScreenModeSelect: m.updateModeSelect, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
-		ScreenVela: m.updateVela, ScreenVelaConfirm: m.updateVelaConfirm, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
+		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
 	}
@@ -261,36 +261,10 @@ func (m Model) updateVela(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", " ":
 		m.SetupVela = m.VelaCursor == 0
-		m.VelaConfirmed = false
-		if m.SetupVela && m.Target != TargetOpenCode && m.Target != TargetBoth {
-			m.SetupVela = false
-			m.PrevScreen = ScreenVela
-			m.Screen = ScreenContext7
-			return m, nil
-		}
-		if m.SetupVela {
-			m.PrevScreen = ScreenVela
-			m.Screen = ScreenVelaConfirm
-			return m, nil
-		}
 		m.PrevScreen = ScreenVela
 		m.Screen = ScreenContext7
 	case "esc", "b":
 		m.Screen = ScreenAncora
-	}
-	return m, nil
-}
-
-func (m Model) updateVelaConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter", "y":
-		m.VelaConfirmed = true
-		m.PrevScreen = ScreenVelaConfirm
-		m.Screen = ScreenContext7
-	case "esc", "b", "n":
-		m.SetupVela = false
-		m.VelaConfirmed = false
-		m.Screen = ScreenVela
 	}
 	return m, nil
 }
@@ -358,7 +332,6 @@ func runInstall(m Model) tea.Cmd {
 			UseDefaultGates: m.UseDefaults,
 			SetupAncora:     m.SetupAncora,
 			SetupVela:       m.SetupVela,
-			ConfirmVela:     m.VelaConfirmed,
 			SetupContext7:   m.SetupContext7,
 			CommandStdin:    bytes.NewReader(nil),
 			CommandStdout:   io.Discard,
