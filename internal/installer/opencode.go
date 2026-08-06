@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -110,6 +111,11 @@ var legacyCleanOpenCodeAgentKeys = []string{
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
+	// Evaluate before any OpenCode mutation. Unsupported hosts intentionally
+	// continue through the normal installer with runtime enforcement disabled.
+	if _, err := InstallOpenCodeRuntimeEnforcement(context.Background(), opts, home); err != nil {
+		return nil, err
+	}
 	resolution, err := resolveOpenCodeConfig(opts, home)
 	if err != nil {
 		return nil, err

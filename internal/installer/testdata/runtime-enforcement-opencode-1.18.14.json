@@ -1,0 +1,14 @@
+{
+  "opencode_version": "1.18.14",
+  "hook": "tool.execute.before",
+  "registration": "plugin return object keyed by tool.execute.before",
+  "timing": "before item.execute",
+  "documented_input": ["tool", "sessionID", "callID"],
+  "documented_output": ["args"],
+  "binding": "generic tool/session/call only; no delegate route binding schema documented",
+  "denial": "throw before dispatch",
+  "error_behavior": "thrown hook error prevents item.execute",
+  "delegate_call_lineage": "unproven",
+  "status": "unsupported",
+  "reason": "No observed delegate/task tool ID and no probe proving delegate call/session lineage."
+}
