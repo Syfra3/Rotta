@@ -2,24 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/Syfra3/Rotta/internal/installer"
 )
-
-func (m Model) velaEffectiveConfig() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "unavailable until confirmation"
-	}
-	resolution, err := installer.OpenCodeVelaConfigResolution(m.Target, m.ProjectPath, home)
-	if err != nil {
-		return "unavailable: " + err.Error()
-	}
-	return resolution.Path + " (source: " + resolution.Source + ")"
-}
 
 func writeMCPStatuses(b *strings.Builder, statuses map[string]map[string]installer.MCPStatusResult) {
 	if len(statuses) == 0 {
@@ -62,8 +49,8 @@ func (m Model) viewVela() string {
 	b.WriteString(sectionStyle.Render("Workflow boundary") + "\n")
 	b.WriteString(menuItemStyle.Render("  Vela is advisory only and cannot approve, block, or create workflow state") + "\n")
 	b.WriteString(menuItemStyle.Render("  Ancora is compact context, not a graph or lifecycle authority") + "\n\n")
-	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("Skip is the default. Setup is OpenCode-only and requires a separate host-level confirmation.") + "\n\n")
-	options := []struct{ label, desc string }{{"Install and configure Vela for OpenCode", "Runs Homebrew bootstrap, writes only mcp.vela, and never indexes"}, {"Skip (default)", "Do not install or configure Vela"}}
+	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("Installation records advisory availability only; it does not install, index, or refresh Vela.") + "\n\n")
+	options := []struct{ label, desc string }{{"Enable advisory Vela guidance", "Do not create graph state; request rotta-ops when indexing is needed"}, {"Skip", "Do not enable Vela guidance — agents will use normal source exploration"}}
 	for i, opt := range options {
 		if m.VelaCursor == i {
 			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
@@ -73,17 +60,5 @@ func (m Model) viewVela() string {
 		}
 	}
 	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
-	return appStyle.Render(b.String())
-}
-
-func (m Model) viewVelaConfirm() string {
-	var b strings.Builder
-	b.WriteString(headerStyle.Render("Confirm OpenCode Vela host setup") + "\n\n")
-	b.WriteString(warningStyle.Render("This is a host-level action, not project setup.") + "\n\n")
-	b.WriteString(menuItemStyle.Render("  Effective OpenCode config: "+m.velaEffectiveConfig()) + "\n")
-	b.WriteString(menuItemStyle.Render("  Bootstrap: brew tap Syfra3/tap → brew install vela → vela version") + "\n")
-	b.WriteString(menuItemStyle.Render("  MCP: mcp.vela type local, command [vela serve --mcp], enabled") + "\n")
-	b.WriteString(menuItemStyle.Render("  Guarantee: no index, reindex, vela update ., or .vela/ creation") + "\n\n")
-	b.WriteString(menuItemStyle.Render("Press Enter/Y to confirm; Esc/N to return to Skip.") + "\n")
 	return appStyle.Render(b.String())
 }
