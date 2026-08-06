@@ -70,6 +70,83 @@ func TestRottaNextInstallsCoreAndAllRoles(t *testing.T) {
 	}
 }
 
+func TestRottaNextQuestionAccessIsLimitedToOrchestrator(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install OpenCode Rotta Next: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	agents := config["agent"].(map[string]interface{})
+	for name, raw := range agents {
+		agent := raw.(map[string]interface{})
+		tools := agent["tools"].(map[string]interface{})
+		if _, exists := tools["question"]; exists {
+			t.Fatalf("agent %s retains legacy tools.question = %#v", name, tools["question"])
+		}
+		if legacy, exists := agent["permissions"]; exists {
+			t.Fatalf("agent %s retains unsupported permissions = %#v", name, legacy)
+		}
+		permission, ok := agent["permission"].(map[string]interface{})
+		if !ok || len(permission) != 1 {
+			t.Fatalf("agent %s permission = %#v, want one question rule", name, agent["permission"])
+		}
+		if name == "rotta-orchestrator" {
+			if permission["question"] != "allow" {
+				t.Fatalf("orchestrator question permission = %#v", permission)
+			}
+			continue
+		}
+		if permission["question"] != "deny" {
+			t.Fatalf("subagent %s question deny permission = %#v", name, permission)
+		}
+	}
+}
+
+func TestRottaQuestionPolicyIsOrchestratorOnlyAndSafe(t *testing.T) {
+	core, err := assets.FS.ReadFile("core/rotta-core.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"five allow-listed triggers", "materially incomplete Strict clarification", "exact approval of a rendered Strict contract", "material non-operational policy decision", "one-time consent for one exact rendered destructive/external operation", "Approve the exact rendered operation once", "generic `continue`", "single-select", "standing authorization", "source fallback", "unauthorized pending re-index review", "sequential clarification flow", "at most three questions", "Stop / use safe defaults", "canonical contract path", "SHA-256 content digest", "rendered revision", "Agent-turn native-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+		if !strings.Contains(string(core), want) {
+			t.Fatalf("core question policy missing %q", want)
+		}
+	}
+	for _, want := range []string{"native OpenCode `question`", "Only this orchestrator", "five allow-listed triggers", "Approve the exact rendered operation once", "never invoke Vela", "Agent-turn native-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+		if !strings.Contains(string(orchestrator), want) {
+			t.Fatalf("orchestrator question policy missing %q:\n%s", want, orchestrator)
+		}
+	}
+
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install OpenCode Rotta Next: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(home, ".config", "opencode", "skills", "rotta-next", "rotta-orchestrator", "SKILL.md"),
+		filepath.Join(home, ".config", "opencode", "skills", "rotta-next", "rotta-core", "SKILL.md"),
+	} {
+		for _, want := range []string{"Agent-turn native-question procedure", "five allow-listed triggers", "Eligibility is structural", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "canonicalized target", "no Vela invocation"} {
+			assertRottaNextFileContains(t, path, want)
+		}
+	}
+}
+
 func TestManagedArtifactsRefuseUnownedModifiedAndSymlinkTargets(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "managed", "SKILL.md")
