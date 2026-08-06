@@ -29,7 +29,6 @@ const (
 	ScreenQualityGates
 	ScreenAncora
 	ScreenVela
-	ScreenVelaConfirm
 	ScreenContext7
 	ScreenConfirm
 	ScreenInstalling
@@ -108,9 +107,8 @@ type Model struct {
 	SetupAncora  bool // resolved choice
 
 	// Vela graph intelligence
-	VelaCursor    int  // 0=Install+configure, 1=Skip
-	SetupVela     bool // resolved choice
-	VelaConfirmed bool
+	VelaCursor int  // 0=Install+configure, 1=Skip
+	SetupVela  bool // resolved choice
 
 	// Context7 documentation MCP
 	Context7Cursor int  // 0=Install+configure, 1=Skip
@@ -159,8 +157,8 @@ func New() Model {
 		UseDefaults:    true,
 		AncoraCursor:   0, // default to "Install + configure"
 		SetupAncora:    true,
-		VelaCursor:     1, // default to Skip
-		SetupVela:      false,
+		VelaCursor:     0, // default to "Install + configure"
+		SetupVela:      true,
 		Context7Cursor: 0, // default to "Install + configure"
 		SetupContext7:  true,
 		ConfirmCursor:  1, // default to "Install", not "Cancel"

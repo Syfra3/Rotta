@@ -76,9 +76,6 @@ func removeKnownVelaManagedMCPEntry(config map[string]interface{}) bool {
 		return false
 	}
 	delete(mcp, "vela")
-	if len(mcp) == 0 {
-		delete(config, "mcp")
-	}
 	return true
 }
 

@@ -29,22 +29,6 @@ type openCodeConfigDocument struct {
 	comments   []string
 }
 
-// OpenCodeVelaConfigResolution supplies the effective configuration disclosed
-// by the Vela confirmation screen before it performs a host-level action.
-func OpenCodeVelaConfigResolution(target, projectPath, home string) (OpenCodeConfigResolution, error) {
-	return resolveOpenCodeConfig(Options{Target: target, ProjectPath: projectPath}, home)
-}
-
-// OpenCodeVelaConfigPath supplies the effective path disclosed by the Vela
-// confirmation screen. Kept for callers which only need the path.
-func OpenCodeVelaConfigPath(target, projectPath, home string) (string, error) {
-	resolution, err := OpenCodeVelaConfigResolution(target, projectPath, home)
-	if err != nil {
-		return "", err
-	}
-	return resolution.Path, nil
-}
-
 func resolveOpenCodeConfig(opts Options, home string) (OpenCodeConfigResolution, error) {
 	precedence := []string{openCodeGlobalConfigSource, openCodeOverrideConfigSource, openCodeProjectConfigSource}
 	global := filepath.Join(openCodeConfigHome(home), "opencode", "opencode.json")
