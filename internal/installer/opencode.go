@@ -14,6 +14,7 @@ type agentEntry struct {
 	mode        string
 	hidden      bool
 	tools       map[string]bool
+	permission  map[string]string
 	prompt      string
 	assetPath   string // path inside assets.FS for the SKILL.md content
 	skillName   string // directory name under ~/.config/opencode/skills/
@@ -27,6 +28,7 @@ var rottaAgents = []agentEntry{
 		mode:        "primary",
 		hidden:      false,
 		tools:       map[string]bool{"bash": false, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": false, "read": true, "write": false},
+		permission:  map[string]string{"question": "allow"},
 		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Do not implement code or execute ordinary operations.",
 		assetPath:   "agents/rotta-orchestrator.md",
 		skillName:   "rotta-orchestrator",
@@ -37,6 +39,7 @@ var rottaAgents = []agentEntry{
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": false, "edit": false, "read": true, "write": false},
+		permission:  map[string]string{"question": "deny"},
 		prompt:      "You are the Rotta Explore subagent. Load rotta-core and rotta-explore from ~/.config/opencode/skills/rotta-next/ before acting. Perform bounded read-only discovery only.",
 		assetPath:   "agents/rotta-explore.md",
 		skillName:   "rotta-explore",
@@ -47,6 +50,7 @@ var rottaAgents = []agentEntry{
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
+		permission:  map[string]string{"question": "deny"},
 		prompt:      "You are the Rotta Implementation subagent. Load rotta-core and rotta-impl from ~/.config/opencode/skills/rotta-next/ before acting. Implement only the assigned coherent slice.",
 		assetPath:   "agents/rotta-impl.md",
 		skillName:   "rotta-impl",
@@ -57,6 +61,7 @@ var rottaAgents = []agentEntry{
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": false},
+		permission:  map[string]string{"question": "deny"},
 		prompt:      "You are the Rotta Review subagent. Load rotta-core and rotta-review from ~/.config/opencode/skills/rotta-next/ before acting. Inspect the diff and affected code independently.",
 		assetPath:   "agents/rotta-review.md",
 		skillName:   "rotta-review",
@@ -67,6 +72,7 @@ var rottaAgents = []agentEntry{
 		mode:        "subagent",
 		hidden:      true,
 		tools:       map[string]bool{"bash": true, "edit": false, "read": true, "write": false},
+		permission:  map[string]string{"question": "deny"},
 		prompt:      "You are the Rotta Operations subagent. Load rotta-core and rotta-ops from ~/.config/opencode/skills/rotta-next/ before acting. Execute only explicit bounded operations.",
 		assetPath:   "agents/rotta-ops.md",
 		skillName:   "rotta-ops",
@@ -263,6 +269,13 @@ func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
 	}
 	if agent.hidden {
 		entry["hidden"] = true
+	}
+	if len(agent.permission) != 0 {
+		permission := map[string]string{}
+		for key, value := range agent.permission {
+			permission[key] = value
+		}
+		entry["permission"] = permission
 	}
 	return entry
 }

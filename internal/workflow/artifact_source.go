@@ -1,7 +1,10 @@
 package workflow
 
 import (
+	"crypto/rand"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -10,6 +13,20 @@ import (
 )
 
 var errStopFeatureSearch = fmt.Errorf("stop feature search")
+
+var errWorkflowArtifactCollision = errors.New("workflow artifact target already exists")
+
+var errWorkflowArtifactPairIncomplete = errors.New("workflow artifact pair publication incomplete")
+
+var errWorkflowArtifactCleanupIncomplete = errors.New("workflow artifact cleanup incomplete")
+
+var publishWorkflowArtifact = publishWorkflowArtifactNoReplace
+
+var copyWorkflowArtifact = io.Copy
+
+var closeWorkflowArtifact = func(file *os.File) error {
+	return file.Close()
+}
 
 type ContractSourceStatus struct {
 	Authoritative              bool
@@ -110,6 +127,43 @@ type WorkflowPolicyArtifacts struct {
 	FeaturePath string
 }
 
+// WorkflowArtifactPublicationStatus records whether this invocation published
+// an individual member of a draft pair. It is deliberately about publication,
+// not whether a pathname currently exists (a failed target may be foreign).
+type WorkflowArtifactPublicationStatus string
+
+const (
+	WorkflowArtifactNotPublished WorkflowArtifactPublicationStatus = "not_published"
+	WorkflowArtifactPublished    WorkflowArtifactPublicationStatus = "published"
+)
+
+type WorkflowArtifactPairPublicationStatus struct {
+	Spec    WorkflowArtifactPublicationStatus
+	Feature WorkflowArtifactPublicationStatus
+}
+
+func (status WorkflowArtifactPairPublicationStatus) Complete() bool {
+	return status.Spec == WorkflowArtifactPublished && status.Feature == WorkflowArtifactPublished
+}
+
+// WorkflowArtifactPairIncompleteError is the explicit recoverable result of a
+// failed sequential pair publication. The canonical paths and per-member
+// publication status remain available to a later explicit recovery attempt.
+type WorkflowArtifactPairIncompleteError struct {
+	Artifacts  WorkflowPolicyArtifacts
+	Status     WorkflowArtifactPairPublicationStatus
+	cause      error
+	retainedID fs.FileInfo
+}
+
+func (err *WorkflowArtifactPairIncompleteError) Error() string {
+	return fmt.Sprintf("%s: spec %s (%s), feature %s (%s)", errWorkflowArtifactPairIncomplete, err.Artifacts.SpecPath, err.Status.Spec, err.Artifacts.FeaturePath, err.Status.Feature)
+}
+
+func (err *WorkflowArtifactPairIncompleteError) Unwrap() error {
+	return errors.Join(errWorkflowArtifactPairIncomplete, err.cause)
+}
+
 func GenerateNamespacedWorkflowPolicyArtifacts(repoRoot string, request WorkflowPolicyArtifactRequest) (WorkflowPolicyArtifacts, error) {
 	contractID := strings.TrimSpace(request.ContractID)
 	if contractID == "" {
@@ -120,14 +174,24 @@ func GenerateNamespacedWorkflowPolicyArtifacts(repoRoot string, request Workflow
 		SpecPath:    filepath.ToSlash(filepath.Join("specs", contractID+".md")),
 		FeaturePath: filepath.ToSlash(filepath.Join("features", contractID+".feature")),
 	}
+	if err := validatePendingContractPaths(artifacts.SpecPath, artifacts.FeaturePath); err != nil {
+		return WorkflowPolicyArtifacts{}, fmt.Errorf("invalid namespaced contract id %q: %w", contractID, err)
+	}
 	if artifacts.SpecPath == request.LegacySpecPath || artifacts.FeaturePath == request.LegacyFeaturePath {
 		return WorkflowPolicyArtifacts{}, fmt.Errorf("namespaced artifact path would overwrite an active contract")
 	}
 
-	if err := writeWorkflowArtifact(filepath.Join(repoRoot, artifacts.SpecPath), request.HardSpec); err != nil {
-		return WorkflowPolicyArtifacts{}, err
+	root, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return WorkflowPolicyArtifacts{}, fmt.Errorf("open workflow artifact root: %w", err)
 	}
-	if err := writeWorkflowArtifact(filepath.Join(repoRoot, artifacts.FeaturePath), request.Feature); err != nil {
+	defer root.Close()
+	for _, path := range []string{artifacts.SpecPath, artifacts.FeaturePath} {
+		if err := prepareWorkflowArtifactParent(root, path); err != nil {
+			return WorkflowPolicyArtifacts{}, err
+		}
+	}
+	if err := writeWorkflowArtifactPair(root, artifacts, request.HardSpec, request.Feature); err != nil {
 		return WorkflowPolicyArtifacts{}, err
 	}
 	return artifacts, nil
@@ -478,12 +542,147 @@ func gitTracksPath(repoRoot, path string) (bool, error) {
 	return false, nil
 }
 
-func writeWorkflowArtifact(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("create workflow artifact parent %s: %w", filepath.Dir(path), err)
+func prepareWorkflowArtifactParent(root *os.Root, path string) error {
+	clean := filepath.Clean(filepath.FromSlash(path))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid workflow artifact path %q", path)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("write workflow artifact %s: %w", path, err)
+	if err := root.MkdirAll(filepath.Dir(clean), 0o750); err != nil {
+		return fmt.Errorf("create workflow artifact parent %s: %w", filepath.Dir(clean), err)
+	}
+	return nil
+}
+
+func writeWorkflowArtifact(root *os.Root, path, content string) error {
+	clean := filepath.Clean(filepath.FromSlash(path))
+	file, err := root.OpenFile(clean, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("write workflow artifact %s: %w", clean, err)
+	}
+	defer file.Close()
+	if _, err := file.Write([]byte(content)); err != nil {
+		return fmt.Errorf("write workflow artifact %s: %w", clean, err)
+	}
+	return nil
+}
+
+func writeWorkflowArtifactPair(root *os.Root, artifacts WorkflowPolicyArtifacts, hardSpec, feature string) (err error) {
+	stagedSpec, err := stageWorkflowArtifact(root, artifacts.SpecPath, hardSpec)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if stagedSpec != "" {
+			err = errors.Join(err, removeStagedWorkflowArtifact(root, stagedSpec))
+		}
+	}()
+	stagedFeature, err := stageWorkflowArtifact(root, artifacts.FeaturePath, feature)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if stagedFeature != "" {
+			err = errors.Join(err, removeStagedWorkflowArtifact(root, stagedFeature))
+		}
+	}()
+
+	if err := publishWorkflowArtifact(root, stagedSpec, artifacts.SpecPath); err != nil {
+		return err
+	}
+	stagedSpec = ""
+	retainedID, err := root.Stat(filepath.FromSlash(artifacts.SpecPath))
+	if err != nil {
+		return incompleteWorkflowArtifactPairError(artifacts, retainedID, err)
+	}
+	if err := publishWorkflowArtifact(root, stagedFeature, artifacts.FeaturePath); err != nil {
+		// Do not roll back the published spec by pathname. Another actor may have
+		// replaced it after publication, and os.Root.Remove cannot prove ownership
+		// at removal time. Retain it and report the incomplete pair instead.
+		return incompleteWorkflowArtifactPairError(artifacts, retainedID, err)
+	}
+	stagedFeature = ""
+	return nil
+}
+
+func incompleteWorkflowArtifactPairError(artifacts WorkflowPolicyArtifacts, retainedID fs.FileInfo, cause error) *WorkflowArtifactPairIncompleteError {
+	return &WorkflowArtifactPairIncompleteError{
+		Artifacts:  artifacts,
+		Status:     WorkflowArtifactPairPublicationStatus{Spec: WorkflowArtifactPublished, Feature: WorkflowArtifactNotPublished},
+		cause:      cause,
+		retainedID: retainedID,
+	}
+}
+
+func publishWorkflowArtifactNoReplace(root *os.Root, stagedPath, artifactPath string) error {
+	stagedPath = filepath.Clean(filepath.FromSlash(stagedPath))
+	artifactPath = filepath.Clean(filepath.FromSlash(artifactPath))
+	staged, err := root.Open(stagedPath)
+	if err != nil {
+		return fmt.Errorf("open staged workflow artifact %s: %w", stagedPath, err)
+	}
+	defer staged.Close()
+
+	artifact, err := root.OpenFile(artifactPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%w: %s", errWorkflowArtifactCollision, artifactPath)
+		}
+		return fmt.Errorf("reserve workflow artifact %s: %w", artifactPath, err)
+	}
+	if _, err := copyWorkflowArtifact(artifact, staged); err != nil {
+		closeErr := closeWorkflowArtifact(artifact)
+		return errors.Join(
+			fmt.Errorf("publish workflow artifact %s: %w", artifactPath, err),
+			closeErr,
+			incompleteWorkflowArtifactCleanupError(artifactPath),
+		)
+	}
+	if err := closeWorkflowArtifact(artifact); err != nil {
+		return errors.Join(
+			fmt.Errorf("close published workflow artifact %s: %w", artifactPath, err),
+			incompleteWorkflowArtifactCleanupError(artifactPath),
+		)
+	}
+	if err := removeStagedWorkflowArtifact(root, stagedPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func incompleteWorkflowArtifactCleanupError(artifactPath string) error {
+	// O_EXCL proves only that this invocation created the original directory
+	// entry. There is no compare-and-remove operation for os.Root, so a later
+	// pathname removal could delete a foreign replacement. Preserve the target
+	// and report the partial publication for explicit recovery.
+	return fmt.Errorf("%w: retained %s after failed publication", errWorkflowArtifactCleanupIncomplete, artifactPath)
+}
+
+func stageWorkflowArtifact(root *os.Root, path, content string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(path))
+	stagedPath, err := workflowArtifactTemporaryPath(clean)
+	if err != nil {
+		return "", err
+	}
+	if err := writeWorkflowArtifact(root, stagedPath, content); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		return "", errors.Join(err, removeStagedWorkflowArtifact(root, stagedPath))
+	}
+	return stagedPath, nil
+}
+
+func workflowArtifactTemporaryPath(path string) (string, error) {
+	randomSuffix := make([]byte, 12)
+	if _, err := rand.Read(randomSuffix); err != nil {
+		return "", fmt.Errorf("generate workflow artifact temporary path: %w", err)
+	}
+	return fmt.Sprintf("%s.tmp-%x", path, randomSuffix), nil
+}
+
+func removeStagedWorkflowArtifact(root *os.Root, path string) error {
+	if err := root.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove staged workflow artifact %s: %w", path, err)
 	}
 	return nil
 }
