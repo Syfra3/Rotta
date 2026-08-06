@@ -63,8 +63,11 @@ func normalizeProvenManagedMCPCommand(path, server, command string) (changed, am
 }
 
 func isProvenManagedMCPEntry(entry map[string]interface{}) bool {
-	args, ok := entry["args"].([]interface{})
-	return ok && len(args) == 1 && args[0] == "mcp"
+	if entry["type"] != "local" || entry["enabled"] != true {
+		return false
+	}
+	command, ok := entry["command"].([]interface{})
+	return ok && len(command) == 3 && command[0] == "vela" && command[1] == "serve" && command[2] == "--mcp"
 }
 
 func hasSlashMCPCommand(entry map[string]interface{}) bool {

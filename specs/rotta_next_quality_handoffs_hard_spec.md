@@ -32,6 +32,7 @@
 - Ancora is the primary handoff index. A compact project-local recovery mirror lives under `.rotta/handoffs/` so a later Ancora outage does not erase an already recorded handoff.
 - The workspace, Git baseline/snapshot, approved Strict contract, and applicable Gherkin remain authoritative. Handoff records are routing and recovery metadata only.
 - A recovered handoff is valid only when its baseline SHA, snapshot SHA, scope, role transition, and referenced artifacts agree with the current workspace. Any mismatch is `blocked`, never merged or inferred.
+- An explicit Vela selection and confirmation in the Rotta TUI authorizes host-level Vela CLI installation/update and MCP configuration for the selected coding host. Graph indexing remains a separate, bounded `rotta-ops` operation requiring explicit user authorization naming the project.
 
 ## Workflow
 
@@ -93,6 +94,12 @@ Ancora recovery
 ```
 
 Vela call budgets are per coherent slice. A missing, stale, ambiguous, or unavailable graph requires source fallback and a reported evidence gap; it never blocks Fast work. The only exception is an explicitly requested `rotta-ops` indexing action, which remains operational work and requires named user authorization.
+
+### Vela Setup And Indexing Operations
+
+Before a role can make an allowed Vela query, the user selects Vela in the Rotta TUI and explicitly confirms the selected host-level integration. The installer installs or updates the Vela CLI, validates that the selected host can resolve `vela`, writes or updates only a proven Rotta-managed Vela MCP entry, and reports the effective configuration path and observable connection result. It must preserve unrelated MCP entries and refuse ambiguous or user-owned Vela entries.
+
+Indexing is a separate `rotta-ops` operation. The user must explicitly name the project to index or re-index. The operation reports the generated local `.vela/` state, keeps it out of committed/reviewed artifacts by default, and reports a failure without removing an existing usable MCP configuration. After successful setup and indexing, the orchestrator may route the bounded Vela queries described above; it must still use source fallback when graph evidence is unavailable or stale.
 
 ## Role Ownership
 
@@ -232,6 +239,28 @@ Architect checks only the affected modules and interfaces for dependency directi
 - A deep-review request requiring product behavior changes returns an isolated remediation capsule to implementation and does not self-approve the result.
 - Outcome reports distinguish Fast from deep review and report the added roles, elapsed time, retries, and evidence gained.
 
+### REQ-005: Configure Vela through an explicit TUI integration
+
+**Description:** Rotta shall install/update Vela and configure its MCP when the user explicitly selects and confirms Vela in the TUI for a selected coding host. It shall provide a separate, bounded `rotta-ops` operation to index one named project, closing the gap between the permitted Vela query roles and a fresh Rotta installation.
+
+**Acceptance Criteria:**
+
+- Installation without Vela selected does not install/update the Vela CLI, write a Vela MCP entry, or create/refresh `.vela/` graph state.
+- The TUI presents Vela as an optional host-level integration. It must show the selected coding host and require a final explicit confirmation before installing/updating Vela or mutating MCP configuration.
+- The selected integration installs or updates Vela, validates host-visible `vela` command availability, and writes the canonical bare `vela` command only to a proven Rotta-managed Vela entry.
+- Setup preserves unrelated MCP configuration and refuses ambiguous or user-owned Vela entries with a concrete remediation. A failed setup leaves existing host configuration intact or creates no Vela configuration.
+- Setup reports the effective MCP configuration path and an observable host connection/status result, but never creates or refreshes `.vela/` graph state.
+- An index or re-index request requires separate explicit user authorization naming the project. It may create or refresh only that project's local `.vela/` state and must not modify unrelated projects.
+- A successful index enables Vela use only within the existing role call budgets: explore up to two calls, architect up to two calls, and review one validation call per coherent slice. Implementation and cleaner do not receive routine Vela access.
+- Setup/index failure or stale graph evidence is reported as a visible evidence gap and falls back to source exploration; it never blocks Fast work or authorizes a retry without a new explicit operation request.
+
+**Implementation Tasks:**
+
+1. Add an optional Vela TUI integration step with selected-host display, final explicit confirmation, Vela CLI installation/update, scoped managed-MCP transaction, and observable post-write validation.
+2. Add a separate `rotta-ops` Vela index action with a project selector, explicit-consent gate, scoped `.vela/` creation/refresh, and generated-artifact reporting.
+3. Update installer/TUI/CLI wording so selecting Vela explains that it installs/configures host integration but does not index a project, and directs users to the explicit index operation.
+4. Update the generated core and role instructions so orchestrator, explore, architect, and review recognize the available/degraded Vela state and preserve the existing query budgets and source fallback.
+
 ## Test Strategy
 
 - Installer tests verify all hosts install cleaner and architect and preserve managed-file/agent ownership protections.
@@ -240,6 +269,7 @@ Architect checks only the affected modules and interfaces for dependency directi
 - Role tests verify cleaner cannot add behavior or self-approve and architect cannot edit or schedule deep review recursively.
 - Routing tests cover Fast default, Strict-selected deep review, review-triggered single escalation, and fresh review after cleaner edits.
 - Performance tests compare equivalent Fast and deep slices and assert the Fast path does not spawn cleaner/architect roles or their verification tools.
+- Vela operation tests cover no side effects when unselected, selected-host confirmation, CLI installation/update failure, host command unavailability, scoped MCP creation, unrelated/ambiguous MCP preservation, failed setup rollback, successful host validation, no installer indexing, project-scoped indexing, index failure retention, and stale-graph source fallback.
 
 ## Open Questions
 
