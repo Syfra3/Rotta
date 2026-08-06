@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.13.0](https://github.com/Syfra3/Rotta/compare/v1.12.0...v1.13.0) (2026-08-06)
+
+
+### Features
+
+* **rotta-next:** add quality handoffs and Vela setup ([2d467fe](https://github.com/Syfra3/Rotta/commit/2d467fef77377df42ff1db93b491775f17aaaa5e))
+* **rotta-next:** quality handoffs and Vela setup ([b7cb294](https://github.com/Syfra3/Rotta/commit/b7cb29429ffbb3ebb19a22eaec3b3e26ac3acd6b))
+
+
+### Documentation
+
+* specify quality roles and handoffs ([9c3126b](https://github.com/Syfra3/Rotta/commit/9c3126b90b5914cce687262cf62b7f5a742f820e))
+
 ## [1.12.0](https://github.com/Syfra3/Rotta/compare/v1.11.0...v1.12.0) (2026-08-05)
 
 
