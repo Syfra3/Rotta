@@ -1,11 +1,12 @@
 package workflow
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestRemediationStopsAfterSecondFreshMaterialReview(t *testing.T) {
+func TestRemediationStopsAfterOneFreshMaterialReview(t *testing.T) {
 	state := testRemediationState(t)
 	if delegate, err := state.RecordMaterialReview(testReview(state, "initial", "snapshot-0")); err != nil || !delegate {
 		t.Fatalf("initial review = %v, %v", delegate, err)
@@ -13,16 +14,18 @@ func TestRemediationStopsAfterSecondFreshMaterialReview(t *testing.T) {
 	if err := state.RecordRemediation(testRemediationEvidence(state, "snapshot-1")); err != nil {
 		t.Fatal(err)
 	}
-	if delegate, err := state.RecordFreshReview(testReview(state, "first-fresh", "snapshot-1")); err != nil || !delegate {
-		t.Fatalf("first fresh review = %v, %v", delegate, err)
+	freshReview := testReview(state, "first-fresh", "snapshot-1")
+	freshReview.EvidenceRefs = []string{"evidence/first-fresh", "evidence/command-output", "evidence/review-log"}
+	if delegate, err := state.RecordFreshReview(freshReview); err != nil || delegate || !state.Stopped || len(state.UnresolvedFindings) == 0 {
+		t.Fatalf("first fresh review = delegate %v, err %v, state %#v", delegate, err, state)
 	}
-	if err := state.RecordRemediation(testRemediationEvidence(state, "snapshot-2")); err != nil {
-		t.Fatal(err)
+	if got, want := state.UnresolvedEvidenceRefs, freshReview.EvidenceRefs; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unresolved evidence = %#v, want %#v", got, want)
 	}
-	if delegate, err := state.RecordFreshReview(testReview(state, "second-fresh", "snapshot-2")); err != nil || delegate || !state.Stopped || len(state.UnresolvedFindings) == 0 {
-		t.Fatalf("second fresh review = delegate %v, err %v, state %#v", delegate, err, state)
+	if err := state.RecordRemediation(testRemediationEvidence(state, "snapshot-2")); err == nil || !strings.Contains(err.Error(), "not currently delegated") {
+		t.Fatalf("second automatic remediation = %v, want rejection", err)
 	}
-	if _, err := state.RecordFreshReview(testReview(state, "late", "snapshot-2")); err == nil || !strings.Contains(err.Error(), "stopped") {
+	if _, err := state.RecordFreshReview(testReview(state, "late", "snapshot-1")); err == nil || !strings.Contains(err.Error(), "stopped") {
 		t.Fatalf("late report = %v, want stopped rejection", err)
 	}
 }
@@ -80,8 +83,13 @@ func TestFreshReviewRequiresTheCycleRemediationSnapshotAndIsRetryable(t *testing
 	if state.Revision != beforeRevision || !state.AwaitingFreshReview {
 		t.Fatalf("invalid review mutated retryable state: %#v", state)
 	}
-	if delegate, err := state.RecordFreshReview(testReview(state, "retry", "snapshot-1")); err != nil || !delegate {
+	corrected := testReview(state, "retry", "snapshot-1")
+	corrected.EvidenceRefs = []string{"evidence/retry", "evidence/retry-log"}
+	if delegate, err := state.RecordFreshReview(corrected); err != nil || delegate || !state.Stopped {
 		t.Fatalf("corrected retry = %v, %v", delegate, err)
+	}
+	if got, want := state.UnresolvedEvidenceRefs, corrected.EvidenceRefs; !reflect.DeepEqual(got, want) {
+		t.Fatalf("retry unresolved evidence = %#v, want %#v", got, want)
 	}
 }
 

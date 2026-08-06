@@ -4,7 +4,7 @@
 
 - Failure mode 1: Output filtering hides a failed check or omits the full log, so the workflow appears cheaper by weakening evidence rather than eliminating work.
 - Failure mode 2: A broad deterministic command becomes a second lifecycle authority, mutates source or Git state without the orchestrator, or bypasses an operational consent boundary.
-- Failure mode 3: A two-cycle remediation limit stops a valid repair without preserving a precise resume boundary, or permits a third hidden repair because a review finding is relabelled.
+- Failure mode 3: A one-remediation limit stops a valid repair without preserving a precise resume boundary, or permits a second hidden repair because a review finding is relabelled.
 - Failure mode 4: The native Question result is accepted after contract, snapshot, target, or policy drift, converting a clearer UI into weaker authority.
 - Failure mode 5: Ancora or Vela are called routinely to collect context, increasing token use and latency while providing no decision-relevant evidence.
 
@@ -29,7 +29,7 @@
 
 ## Summary
 
-Rotta shall reduce avoidable workflow cost without reducing authority or evidence quality. It shall expose existing workflow checks as narrow, deterministic Go CLI commands; run those checks before an independent review; bound automatic remediation to two cycles; use fingerprint-bound native OpenCode Questions only for real decisions; pass compact validated context rather than transcripts; and collect comparable telemetry. On the approved benchmark, the workflow must reduce non-cache token usage by at least 35% and child-session count by at least 40% from the recorded quality-handoffs baseline while retaining passing evidence, independent review, and all existing operational consent gates.
+Rotta shall reduce avoidable workflow cost without reducing authority or evidence quality. It shall expose existing workflow checks as narrow, deterministic Go CLI commands; run those checks before an independent review; bound automatic remediation to one cycle; use fingerprint-bound native OpenCode Questions only for real decisions; pass compact validated context rather than transcripts; and collect comparable telemetry. Fast and Strict child budgets of two, a maximum of four for one isolated remediation plus a fresh review, and deep maximum four are advisory workflow policy only, not native host enforcement. On the approved benchmark, the workflow must reduce non-cache token usage by at least 35% and child-session count by at least 40% from the recorded quality-handoffs baseline while retaining passing evidence, independent review, and all existing operational consent gates.
 
 ## Benchmark Baseline And Definitions
 
@@ -140,15 +140,16 @@ For this specification:
 
 ### REQ-094: Bound Automatic Remediation And Preserve Review
 
-**Description:** Rotta shall eliminate continuation prompts and allow at most two automatic correction cycles for a coherent approved slice while retaining one fresh independent review after every changed remediation diff.
+**Description:** Rotta shall eliminate generic continuation prompts and allow one automatic correction cycle for a coherent approved slice while retaining one fresh independent review after its changed remediation diff.
 
 **Acceptance Criteria:**
 
 - Fast routing continues from validated implementation handoff through review and outcome without a `continue` question.
-- A Strict task receives one complete contract decision before implementation. Approved implementation slices inside that unchanged contract do not require another approval.
+- A Strict task receives one feature-contract decision before implementation that enumerates its approved scenarios. Valid in-scope progress inside that unchanged contract does not require another approval or generic continuation.
+- Rotta creates or refreshes one feature-level binding/manifest and reuses it until scope, baseline, or policy changes; managed-asset hashes refresh once at final verification.
 - Before the first independent review and before each remediation re-review, Rotta runs applicable deterministic preflight and scoped verification commands.
-- A material in-scope failure may create at most two correction cycles. Each cycle records the failing evidence, changed paths, deterministic results, and fresh independent review result.
-- If the second fresh review still finds a material failure, Rotta stops without a third implementation delegation, reports the unresolved findings and evidence, and offers explicit resume, scope-change, or cancellation actions.
+- A material in-scope failure may create one correction cycle. It records the failing evidence, changed paths, deterministic results, and fresh independent review result.
+- If that fresh review still finds a material failure, Rotta stops without a second automatic implementation delegation, reports the unresolved findings and evidence, and offers explicit resume, scope-change, or cancellation actions.
 - A non-material observation, unavailable optional tool, stale advisory graph, or missing unrelated historical evidence does not consume a correction cycle.
 - A contract, Gherkin, policy, baseline, target, or operational-authority change invalidates the prior decision and stops for a new bound decision; it cannot be disguised as a correction cycle.
 
@@ -247,11 +248,11 @@ Scenario: Explicit RTK installation remains optional and verified
   And when installation or verification fails, the workflow retains deterministic bounded summaries without RTK
 
 @token_efficiency @REQ-094
-Scenario: A third material review failure stops autonomous remediation
-  Given an approved coherent slice has completed two correction cycles
-  And each changed correction diff received fresh independent review
-  When the second fresh review reports another material in-scope failure
-  Then Rotta creates no third implementation delegation
+Scenario: A second material review failure stops autonomous remediation
+  Given an approved coherent slice has completed one correction cycle
+  And its changed correction diff received fresh independent review
+  When that fresh review reports another material in-scope failure
+  Then Rotta creates no second automatic implementation delegation
   And it records unresolved findings and all evidence references
   And it offers explicit resume, scope-change, or cancellation actions
 
@@ -277,19 +278,19 @@ Scenario: A valid degraded recovery does not ask for continuation
 - Unit-test versioned JSON command schemas, canonical argument validation, read-only publication planning, error exits, durable evidence persistence, and evidence hash binding.
 - Test deterministic commands against valid, dirty, detached, missing-baseline, stale-evidence, malformed-handoff, and cross-worktree inputs.
 - Test TUI default-skip, explicit selection/confirmation, successful install/version verification, installation failure, vanished recorded executable, RTK-present, RTK-absent, RTK-failure, and oversized-output cases while asserting identical underlying command/result evidence.
-- Test correction-cycle counting, a fresh review after each changed diff, stop-after-second-cycle behavior, interrupted persistence, and stale concurrent report rejection.
+- Test correction-cycle counting, a fresh review after each changed diff, stop-after-one-cycle behavior, interrupted persistence, and stale concurrent report rejection.
 - Test native Question decision binding across changed prompt/session/feature/contract/policy/snapshot/target state and rejection of legacy free-form fallback.
 - Test Ancora/Vela call budgets, failure fallback, capsule distillation, no per-role retrieval, no automatic Vela operation, and no Fast-mode block from missing advisory context.
 - Run the equivalent benchmark three times and retain source inputs, run IDs, raw exposed telemetry, comparator result, evidence references, and all deviations from the declared baseline.
 
 ## Open Questions
 
-- None. The user selected the benchmark targets, Go command implementation, two correction cycles, and the native Question decision adapter.
+- None. The user selected the benchmark targets, Go command implementation, one correction cycle, and the native Question decision adapter.
 
 ## Trade-offs
 
 - A three-run benchmark is more expensive than a single measurement, but prevents a one-off stochastic result from defining success.
-- Two correction cycles preserve autonomous recovery for ordinary defects but intentionally stop persistent failures rather than spending unbounded tokens.
+- One correction cycle preserves one bounded autonomous recovery attempt but intentionally stops persistent failures rather than spending unbounded tokens.
 - Built-in commands add maintained CLI surface, but keep workflow validation testable and avoid a second shell-based authority.
 - RTK improves context efficiency only when present; durable evidence and pass/fail semantics remain independent of it.
 - Restricting Ancora and Vela reduces repeated context, but may leave a visible advisory-evidence gap that source inspection must cover.

@@ -27,6 +27,6 @@ Treat complexity/CRAP as changed-code delta evidence only: report newly introduc
 
 Stop and return to the orchestrator when cleanup would alter behavior, expand scope or risk, require an unavailable or undeclared tool, lack an approved capsule or baseline, or require a product decision. Do not schedule yourself or another deep-review role, self-approve, or initiate a recursive quality route. A behavior-changing finding may proceed only through an isolated `architect → impl` remediation capsule; stop for a broader or non-isolated issue.
 
-Return handoff evidence only. Do not create, accept, block, complete, overwrite, or recover a `rotta.handoff/v1` record; the orchestrator owns validation and persistence.
+Return evidence to the orchestrator; ordinary in-session evidence is ephemeral. Do not create, accept, block, complete, overwrite, or recover a `rotta.handoff/v1` record; only an isolated remediation may use a durable handoff, under orchestrator validation and persistence.
 
 Return changed paths, exact verification commands and results, targeted evidence or visible evidence gaps, remaining risks, and the next safe action. Any cleaner edit must remain behavior-preserving, requires relevant verification, invalidates prior review evidence, and requires a fresh independent review.

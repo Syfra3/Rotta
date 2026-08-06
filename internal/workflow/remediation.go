@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-const maxMaterialCorrectionCycles = 2
+const maxMaterialCorrectionCycles = 1
 
 type MaterialReviewReport struct {
 	Revision            uint64
@@ -46,18 +46,19 @@ type RemediationCycle struct {
 // unchanged approved slice. Callers persist its exported value at their normal
 // workflow boundary; stale reports cannot mutate a newer revision.
 type RemediationState struct {
-	mu                  sync.Mutex
-	Revision            uint64
-	Scope               []string
-	ContractFingerprint string
-	PolicyFingerprint   string
-	Baseline            string
-	Target              string
-	Cycles              []RemediationCycle
-	AwaitingRemediation bool
-	AwaitingFreshReview bool
-	Stopped             bool
-	UnresolvedFindings  []string
+	mu                     sync.Mutex
+	Revision               uint64
+	Scope                  []string
+	ContractFingerprint    string
+	PolicyFingerprint      string
+	Baseline               string
+	Target                 string
+	Cycles                 []RemediationCycle
+	AwaitingRemediation    bool
+	AwaitingFreshReview    bool
+	Stopped                bool
+	UnresolvedFindings     []string
+	UnresolvedEvidenceRefs []string
 }
 
 func NewRemediationState(scope []string, contractFingerprint, policyFingerprint, baseline, target string) (*RemediationState, error) {
@@ -67,8 +68,8 @@ func NewRemediationState(scope []string, contractFingerprint, policyFingerprint,
 	return &RemediationState{Scope: append([]string(nil), scope...), ContractFingerprint: contractFingerprint, PolicyFingerprint: policyFingerprint, Baseline: baseline, Target: target}, nil
 }
 
-// RecordMaterialReview starts one correction cycle, or hard-stops after the
-// second fresh remediation review. Non-material/out-of-scope reports are kept
+// RecordMaterialReview starts the one permitted correction cycle, or hard-stops
+// after its fresh remediation review. Non-material/out-of-scope reports are kept
 // outside cycle accounting.
 func (state *RemediationState) RecordMaterialReview(report MaterialReviewReport) (bool, error) {
 	state.mu.Lock()
@@ -134,7 +135,7 @@ func (state *RemediationState) RecordRemediation(evidence RemediationEvidence) e
 }
 
 // RecordFreshReview closes a remediation only when it reviews the new changed
-// snapshot. A material result immediately enters the next cycle or hard-stops.
+// snapshot. A material result hard-stops rather than entering a second cycle.
 func (state *RemediationState) RecordFreshReview(report MaterialReviewReport) (bool, error) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -168,6 +169,7 @@ func (state *RemediationState) RecordFreshReview(report MaterialReviewReport) (b
 	if len(state.Cycles) == maxMaterialCorrectionCycles {
 		state.Stopped = true
 		state.UnresolvedFindings = append([]string(nil), report.Findings...)
+		state.UnresolvedEvidenceRefs = append([]string(nil), report.EvidenceRefs...)
 		return false, nil
 	}
 	state.Cycles = append(state.Cycles, RemediationCycle{FailureEvidence: append([]string(nil), report.EvidenceRefs...), ReviewID: report.ReviewID, ReviewSnapshot: report.ReviewedSnapshot})

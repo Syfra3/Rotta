@@ -33,10 +33,10 @@ func TestRottaNextHandoffGuidancePreservesOrchestratorBoundary(t *testing.T) {
 	}{
 		{"core/rotta-core.md", []string{"`rotta.handoff/v1`", "never authority", "newest valid matching mirror by sequence"}},
 		{"agents/rotta-orchestrator.md", []string{"Only the orchestrator may record `rotta.handoff/v1` status", "Ancora/mirror agreement", "degraded recovery"}},
-		{"agents/rotta-impl.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-cleaner.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-architect.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
-		{"agents/rotta-review.md", []string{"Return handoff evidence only", "Do not create, accept, block, complete"}},
+		{"agents/rotta-impl.md", []string{"Ordinary in-session implementation-to-review evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-cleaner.md", []string{"ordinary in-session evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-architect.md", []string{"ordinary in-session evidence is ephemeral", "Do not create, accept, block, complete"}},
+		{"agents/rotta-review.md", []string{"Ordinary in-session implementation-to-review evidence is ephemeral", "Do not create, accept, block, complete"}},
 	} {
 		data, err := assets.FS.ReadFile(asset.path)
 		if err != nil {
@@ -50,6 +50,46 @@ func TestRottaNextHandoffGuidancePreservesOrchestratorBoundary(t *testing.T) {
 	}
 	if got := memoryInstructions(true); !strings.Contains(got, "atomic matching `.rotta/handoffs/` mirror") || !strings.Contains(got, "never timestamp") {
 		t.Fatalf("enabled Ancora instructions omit handoff recovery guidance: %s", got)
+	}
+}
+
+func TestPR49PolicySimplifiesAdvisoryRoutingAndDurableHandoffs(t *testing.T) {
+	core, err := assets.FS.ReadFile("core/rotta-core.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRottaNextAssetContainsAll(t, string(core), []string{
+		"enumerates its approved scenarios",
+		"needs no generic continuation",
+		"workflow policy, not native host-runtime enforcement",
+		"Fast and Strict routes budget two child sessions",
+		"deep review has a maximum of four",
+		"stop and report the unfinished work",
+		"Create or refresh one feature-level binding/manifest",
+		"Refresh managed-asset hashes once at final verification",
+		"only for Strict approval, resume/recovery, an explicit operation, or isolated remediation",
+		"Ordinary in-session implementation-to-review evidence is ephemeral",
+		"newest valid matching mirror by sequence, never timestamp",
+	})
+	orchestrator, err := assets.FS.ReadFile("agents/rotta-orchestrator.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRottaNextAssetContainsAll(t, string(orchestrator), []string{
+		"One Strict feature-contract approval enumerates its approved scenarios",
+		"not native host enforcement",
+		"only one isolated remediation plus one fresh independent final review may raise a route to four",
+		"Ordinary in-session implementation-to-review evidence is ephemeral",
+		"only for Strict approval, resume/recovery, an explicit operation, or isolated remediation",
+	})
+}
+
+func assertRottaNextAssetContainsAll(t *testing.T, contents string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(contents, want) {
+			t.Fatalf("asset missing %q", want)
+		}
 	}
 }
 

@@ -18,4 +18,4 @@ If a named architectural boundary needs graph context, use at most one Vela revi
 
 Use the matching narrow `rotta workflow` command before recreating its deterministic checklist; its evidence reference informs review but never authorizes publication or any other operation.
 
-Return handoff evidence only. Do not create, accept, block, complete, overwrite, or recover a `rotta.handoff/v1` record; the orchestrator owns validation and persistence.
+Ordinary in-session implementation-to-review evidence is ephemeral; return it to the orchestrator. Do not create, accept, block, complete, overwrite, or recover a `rotta.handoff/v1` record; durable handoffs are limited to Strict approval, resume/recovery, explicit operations, and isolated remediation, and the orchestrator owns their validation and persistence.
