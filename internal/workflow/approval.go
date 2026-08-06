@@ -493,6 +493,12 @@ func approvalBaselineIsReachable(repoRoot, baselineCommit string) bool {
 	return command.Run() == nil
 }
 
+func approvalBaselineIsAncestorOf(repoRoot, baselineCommit, commit string) bool {
+	command := exec.Command("git", "merge-base", "--is-ancestor", baselineCommit, commit)
+	command.Dir = repoRoot
+	return command.Run() == nil
+}
+
 func approvalBaselineIsSelfReferential(repoRoot, baselineCommit string) bool {
 	head, err := gitApprovalOutput(repoRoot, "rev-parse", "HEAD")
 	if err != nil {

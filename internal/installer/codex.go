@@ -64,11 +64,6 @@ func codexManagedMCPBlock(opts Options) string {
 		b.WriteString("command = \"ancora\"\n")
 		b.WriteString("args = [\"mcp\"]\n\n")
 	}
-	if opts.SetupVela {
-		b.WriteString("[mcp_servers.vela]\n")
-		b.WriteString("command = \"vela\"\n")
-		b.WriteString("args = [\"mcp\"]\n\n")
-	}
 	if opts.SetupContext7 {
 		b.WriteString("[mcp_servers.context7]\n")
 		b.WriteString("command = \"npx\"\n")
