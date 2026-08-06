@@ -1,7 +1,7 @@
 # Runtime enforcement contract
 
-**Baseline:** `feature/workflow-runtime-enforcement@9a6ff507a243b1cad8bcfd54078e089a6da232d1`  
-**Approval:** Approve runtime enforcement contract  
+**Baseline:** `feature/workflow-runtime-enforcement@9a6ff507a243b1cad8bcfd54078e089a6da232d1`
+**Approval:** Approve runtime enforcement contract
 **Scope:** OpenCode only. Implementation may change the OpenCode runtime plugin/integration and its workflow/installer coverage; this approval does not authorize other hosts.
 
 ## Contract
