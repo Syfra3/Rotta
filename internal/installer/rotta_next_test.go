@@ -26,6 +26,51 @@ func TestRottaNextCorePolicyUsesCoherentSlices(t *testing.T) {
 	}
 }
 
+func TestHarnessReliabilityAdvisoryEvidencePolicyIsCompactAndInstalled(t *testing.T) {
+	assetsByPath := map[string][]string{
+		"core/rotta-core.md": {
+			"source identity", "requested scope", "effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "unknown", "not source truth",
+			"Freshness is separate from confidence", "existing Vela `freshness`, `confidence`, `gaps`, and diagnostics",
+			"Stale, absent, or wrong-workspace", "source fallback or a bounded safe stop", "cached approval",
+			"advance workflow", "authorize operations", "trigger indexing", "Fast-mode ceremony",
+		},
+		"agents/rotta-orchestrator.md": {
+			"source identity", "requested/effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "source fallback or bounded safe stop",
+		},
+		"agents/rotta-explore.md": {
+			"source identity", "requested/effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "unknown",
+		},
+	}
+	for assetPath, wants := range assetsByPath {
+		data, err := assets.FS.ReadFile(assetPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", assetPath, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing advisory evidence policy %q", assetPath, want)
+			}
+		}
+	}
+
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install managed advisory evidence assets: %v", err)
+	}
+	for assetPath, wants := range assetsByPath {
+		role := strings.TrimSuffix(filepath.Base(assetPath), ".md")
+		installedPath := filepath.Join(home, ".config", "opencode", "skills", "rotta-next", role, "SKILL.md")
+		for _, want := range wants {
+			assertRottaNextFileContains(t, installedPath, want)
+		}
+	}
+}
+
 func TestRottaNextInstallsCoreAndAllRoles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG", "")
