@@ -14,6 +14,10 @@ openspec/
 .rotta/cache/
 .rotta/tdd-log.md
 reports/
+!reports/
+reports/*
+!reports/benchmarks/
+!reports/benchmarks/**
 critical-path-branch-coverage.json
 critical-path.out
 phase4-changed.out
