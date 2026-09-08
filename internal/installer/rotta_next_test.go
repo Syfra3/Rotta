@@ -26,6 +26,120 @@ func TestRottaNextCorePolicyUsesCoherentSlices(t *testing.T) {
 	}
 }
 
+func TestHarnessReliabilityAdvisoryEvidencePolicyIsCompactAndInstalled(t *testing.T) {
+	assetsByPath := map[string][]string{
+		"core/rotta-core.md": {
+			"source identity", "requested scope", "effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "unknown", "not source truth",
+			"Freshness is separate from confidence", "existing Vela `freshness`, `confidence`, `gaps`, and diagnostics",
+			"Stale, absent, or wrong-workspace", "source fallback or a bounded safe stop", "cached approval",
+			"advance workflow", "authorize operations", "trigger indexing", "Fast-mode ceremony",
+		},
+		"agents/rotta-orchestrator.md": {
+			"source identity", "requested/effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "source fallback or bounded safe stop",
+		},
+		"agents/rotta-explore.md": {
+			"source identity", "requested/effective scope", "observation revision or graph generation",
+			"freshness", "coverage", "confidence", "gaps", "unknown",
+		},
+	}
+	for assetPath, wants := range assetsByPath {
+		data, err := assets.FS.ReadFile(assetPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", assetPath, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing advisory evidence policy %q", assetPath, want)
+			}
+		}
+	}
+
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install managed advisory evidence assets: %v", err)
+	}
+	for assetPath, wants := range assetsByPath {
+		role := strings.TrimSuffix(filepath.Base(assetPath), ".md")
+		installedPath := filepath.Join(home, ".config", "opencode", "skills", "rotta-next", role, "SKILL.md")
+		for _, want := range wants {
+			assertRottaNextFileContains(t, installedPath, want)
+		}
+	}
+}
+
+func TestHarnessReliabilityWorkflowGovernanceIsCoherentAndInstalled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install managed workflow governance assets: %v", err)
+	}
+
+	root := filepath.Join(home, ".config", "opencode", "skills", "rotta-next")
+	core := readRottaNextInstalledAsset(t, filepath.Join(root, "rotta-core", "SKILL.md"))
+	orchestrator := readRottaNextInstalledAsset(t, filepath.Join(root, "rotta-orchestrator", "SKILL.md"))
+	explore := readRottaNextInstalledAsset(t, filepath.Join(root, "rotta-explore", "SKILL.md"))
+
+	assertRottaNextContainsAll(t, core, []string{
+		"one resolved policy source per canonical project root",
+		"initial capsule and final outcome",
+		"loaded core and orchestrator paths",
+		"safe-stop and rebaseline",
+		"`Objective`; `Acceptance checks`; `Declared scope`; `Non-goals`; `Baseline`; `Relevant paths or facts`; `Verification commands`; `Expected result format`",
+		"terminal state: `completed`, `blocked`, or `safely stopped`",
+		"`Mode`; `Roles invoked`; `Human decision count`; `Tests run`; `Review result`; `Unresolved risk`; `Active elapsed time`; `Child-session count`; `Retries`; `User-waiting/external-outage time`",
+		"`unknown` or `unavailable`",
+		"cannot authorize an operation, alter Fast or Strict mode",
+	})
+	assertRottaNextContainsAll(t, orchestrator, []string{
+		"one resolved policy source per canonical project root",
+		"records the loaded core and orchestrator paths in the initial capsule and final outcome",
+		"source change requires a safe-stop and rebaseline",
+		"delegates every named structural Vela question to `rotta-explore`",
+		"source fallback or safely stop, but may not invoke Vela itself",
+	})
+	assertRottaNextContainsAll(t, explore, []string{
+		"only agent asset authorized to make bounded Vela calls",
+		"delegated named structural Vela question",
+		"source fallback or safely stop",
+	})
+	assertRottaNextLacksAll(t, core, []string{"advisory evidence authorizes an operation", "advisory evidence alters Fast or Strict mode"})
+	assertRottaNextLacksAll(t, core, []string{"review may make one targeted call at an architectural boundary"})
+	assertRottaNextLacksAll(t, orchestrator, []string{"orchestrator may invoke Vela itself", "delegated Vela evidence authorizes an operation"})
+	assertRottaNextLacksAll(t, explore, []string{"Vela evidence authorizes an operation", "Vela evidence alters Fast or Strict mode"})
+}
+
+func readRottaNextInstalledAsset(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read installed Rotta Next asset %s: %v", path, err)
+	}
+	return string(data)
+}
+
+func assertRottaNextContainsAll(t *testing.T, asset string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(asset, want) {
+			t.Fatalf("installed Rotta Next asset missing required relationship %q", want)
+		}
+	}
+}
+
+func assertRottaNextLacksAll(t *testing.T, asset string, prohibited []string) {
+	t.Helper()
+	for _, want := range prohibited {
+		if strings.Contains(asset, want) {
+			t.Fatalf("installed Rotta Next asset contains prohibited policy %q", want)
+		}
+	}
+}
+
 func TestRottaNextInstallsCoreAndAllRoles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENCODE_CONFIG", "")
