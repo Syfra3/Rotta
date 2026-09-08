@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.15.0](https://github.com/Syfra3/Rotta/compare/v1.14.0...v1.15.0) (2026-09-08)
+
+
+### Features
+
+* govern workflow extension ([949b5ce](https://github.com/Syfra3/Rotta/commit/949b5ce93bce87b94920421d080248aece300cb7))
+* harden advisory context evidence ([fa7737a](https://github.com/Syfra3/Rotta/commit/fa7737a02509f3383b42bb3fc483a3d13141866a))
+* harden advisory context evidence ([e3e879c](https://github.com/Syfra3/Rotta/commit/e3e879cd50bbca24cba6d72487bae03d85998d75))
+* **workflow:** add retained benchmark governance ([2e557b3](https://github.com/Syfra3/Rotta/commit/2e557b3540a23fb08ff0cc4146e8c169c8503c50))
+* **workflow:** add retained benchmark governance ([67c8775](https://github.com/Syfra3/Rotta/commit/67c8775cc23a72ce3af0ad7bb334707204edbf74))
+
 ## [1.14.0](https://github.com/Syfra3/Rotta/compare/v1.13.0...v1.14.0) (2026-09-08)
 
 
