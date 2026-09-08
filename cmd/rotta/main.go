@@ -1,13 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/Syfra3/Rotta/internal/installer"
 	"github.com/Syfra3/Rotta/internal/tui"
+	"github.com/Syfra3/Rotta/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -32,6 +35,8 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 			return runBackupCommand(args[1:], stdout, stderr)
 		case "restore":
 			return runRestoreCommand(args[1:], stdout, stderr)
+		case "workflow":
+			return runWorkflowCommand(args[1:], stdout, stderr)
 		default:
 			return fmt.Errorf("unknown command %q", args[0])
 		}
@@ -45,6 +50,72 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+func runWorkflowCommand(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 || args[0] != "benchmark" {
+		return fmt.Errorf("workflow requires benchmark subcommand")
+	}
+	flags := flag.NewFlagSet("workflow benchmark", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	input := flags.String("input", "", "directory containing exactly three canonical outcome JSON records")
+	worktree := flags.String("worktree", "", "active worktree root")
+	id := flags.String("id", "", "versioned benchmark identifier")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *input == "" || *worktree == "" || *id == "" {
+		return fmt.Errorf("workflow benchmark requires --input, --worktree, and --id")
+	}
+	records, paths, err := readBenchmarkInput(*input)
+	if err != nil {
+		return err
+	}
+	result, err := workflow.RunRetainedBenchmark(workflow.BenchmarkRequest{Worktree: *worktree, BenchmarkID: *id, Records: records, CanonicalInputPaths: paths})
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(result)
+}
+
+func readBenchmarkInput(input string) ([]workflow.OutcomeRecord, []string, error) {
+	root, err := filepath.EvalSymlinks(input)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve benchmark input: %w", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	var records []workflow.OutcomeRecord
+	var paths []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path, err := filepath.EvalSymlinks(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return nil, nil, err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == ".." || len(relative) > 2 && relative[:3] == ".."+string(filepath.Separator) {
+			return nil, nil, fmt.Errorf("benchmark input escapes input directory")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		var record workflow.OutcomeRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			return nil, nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		records = append(records, record)
+		paths = append(paths, path)
+	}
+	if len(records) != 3 {
+		return nil, nil, fmt.Errorf("benchmark input requires exactly three JSON records")
+	}
+	return records, paths, nil
 }
 
 func runInstallCommand(args []string, stdout, stderr io.Writer) error {
