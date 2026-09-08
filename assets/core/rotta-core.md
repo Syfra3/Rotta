@@ -21,7 +21,9 @@ Use concise capsule checks by default. Documentation, formatting, dependency/aud
 
 ## Task Capsules
 
-Every subagent call must include: objective; acceptance checks; declared scope; non-goals; baseline; relevant paths or facts; verification commands; and expected result format. Exclude credentials, raw logs, unrelated history, and duplicated core policy. Refuse to proceed when baseline or scope is materially unclear.
+Establish one resolved policy source per canonical project root before work begins. Record the resolved loaded core and orchestrator paths in the initial capsule and final outcome. If either source changes during a session, require a safe-stop and rebaseline before further work, and report the provenance change. Advisory evidence cannot replace this source check.
+
+Every task capsule uses these literal labels, exactly: `Objective`; `Acceptance checks`; `Declared scope`; `Non-goals`; `Baseline`; `Relevant paths or facts`; `Verification commands`; `Expected result format`. Exclude credentials, raw logs, unrelated history, and duplicated core policy. Refuse to proceed when baseline or scope is materially unclear.
 
 Default budgets are 2,000 tokens for a role prompt and 1,000 tokens for a capsule. Benchmark reports must state actual prompt and capsule sizes when available.
 
@@ -53,11 +55,41 @@ When enabled, recover only relevant Ancora decisions, discoveries, and summaries
 
 Advisory evidence is not source truth: memory is contextual; inspect workspace sources for current truth. Report evidence compactly with source identity; requested scope and effective scope; observation revision or graph generation; freshness; coverage; confidence; gaps; and diagnostics when available. Missing fields remain unknown. Freshness is separate from confidence, and coverage does not establish freshness. For graph evidence, use existing Vela `freshness`, `confidence`, `gaps`, and diagnostics; generation or coverage metadata may be additive, not a fabricated universal schema.
 
-Use Vela only for a named structural question about dependencies, impact, ownership, architectural flow, or an unfamiliar module. Fast mode normally makes no graph call. Exploration may make at most two calls for one packet; review may make one targeted call at an architectural boundary. Stale, absent, or wrong-workspace evidence requires source fallback or a bounded safe stop, never fabrication or a Fast-mode block. Evidence cannot carry cached approval, advance workflow, authorize operations, trigger indexing, invoke Vela, or add Fast-mode ceremony. A stale/unavailable-Vela native question may offer only source fallback, an unauthorized pending re-index review for the canonical project root, or stop/revisit; it has no Vela invocation. Indexing, update, build, setup, and re-indexing are separate `rotta-ops` activities requiring fresh explicit operational authorization.
+Route every named structural Vela question through `rotta-explore`; only that exploration role may invoke bounded Vela calls. Fast mode normally makes no graph call. Exploration may make at most two calls for one packet. Stale, absent, or wrong-workspace evidence requires source fallback or a bounded safe stop, never fabrication or a Fast-mode block. Advisory evidence, including Ancora or Vela evidence, cannot authorize an operation, alter Fast or Strict mode, replace source fallback or safe-stop behavior, carry cached approval, advance workflow, authorize operations, trigger indexing, invoke Vela, or add Fast-mode ceremony. A stale/unavailable-Vela native question may offer only source fallback, an unauthorized pending re-index review for the canonical project root, or stop/revisit; it has no Vela invocation. Indexing, update, build, setup, and re-indexing are separate `rotta-ops` activities requiring fresh explicit operational authorization.
 
 ## Outcome Report
 
-Every completed task reports: mode, roles invoked, human decision count, tests run, review result, unresolved risk, active elapsed time, child-session count, retries, and any known user-waiting or external-outage time. Compare equivalent tasks when benchmarking Fast mode.
+Every terminal outcome explicitly declares one terminal state: `completed`, `blocked`, or `safely stopped`. It reports all of these literal fields: `Mode`; `Roles invoked`; `Human decision count`; `Tests run`; `Review result`; `Unresolved risk`; `Active elapsed time`; `Child-session count`; `Retries`; `User-waiting/external-outage time`. State `unknown` or `unavailable` rather than omitting an applicable value. Compare equivalent tasks when benchmarking Fast mode.
+
+## Governance scenarios
+
+```gherkin
+Feature: Workflow-governance safeguards
+
+  Scenario: Canonical capsule records a single resolved policy source
+    Given a task starts for one canonical project root with resolved core and orchestrator sources
+    When the initial capsule is produced
+    Then it uses the eight required literal labels and records the loaded core and orchestrator paths
+    And a later policy-source change safely stops the session until rebaseline
+
+  Scenario: Terminal outcome is explicit and complete
+    Given a task reaches any terminal condition
+    When the final outcome is reported
+    Then it explicitly states completed, blocked, or safely stopped
+    And it includes every required outcome field, stating unknown or unavailable when applicable
+
+  Scenario: Structural Vela questions are delegated
+    Given the orchestrator receives a named structural Vela question
+    When it routes the question
+    Then it delegates the question to rotta-explore
+    And only rotta-explore may make bounded Vela calls
+    And source fallback or safely stopped is used when evidence cannot be provided
+
+  Scenario: Policy provenance changes require rebaseline
+    Given an active session recorded its loaded core and orchestrator paths
+    When either resolved policy source changes
+    Then the session safely stops, reports the provenance change, and requires a fresh rebaseline
+```
 
 ## Installed Integrations
 
