@@ -89,7 +89,7 @@ func ConfigureContext7(opts Options, home string) (Context7Result, error) {
 	opencode := context7HostConfigResult{Host: "opencode"}
 	claude := context7HostConfigResult{Host: "claude-code"}
 
-	path := filepath.Join(home, ".config", "opencode", "opencode.json")
+	path := openCodeConfigPath(home)
 	opencode.OK, opencode.Err = true, writeOpenCodeContext7MCP(path, server)
 	if opencode.Err != nil {
 		opencode.OK = false

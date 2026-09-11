@@ -13,7 +13,7 @@ func TestRottaNextCLIInstallsWithoutRetiredModeFlags(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("OPENCODE_CONFIG", "")
 	var stdout, stderr bytes.Buffer
-	if err := runCLI([]string{"install", "--target", "opencode", "--project", filepath.Join(home, "project")}, &stdout, &stderr); err != nil {
+	if err := runCLI([]string{"install", "--target", "opencode", "--project", filepath.Join(home, "project"), "--confirm-model-routing"}, &stdout, &stderr); err != nil {
 		t.Fatalf("install Rotta Next: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Installed rotta for opencode") {

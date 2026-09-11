@@ -5,7 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// routingFailureHook is test-only fault injection for transaction boundaries.
+var routingFailureHook func(stage string) error
+
+type routingFileSnapshot struct {
+	data   []byte
+	exists bool
+}
 
 // agentEntry defines one OpenCode agent entry for opencode.json.
 type agentEntry struct {
@@ -34,6 +43,17 @@ var rottaAgents = []agentEntry{
 		skillName:   "rotta-orchestrator",
 	},
 	{
+		key:         "rotta-architect",
+		description: "Rotta Next — architecture findings",
+		mode:        "subagent",
+		hidden:      true,
+		tools:       map[string]bool{"bash": false, "edit": false, "read": true, "write": false},
+		permission:  map[string]string{"question": "deny"},
+		prompt:      "You are the Rotta Architect subagent. Load rotta-core and rotta-architect from ~/.config/opencode/skills/rotta-next/ before acting. Produce read-only architecture findings only.",
+		assetPath:   "agents/rotta-architect.md",
+		skillName:   "rotta-architect",
+	},
+	{
 		key:         "rotta-explore",
 		description: "Rotta Next — bounded discovery",
 		mode:        "subagent",
@@ -43,6 +63,17 @@ var rottaAgents = []agentEntry{
 		prompt:      "You are the Rotta Explore subagent. Load rotta-core and rotta-explore from ~/.config/opencode/skills/rotta-next/ before acting. Perform bounded read-only discovery only.",
 		assetPath:   "agents/rotta-explore.md",
 		skillName:   "rotta-explore",
+	},
+	{
+		key:         "rotta-cleaner",
+		description: "Rotta Next — behavior-preserving cleanup",
+		mode:        "subagent",
+		hidden:      true,
+		tools:       map[string]bool{"bash": true, "edit": true, "read": true, "write": true},
+		permission:  map[string]string{"question": "deny"},
+		prompt:      "You are the Rotta Cleaner subagent. Load rotta-core and rotta-cleaner from ~/.config/opencode/skills/rotta-next/ before acting. Preserve behavior and verify focused cleanup only.",
+		assetPath:   "agents/rotta-cleaner.md",
+		skillName:   "rotta-cleaner",
 	},
 	{
 		key:         "rotta-impl",
@@ -96,8 +127,18 @@ var legacyCleanOpenCodeAgentKeys = []string{
 // installOpenCode writes skill files to ~/.config/opencode/skills/<name>/SKILL.md
 // and adds agent entries to ~/.config/opencode/opencode.json under the "agent" key.
 func installOpenCode(opts Options, home string) ([]string, error) {
+	if opts.skipOpenCodeRouting {
+		return nil, nil
+	}
+	routing, err := opts.ModelRouting.resolved()
+	if err != nil {
+		return nil, err
+	}
 	resolution, err := resolveOpenCodeConfig(opts, home)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateManagedParents(home, resolution.Path); err != nil {
 		return nil, err
 	}
 	document, err := readResolvedOpenCodeConfig(resolution)
@@ -105,14 +146,11 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		return nil, err
 	}
 	config := document.config
-	if err := applyOpenCodeContextProfile(config); err != nil {
-		return nil, err
-	}
 	agentMap, _ := config["agent"].(map[string]interface{})
 	if agentMap == nil {
 		agentMap = map[string]interface{}{}
 	}
-	if err := validateOpenCodeAgentOwnership(home, resolution.Path, agentMap); err != nil {
+	if err := validateOpenCodeModelOwnership(home, resolution.Path, agentMap, routing); err != nil {
 		return nil, err
 	}
 	managed, err := openCodeManagedSkills(opts, home)
@@ -127,28 +165,221 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return nil, fmt.Errorf("read existing OpenCode config: %w", readErr)
 	}
-	for _, agent := range rottaAgents {
-		agentMap[agent.key] = openCodeAgentEntry(agent)
+	manifestPath := managedArtifactsManifestPath(home)
+	manifestOriginal, manifestReadErr := readPrivateFile(manifestPath)
+	manifestExists := manifestReadErr == nil
+	if manifestReadErr != nil && !os.IsNotExist(manifestReadErr) {
+		return nil, fmt.Errorf("read existing routing state: %w", manifestReadErr)
 	}
-	delete(agentMap, "rotta-spec")
-	removeLegacyOpenCodeAgents(config, agentMap)
-	config["agent"] = agentMap
-	if err := writeResolvedOpenCodeConfig(document); err != nil {
+	assetOriginal, err := snapshotRoutingFiles(managed)
+	if err != nil {
 		return nil, err
+	}
+	configChanged := false
+	for _, agent := range rottaAgents {
+		if _, exists := agentMap[agent.key]; !exists {
+			agentMap[agent.key] = openCodeAgentEntry(agent)
+			configChanged = true
+		}
+	}
+	config["agent"] = agentMap
+	if routing == ModelRoutingEnabled {
+		configChanged = applyOpenCodeRoutingModels(agentMap) || configChanged
+	} else {
+		configChanged = removeOpenCodeRoutingModels(agentMap) || configChanged
+	}
+	if configChanged {
+		if err := writeResolvedOpenCodeConfig(document); err != nil {
+			return nil, err
+		}
+	}
+	if configChanged {
+		if err := failRoutingAt("after-config-write"); err != nil {
+			return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
+		}
 	}
 	files, err := installManagedFiles(home, managed)
 	if err != nil {
-		if restoreErr := restoreOpenCodeConfig(resolution.Path, original, originalExists); restoreErr != nil {
-			return nil, fmt.Errorf("install OpenCode role files: %w; restore config: %v", err, restoreErr)
-		}
-		return nil, err
+		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
 	}
-	if err := recordOpenCodeAgentOwnership(home, resolution.Path, agentMap); err != nil {
-		return nil, err
+	if err := failRoutingAt("after-assets"); err != nil {
+		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
+	}
+	if err := recordOpenCodeAgentOwnership(home, resolution.Path, agentMap, routing); err != nil {
+		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
+	}
+	if err := failRoutingAt("after-managed-state"); err != nil {
+		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
 	}
 	files = append(files, resolution.Path)
 
 	return files, nil
+}
+
+func failRoutingAt(stage string) error {
+	if routingFailureHook == nil {
+		return nil
+	}
+	return routingFailureHook(stage)
+}
+
+func rollbackOpenCodeRouting(cause error, configPath string, config []byte, configExists bool, manifestPath string, manifest []byte, manifestExists bool, assets map[string]routingFileSnapshot) error {
+	if err := restoreOpenCodeConfig(configPath, config, configExists); err != nil {
+		return fmt.Errorf("routing failed: %w; config compensation failed: %v", cause, err)
+	}
+	if err := restoreOpenCodeConfig(manifestPath, manifest, manifestExists); err != nil {
+		return fmt.Errorf("routing failed: %w; managed-state compensation failed: %v", cause, err)
+	}
+	for path, snapshot := range assets {
+		if err := restoreOpenCodeConfig(path, snapshot.data, snapshot.exists); err != nil {
+			return fmt.Errorf("routing failed: %w; asset compensation failed: %v", cause, err)
+		}
+	}
+	return cause
+}
+
+func snapshotRoutingFiles(files map[string][]byte) (map[string]routingFileSnapshot, error) {
+	snapshots := make(map[string]routingFileSnapshot, len(files))
+	for path := range files {
+		data, err := readPrivateFile(path)
+		if err == nil {
+			snapshots[path] = routingFileSnapshot{data: data, exists: true}
+			continue
+		}
+		if os.IsNotExist(err) {
+			snapshots[path] = routingFileSnapshot{}
+			continue
+		}
+		return nil, fmt.Errorf("snapshot routing asset %s: %w", path, err)
+	}
+	return snapshots, nil
+}
+
+// immutableOpenCodeRouting maps the only v1 installer-managed model fields.
+var immutableOpenCodeRouting = map[string]string{
+	"rotta-orchestrator": "openai/gpt-5.6-sol",
+	"rotta-architect":    "openai/gpt-5.6-sol",
+	"rotta-review":       "openai/gpt-5.6-sol",
+	"rotta-impl":         "openai/gpt-5.6-terra",
+	"rotta-ops":          "openai/gpt-5.6-luna",
+	"rotta-explore":      "openai/gpt-5.6-luna",
+	"rotta-cleaner":      "openai/gpt-5.6-luna",
+}
+
+// preflightSelectedOpenCodeInstall validates routing ownership and every
+// routing-managed target before an installation transaction creates a backup.
+// A fully reconciled OpenCode-only request is a true no-op and needs no backup.
+func preflightSelectedOpenCodeInstall(opts Options, home string) (bool, error) {
+	if !targetsOpenCode(opts.Target) {
+		return false, nil
+	}
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return false, fmt.Errorf("effective-config resolution blocked: %w", err)
+	}
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return false, fmt.Errorf("schema validation blocked: %w", err)
+	}
+	if err := validateOpenCodeConfigurationShape(document.config); err != nil {
+		return false, fmt.Errorf("schema validation blocked: %w", err)
+	}
+	routing, err := opts.ModelRouting.resolved()
+	if err != nil {
+		return false, err
+	}
+	agents, _ := document.config["agent"].(map[string]interface{})
+	if agents == nil {
+		agents = map[string]interface{}{}
+	}
+	if err := validateOpenCodeModelOwnership(home, resolution.Path, agents, routing); err != nil {
+		return false, err
+	}
+	managed, err := openCodeManagedSkills(opts, home)
+	if err != nil {
+		return false, err
+	}
+	manifest, err := validateManagedFiles(home, managed)
+	if err != nil {
+		return false, err
+	}
+	return !openCodeRoutingConfigurationNeedsChange(document.config, agents, routing) &&
+		!managedFilesNeedUpdate(manifest, managed) &&
+		!openCodeRoutingOwnershipNeedsChange(manifest, resolution.Path, routing), nil
+}
+
+func openCodeRoutingConfigurationNeedsChange(config, agents map[string]interface{}, routing ModelRoutingRequest) bool {
+	for _, agent := range rottaAgents {
+		if _, exists := agents[agent.key]; !exists {
+			return true
+		}
+	}
+	for role, expected := range immutableOpenCodeRouting {
+		agent := agents[role].(map[string]interface{})
+		_, hasModel := agent["model"]
+		if routing == ModelRoutingEnabled && agent["model"] != expected {
+			return true
+		}
+		if routing == ModelRoutingDisabled && hasModel {
+			return true
+		}
+	}
+	return false
+}
+
+func managedFilesNeedUpdate(manifest managedArtifactsManifest, files map[string][]byte) bool {
+	for path, data := range files {
+		if manifest.Files[path] != contentDigest(data) {
+			return true
+		}
+		current, err := readPrivateFile(path)
+		if err != nil || string(current) != string(data) {
+			return true
+		}
+	}
+	return false
+}
+
+func openCodeRoutingOwnershipNeedsChange(manifest managedArtifactsManifest, configPath string, routing ModelRoutingRequest) bool {
+	for role, model := range immutableOpenCodeRouting {
+		key := openCodeModelOwnershipKey(configPath, role)
+		_, exists := manifest.Files[key]
+		if routing == ModelRoutingEnabled && manifest.Files[key] != contentDigest([]byte(model)) {
+			return true
+		}
+		if routing == ModelRoutingDisabled && exists {
+			return true
+		}
+	}
+	return false
+}
+
+func applyOpenCodeRoutingModels(agentMap map[string]interface{}) bool {
+	changed := false
+	for role, model := range immutableOpenCodeRouting {
+		agent, ok := agentMap[role].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if agent["model"] != model {
+			agent["model"] = model
+			changed = true
+		}
+	}
+	return changed
+}
+
+func removeOpenCodeRoutingModels(agentMap map[string]interface{}) bool {
+	changed := false
+	for role := range immutableOpenCodeRouting {
+		if agent, ok := agentMap[role].(map[string]interface{}); ok {
+			if _, exists := agent["model"]; exists {
+				delete(agent, "model")
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func restoreOpenCodeConfig(path string, data []byte, existed bool) error {
@@ -158,88 +389,102 @@ func restoreOpenCodeConfig(path string, data []byte, existed bool) error {
 		}
 		return nil
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
 	return writePrivateFile(path, data, 0o600)
 }
 
-func validateOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}) error {
-	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string]interface{}, routing ModelRoutingRequest) error {
+	manifestPath := managedArtifactsManifestPath(home)
 	manifest, err := readManagedArtifactsManifest(manifestPath)
 	if err != nil {
 		return err
 	}
-	for _, agent := range rottaAgents {
-		current, exists := agentMap[agent.key]
+	for key := range manifest.Files {
+		prefix := configPath + "#agent:"
+		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, ".model") {
+			continue
+		}
+		role := strings.TrimSuffix(strings.TrimPrefix(key, prefix), ".model")
+		if _, known := immutableOpenCodeRouting[role]; !known {
+			return routingConflict(configPath, role, "unrecognized ownership record")
+		}
+	}
+	for role, expected := range immutableOpenCodeRouting {
+		raw, exists := agentMap[role]
 		if !exists {
 			continue
 		}
-		want, managed := manifest.Files[openCodeAgentOwnershipKey(configPath, agent.key)]
-		if !managed {
-			return fmt.Errorf("refusing to overwrite unmanaged OpenCode agent: %s", agent.key)
+		agent, ok := raw.(map[string]interface{})
+		if !ok {
+			return routingConflict(configPath, role, "agent is not an object")
 		}
-		data, err := json.Marshal(current)
-		if err != nil {
-			return fmt.Errorf("serialize OpenCode agent %s: %w", agent.key, err)
-		}
-		if contentDigest(data) != want {
-			return fmt.Errorf("refusing to overwrite modified managed OpenCode agent: %s", agent.key)
+		current, hasModel := agent["model"]
+		model, isString := current.(string)
+		owned := manifest.Files[openCodeModelOwnershipKey(configPath, role)] == contentDigest([]byte(expected))
+		switch routing {
+		case ModelRoutingEnabled:
+			if !hasModel {
+				continue
+			}
+			if !isString || model != expected || !owned {
+				return routingConflict(configPath, role, "non-owned or diverged model")
+			}
+		case ModelRoutingDisabled:
+			if !hasModel && !owned {
+				continue
+			}
+			if !hasModel || !isString || model != expected || !owned {
+				return routingConflict(configPath, role, "ownership cannot prove the matching model")
+			}
 		}
 	}
 	return nil
 }
 
-func recordOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}) error {
-	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+func routingConflict(configPath, role, reason string) error {
+	return fmt.Errorf("refusing OpenCode model routing at %s agent.%s.model: %s; remediation: preserve the user value or restore the recorded Rotta model", configPath, role, reason)
+}
+
+func recordOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}, routing ModelRoutingRequest) error {
+	manifestPath := managedArtifactsManifestPath(home)
 	manifest, err := readManagedArtifactsManifest(manifestPath)
 	if err != nil {
 		return err
 	}
+	changed := false
 	for _, agent := range rottaAgents {
-		data, err := json.Marshal(agentMap[agent.key])
-		if err != nil {
-			return fmt.Errorf("serialize OpenCode agent %s: %w", agent.key, err)
+		if model, ok := immutableOpenCodeRouting[agent.key]; ok && routing == ModelRoutingEnabled {
+			key := openCodeModelOwnershipKey(configPath, agent.key)
+			if manifest.Files[key] != contentDigest([]byte(model)) {
+				manifest.Files[key] = contentDigest([]byte(model))
+				changed = true
+			}
+		} else {
+			key := openCodeModelOwnershipKey(configPath, agent.key)
+			if _, exists := manifest.Files[key]; exists {
+				delete(manifest.Files, key)
+				changed = true
+			}
 		}
-		manifest.Files[openCodeAgentOwnershipKey(configPath, agent.key)] = contentDigest(data)
+	}
+	if !changed {
+		return nil
 	}
 	return writeManagedArtifactsManifest(home, manifest)
+}
+
+func openCodeModelOwnershipKey(configPath, agentKey string) string {
+	return configPath + "#agent:" + agentKey + ".model"
 }
 
 func openCodeAgentOwnershipKey(configPath, agentKey string) string {
 	return configPath + "#agent:" + agentKey
 }
 
-func applyOpenCodeContextProfile(config map[string]interface{}) error {
-	compaction, err := openCodeConfigurationObject(config, "compaction")
-	if err != nil {
-		return err
-	}
-	compaction["auto"] = true
-	compaction["prune"] = true
-	compaction["buffer"] = 10000
-
-	toolOutput, err := openCodeConfigurationObject(config, "tool_output")
-	if err != nil {
-		return err
-	}
-	toolOutput["max_lines"] = 120
-	toolOutput["max_bytes"] = 12288
-	return nil
-}
-
-func openCodeConfigurationObject(config map[string]interface{}, key string) (map[string]interface{}, error) {
-	if value, exists := config[key]; exists {
-		object, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("cannot apply OpenCode context profile: %s is not an object", key)
-		}
-		return object, nil
-	}
-	object := map[string]interface{}{}
-	config[key] = object
-	return object, nil
-}
-
 func openCodeManagedSkills(opts Options, home string) (map[string][]byte, error) {
-	skillsBase := filepath.Join(home, ".config", "opencode", "skills")
+	skillsBase := filepath.Join(openCodeConfigHome(home), "opencode", "skills")
 	managed := map[string][]byte{}
 	for _, agent := range rottaAgents {
 		data, err := readRenderedAsset(agent.assetPath, opts)
@@ -281,21 +526,6 @@ func openCodeAgentEntry(agent agentEntry) map[string]interface{} {
 }
 
 func cleanPreviousOpenCodeInstallation(_ Options, _ string) error { return nil }
-
-func removeLegacyOpenCodeAgents(config map[string]interface{}, agentMap map[string]interface{}) bool {
-	changed := false
-	for _, key := range append(legacyBobOpenCodeAgentKeys, legacyCleanOpenCodeAgentKeys...) {
-		if _, exists := agentMap[key]; exists {
-			delete(agentMap, key)
-			changed = true
-		}
-	}
-	if config["default_agent"] == "bob-orchestrator" || config["default_agent"] == "clean-orchestrator" {
-		config["default_agent"] = "rotta-orchestrator"
-		changed = true
-	}
-	return changed
-}
 
 func readOpenCodeConfig(path string) (map[string]interface{}, error) {
 	config := map[string]interface{}{}

@@ -213,6 +213,9 @@ func createAgentBackup(opts Options, host, home string) (string, error) {
 func createAgentBackups(opts Options, home, transactionBackupDir string) (map[string]string, error) {
 	backups := make(map[string]string, len(selectedHosts(opts.Target)))
 	for _, host := range selectedHosts(opts.Target) {
+		if host == "opencode" && opts.skipOpenCodeRouting {
+			continue
+		}
 		backupDir, err := createAgentBackupAt(opts, host, home, filepath.Join(transactionBackupDir, "agents", host))
 		if err != nil {
 			return nil, fmt.Errorf("backup %s configuration: %w", host, err)
@@ -411,16 +414,32 @@ func CleanupInstallerTransaction(stateHome, transactionID string, _ time.Time) e
 }
 
 func backupScope(opts Options, home, projectPath string) []string {
-	paths := append([]string{
+	paths := []string{
 		filepath.Join(projectPath, ".rotta", "state-machine.yaml"),
 		filepath.Join(projectPath, ".rotta", "quality-gates.yaml"),
-		filepath.Join(home, ".config", "rotta", "managed-artifacts.json"),
-	}, filepath.Join(projectPath, ".vela", "graph.db"))
+		filepath.Join(projectPath, ".vela", "graph.db"),
+	}
+	if !opts.skipOpenCodeRouting {
+		paths = append(paths, managedArtifactsManifestPath(home))
+	}
 	paths = append(paths, targetBackupPaths(opts.Target, home)...)
+	if opts.skipOpenCodeRouting {
+		paths = pathsOutside(paths, openCodeConfigDir(home))
+	}
 	if opts.SetupContext7 {
-		paths = appendUniquePaths(paths, filepath.Join(home, ".config", "opencode", "opencode.json"), filepath.Join(home, ".claude", "mcp", "context7.json"))
+		paths = appendUniquePaths(paths, openCodeConfigPath(home), filepath.Join(home, ".claude", "mcp", "context7.json"))
 	}
 	return paths
+}
+
+func pathsOutside(paths []string, root string) []string {
+	filtered := paths[:0]
+	for _, path := range paths {
+		if !isWithin(path, root) {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
 }
 
 func targetBackupPaths(target, home string) []string {
@@ -438,7 +457,7 @@ func targetBackupPaths(target, home string) []string {
 }
 
 func openCodeBackupPaths(home string) []string {
-	root := filepath.Join(home, ".config", "opencode")
+	root := openCodeConfigDir(home)
 	paths := []string{filepath.Join(root, "opencode.json"), filepath.Join(root, "opencode.jsonc"), filepath.Join(root, "instructions.md"), filepath.Join(root, "plugin", "rotta-vela-freshness-guard.js"), filepath.Join(root, "skills", "rotta-next")}
 	for _, skill := range append(append([]string{}, []string{"rotta-orchestrator", "rotta-spec", "rotta-impl", "rotta-review"}...), append(legacyCleanOpenCodeAgentKeys, legacyBobOpenCodeAgentKeys...)...) {
 		paths = append(paths, filepath.Join(root, "skills", skill))

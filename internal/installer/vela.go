@@ -82,7 +82,7 @@ func velaHostConfig(host, home string) (agent, configDir string) {
 	case "claude-code":
 		return "claude", filepath.Join(home, ".claude")
 	case "opencode":
-		return "opencode", filepath.Join(home, ".config", "opencode")
+		return "opencode", openCodeConfigDir(home)
 	}
 	return "", ""
 }
@@ -122,7 +122,7 @@ func configureVelaHosts(opts Options, result *VelaResult, home, projectPath stri
 		}
 	}
 	if includesOpenCode(opts.Target) {
-		if err := installVelaForHost(opts, result, projectPath, "opencode", filepath.Join(home, ".config", "opencode")); err != nil {
+		if err := installVelaForHost(opts, result, projectPath, "opencode", openCodeConfigDir(home)); err != nil {
 			return nil, err
 		}
 	}
@@ -136,7 +136,7 @@ func configureVelaWithAncora(opts Options, result *VelaResult, home, projectPath
 		}
 	}
 	if includesOpenCode(opts.Target) {
-		return result, installVelaForHost(opts, result, projectPath, "opencode", filepath.Join(home, ".config", "opencode"))
+		return result, installVelaForHost(opts, result, projectPath, "opencode", openCodeConfigDir(home))
 	}
 	if err := runVelaInstall(opts, result.BinPath, projectPath, "", ""); err != nil {
 		return nil, fmt.Errorf("initialize vela project graph: %w", err)

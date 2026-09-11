@@ -24,6 +24,7 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenWelcome:         m.viewWelcome,
 		ScreenTargetSelect:    m.viewTargetSelect,
 		ScreenProjectPath:     m.viewProjectPath,
+		ScreenModelRouting:    m.viewModelRouting,
 		ScreenModeSelect:      m.viewModeSelect,
 		ScreenQualityGates:    m.viewQualityGates,
 		ScreenAncora:          m.viewAncora,
@@ -204,6 +205,21 @@ func (m Model) viewProjectPath() string {
 	b.WriteString(inputHintStyle.Render("Leave empty to use your home directory (~).") + "\n\n")
 	b.WriteString(m.ProjectInput.View() + "\n\n")
 	b.WriteString(helpStyle.Render("Enter to confirm · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewModelRouting() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("OpenCode Model Routing") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Select the installer-managed seven-role routing action.") + "\n\n")
+	for index, label := range []string{"Enabled (default)", "Disabled"} {
+		style, prefix := menuItemStyle, "  "
+		if m.ModelRoutingCursor == index {
+			style, prefix = menuSelectedStyle, "▸ "
+		}
+		b.WriteString(style.Render(prefix+label) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
 	return appStyle.Render(b.String())
 }
 
