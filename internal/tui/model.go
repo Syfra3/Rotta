@@ -25,6 +25,7 @@ const (
 	ScreenWelcome Screen = iota
 	ScreenTargetSelect
 	ScreenProjectPath
+	ScreenModelRouting
 	ScreenModeSelect
 	ScreenQualityGates
 	ScreenAncora
@@ -93,6 +94,10 @@ type Model struct {
 	// Project path
 	ProjectInput textinput.Model
 	ProjectPath  string
+
+	// OpenCode routing remains unset until the user makes an explicit choice.
+	ModelRoutingCursor int
+	ModelRouting       installer.ModelRoutingRequest
 
 	// Mode selection: [0]=spec, [1]=implementation, [2]=review
 	ModeCursor    int

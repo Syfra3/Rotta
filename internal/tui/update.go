@@ -66,7 +66,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
-		ScreenModeSelect: m.updateModeSelect, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
+		ScreenModeSelect: m.updateModeSelect, ScreenModelRouting: m.updateModelRouting, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
 		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
@@ -177,10 +177,30 @@ func (m Model) updateProjectPath(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.ProjectPath = path
 		m.PrevScreen = ScreenProjectPath
-		m.Screen = ScreenAncora
+		m.Screen = ScreenModelRouting
 	case "esc", "b":
 		m.Screen = ScreenTargetSelect
 		m.ProjectInput.Blur()
+	}
+	return m, nil
+}
+
+func (m Model) updateModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.ModelRoutingCursor = 1
+	case "k", "up":
+		m.ModelRoutingCursor = 0
+	case "enter", " ":
+		if m.ModelRoutingCursor == 0 {
+			m.ModelRouting = installer.ModelRoutingEnabled
+		} else {
+			m.ModelRouting = installer.ModelRoutingDisabled
+		}
+		m.PrevScreen = ScreenModelRouting
+		m.Screen = ScreenAncora
+	case "esc", "b":
+		m.Screen = ScreenProjectPath
 	}
 	return m, nil
 }
@@ -333,6 +353,7 @@ func runInstall(m Model) tea.Cmd {
 			SetupAncora:     m.SetupAncora,
 			SetupVela:       m.SetupVela,
 			SetupContext7:   m.SetupContext7,
+			ModelRouting:    m.ModelRouting,
 			CommandStdin:    bytes.NewReader(nil),
 			CommandStdout:   io.Discard,
 			CommandStderr:   io.Discard,

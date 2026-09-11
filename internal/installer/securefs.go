@@ -21,18 +21,34 @@ func readPrivateFile(path string) ([]byte, error) {
 }
 
 func writePrivateFile(path string, data []byte, perm os.FileMode) error {
-	root, err := os.OpenRoot(filepath.Dir(path))
+	dir := filepath.Dir(path)
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	file, err := root.OpenFile(filepath.Base(path), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	file, err := os.CreateTemp(dir, ".rotta-tmp-*")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = file.Write(data)
-	return err
+	temporary := file.Name()
+	defer os.Remove(temporary)
+	if err := file.Chmod(perm); err != nil {
+		file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
 }
 
 func fileExistsWithinParent(path string) (bool, error) {
