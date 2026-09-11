@@ -277,7 +277,7 @@ func cleanVelaArtifacts(target, home, projectPath string) error {
 		if err := cleanOpenCodeVelaFreshnessGuard(home); err != nil {
 			return err
 		}
-		paths = append(paths, filepath.Join(home, ".config", "opencode", "instructions.md"))
+		paths = append(paths, filepath.Join(openCodeConfigDir(home), "instructions.md"))
 	}
 	return removeIntegrationArtifacts(paths...)
 }

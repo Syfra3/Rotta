@@ -16,18 +16,40 @@ import (
 
 // Options configures what and where to install.
 type Options struct {
-	Target          string // "claude-code" | "opencode" | "both"
-	ProjectPath     string // project root; config files land here under .rotta/
-	InstallSpec     bool
-	InstallImpl     bool
-	InstallReview   bool
-	UseDefaultGates bool
-	SetupAncora     bool // whether to install/configure Ancora memory
-	SetupVela       bool // whether to install/configure Vela graph intelligence
-	SetupContext7   bool // whether to configure Context7 documentation MCP
-	CommandStdin    io.Reader
-	CommandStdout   io.Writer
-	CommandStderr   io.Writer
+	Target              string // "claude-code" | "opencode" | "both"
+	ProjectPath         string // project root; config files land here under .rotta/
+	InstallSpec         bool
+	InstallImpl         bool
+	InstallReview       bool
+	UseDefaultGates     bool
+	SetupAncora         bool // whether to install/configure Ancora memory
+	SetupVela           bool // whether to install/configure Vela graph intelligence
+	SetupContext7       bool // whether to configure Context7 documentation MCP
+	ModelRouting        ModelRoutingRequest
+	CommandStdin        io.Reader
+	CommandStdout       io.Writer
+	CommandStderr       io.Writer
+	skipOpenCodeRouting bool
+}
+
+// ModelRoutingRequest retains omission separately from an explicit selection.
+type ModelRoutingRequest string
+
+const (
+	ModelRoutingUnset    ModelRoutingRequest = ""
+	ModelRoutingEnabled  ModelRoutingRequest = "enabled"
+	ModelRoutingDisabled ModelRoutingRequest = "disabled"
+)
+
+func (r ModelRoutingRequest) resolved() (ModelRoutingRequest, error) {
+	switch r {
+	case ModelRoutingUnset, ModelRoutingEnabled:
+		return ModelRoutingEnabled, nil
+	case ModelRoutingDisabled:
+		return ModelRoutingDisabled, nil
+	default:
+		return ModelRoutingUnset, fmt.Errorf("OpenCode model routing must be enabled or disabled")
+	}
 }
 
 // Result describes what was installed.
@@ -146,13 +168,15 @@ type HostInstallResult struct {
 }
 
 func install(opts Options) (*Result, error) {
-	result, home, projectPath, err := prepareInstall(opts)
+	result, home, projectPath, noOp, routingNoOp, err := prepareInstall(opts)
 	if err != nil {
 		return result, err
 	}
-	if err := validateSelectedOpenCodeConfiguration(opts, home); err != nil {
-		recordSelectedHostFailure(result, opts, err)
-		return result, err
+	if noOp {
+		return result, nil
+	}
+	if routingNoOp {
+		opts.skipOpenCodeRouting = true
 	}
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
@@ -247,26 +271,49 @@ func Install(opts Options) (*Result, error) {
 	return install(opts)
 }
 
-func prepareInstall(opts Options) (*Result, string, string, error) {
+func prepareInstall(opts Options) (*Result, string, string, bool, bool, error) {
 	if !isSupportedInstallTarget(opts.Target) {
-		return nil, "", "", fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
+		return nil, "", "", false, false, fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
 	}
 	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("cannot resolve home directory: %w", err)
+		return nil, "", "", false, false, fmt.Errorf("cannot resolve home directory: %w", err)
 	}
 	projectPath := resolveProjectPath(opts.ProjectPath, home)
-	backupDir, err := createInstallBackup(opts, home, projectPath)
+	routingNoOp, err := preflightSelectedOpenCodeInstall(opts, home)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("backup failure prevented installation: %w", err)
+		recordSelectedHostFailure(result, opts, err)
+		return result, "", "", false, false, err
+	}
+	if routingNoOp && !hasNonRoutingInstallWork(opts) {
+		return result, home, projectPath, true, true, nil
+	}
+	backupOptions := opts
+	backupOptions.skipOpenCodeRouting = routingNoOp && !hasOpenCodeOptionalIntegration(opts)
+	backupDir, err := createInstallBackup(backupOptions, home, projectPath)
+	if err != nil {
+		return nil, "", "", false, false, fmt.Errorf("backup failure prevented installation: %w", err)
 	}
 	result.BackupDir = backupDir
-	result.AgentBackupDirs, err = createAgentBackups(opts, home, backupDir)
+	result.AgentBackupDirs, err = createAgentBackups(backupOptions, home, backupDir)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("backup failure prevented installation: %w", err)
+		return nil, "", "", false, false, fmt.Errorf("backup failure prevented installation: %w", err)
 	}
-	return result, home, projectPath, nil
+	return result, home, projectPath, false, routingNoOp, nil
+}
+
+func hasNonRoutingInstallWork(opts Options) bool {
+	for _, host := range selectedHosts(opts.Target) {
+		if host != "opencode" {
+			return true
+		}
+	}
+	return opts.InstallSpec || opts.InstallImpl || opts.InstallReview || hasSelectedMCP(opts)
+}
+
+func hasOpenCodeOptionalIntegration(opts Options) bool {
+	return opts.SetupAncora || opts.SetupVela || opts.SetupContext7
 }
 
 func failedCleanInstall(result *Result, opts Options, projectPath string, err error) (*Result, error) {
