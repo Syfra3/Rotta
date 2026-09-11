@@ -2,6 +2,8 @@ package tui
 
 import (
 	"strings"
+
+	"github.com/Syfra3/Rotta/internal/installer"
 )
 
 func (m Model) viewConfirm() string {
@@ -22,7 +24,19 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
+	writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
 	b.WriteString("\n")
+}
+
+func confirmRoutingLabel(request installer.ModelRoutingRequest) string {
+	switch request {
+	case installer.ModelRoutingDisabled:
+		return "explicitly disabled"
+	case installer.ModelRoutingEnabled:
+		return "explicitly enabled"
+	default:
+		return "omitted (defaults to enabled)"
+	}
 }
 
 func writeConfirmValue(b *strings.Builder, label, value string) {

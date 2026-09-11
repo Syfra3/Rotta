@@ -27,11 +27,11 @@ func installManagedFiles(home string, files map[string][]byte) ([]string, error)
 
 	paths := make([]string, 0, len(files))
 	for path, data := range files {
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return nil, fmt.Errorf("create managed artifact directory: %w", err)
-		}
 		if err := validateManagedParents(home, path); err != nil {
 			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, fmt.Errorf("create managed artifact directory: %w", err)
 		}
 		if err := writePrivateFile(path, data, 0o600); err != nil {
 			return nil, fmt.Errorf("write managed artifact %s: %w", path, err)
@@ -47,7 +47,7 @@ func installManagedFiles(home string, files map[string][]byte) ([]string, error)
 }
 
 func validateManagedFiles(home string, files map[string][]byte) (managedArtifactsManifest, error) {
-	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+	manifestPath := managedArtifactsManifestPath(home)
 	manifest, err := readManagedArtifactsManifest(manifestPath)
 	if err != nil {
 		return managedArtifactsManifest{}, err
@@ -64,7 +64,7 @@ func validateManagedFiles(home string, files map[string][]byte) (managedArtifact
 }
 
 func writeManagedArtifactsManifest(home string, manifest managedArtifactsManifest) error {
-	manifestPath := filepath.Join(home, ".config", "rotta", "managed-artifacts.json")
+	manifestPath := managedArtifactsManifestPath(home)
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("serialize managed artifact manifest: %w", err)
@@ -74,9 +74,6 @@ func writeManagedArtifactsManifest(home string, manifest managedArtifactsManifes
 	}
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o750); err != nil {
 		return fmt.Errorf("create managed artifact manifest directory: %w", err)
-	}
-	if err := validateManagedParents(home, manifestPath); err != nil {
-		return err
 	}
 	if info, err := os.Lstat(manifestPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("managed artifact manifest must not be a symlink: %s", manifestPath)
@@ -90,12 +87,31 @@ func writeManagedArtifactsManifest(home string, manifest managedArtifactsManifes
 }
 
 func validateManagedParents(home, path string) error {
-	relative, err := filepath.Rel(home, path)
+	root, err := managedArtifactRoot(home, path)
+	if err != nil {
+		return err
+	}
+	return validateParentsUnderRoot(root, path)
+}
+
+func managedArtifactRoot(home, path string) (string, error) {
+	configHome := openCodeConfigHome(home)
+	if isWithin(path, configHome) {
+		return configHome, nil
+	}
+	if isWithin(path, home) {
+		return home, nil
+	}
+	return "", fmt.Errorf("managed artifact path is outside authorized roots: %s", path)
+}
+
+func validateParentsUnderRoot(root, path string) error {
+	relative, err := filepath.Rel(root, path)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return fmt.Errorf("managed artifact path is outside home: %s", path)
+		return fmt.Errorf("managed artifact path is outside authorized root: %s", path)
 	}
 	parent := filepath.Dir(relative)
-	current := home
+	current := root
 	for _, part := range strings.Split(parent, string(filepath.Separator)) {
 		if part == "." || part == "" {
 			continue
