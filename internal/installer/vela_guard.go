@@ -34,7 +34,7 @@ func installVelaFreshnessGuards(opts Options, home string) ([]string, error) {
 }
 
 func openCodeVelaFreshnessPluginPath(home string) string {
-	return filepath.Join(home, ".config", "opencode", "plugin", openCodeVelaFreshnessPluginFile)
+	return filepath.Join(openCodeConfigDir(home), "plugin", openCodeVelaFreshnessPluginFile)
 }
 
 func claudeCodeVelaFreshnessHookPath(home string) string {
@@ -50,7 +50,7 @@ func installOpenCodeVelaFreshnessGuard(home string) ([]string, error) {
 		return nil, fmt.Errorf("cannot write opencode Vela freshness guard: %w", err)
 	}
 
-	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	configPath := openCodeConfigPath(home)
 	config, err := readOpenCodeConfig(configPath)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func installOpenCodeVelaFreshnessGuard(home string) ([]string, error) {
 
 func cleanOpenCodeVelaFreshnessGuard(home string) error {
 	pluginPath := openCodeVelaFreshnessPluginPath(home)
-	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	configPath := openCodeConfigPath(home)
 	config, err := readOpenCodeConfig(configPath)
 	if err != nil {
 		return err

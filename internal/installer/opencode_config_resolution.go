@@ -31,29 +31,36 @@ type openCodeConfigDocument struct {
 
 func resolveOpenCodeConfig(opts Options, home string) (OpenCodeConfigResolution, error) {
 	precedence := []string{openCodeGlobalConfigSource, openCodeOverrideConfigSource, openCodeProjectConfigSource}
-	global := filepath.Join(openCodeConfigHome(home), "opencode", "opencode.json")
-	resolution := newOpenCodeConfigResolution(global, openCodeGlobalConfigSource, precedence)
-
-	if override := os.Getenv("OPENCODE_CONFIG"); override != "" {
-		resolution = newOpenCodeConfigResolution(override, openCodeOverrideConfigSource, precedence)
-	}
-
-	project := resolveProjectPath(opts.ProjectPath, home)
-	projectPath, err := existingOpenCodeProjectConfig(project)
-	if err != nil {
-		return OpenCodeConfigResolution{}, err
-	}
-	if projectPath != "" {
-		resolution = newOpenCodeConfigResolution(projectPath, openCodeProjectConfigSource, precedence)
-	}
-	return resolution, nil
+	global := openCodeConfigPath(home)
+	// Runtime overlays are user-owned. The installer always writes the XDG
+	// global target and never uses OPENCODE_CONFIG or a project file as a target.
+	_ = opts
+	return newOpenCodeConfigResolution(global, openCodeGlobalConfigSource, precedence), nil
 }
 
 func openCodeConfigHome(home string) string {
 	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		// Installer entry points resolve home from os.UserHomeDir. Direct internal
+		// callers may supply an isolated home (notably focused tests); do not let
+		// an ambient default XDG value escape that supplied home.
+		if currentHome, err := os.UserHomeDir(); err == nil && filepath.Clean(home) != filepath.Clean(currentHome) && filepath.Clean(configHome) == filepath.Join(currentHome, ".config") {
+			return filepath.Join(home, ".config")
+		}
 		return configHome
 	}
 	return filepath.Join(home, ".config")
+}
+
+func openCodeConfigDir(home string) string {
+	return filepath.Join(openCodeConfigHome(home), "opencode")
+}
+
+func openCodeConfigPath(home string) string {
+	return filepath.Join(openCodeConfigDir(home), "opencode.json")
+}
+
+func managedArtifactsManifestPath(home string) string {
+	return filepath.Join(openCodeConfigHome(home), "rotta", "managed-artifacts.json")
 }
 
 func existingOpenCodeProjectConfig(project string) (string, error) {

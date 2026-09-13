@@ -3,5 +3,5 @@ package assets
 
 import "embed"
 
-//go:embed core/rotta-core.md agents/rotta-orchestrator.md agents/rotta-explore.md agents/rotta-impl.md agents/rotta-review.md agents/rotta-ops.md
+//go:embed core/rotta-core.md agents/rotta-orchestrator.md agents/rotta-architect.md agents/rotta-explore.md agents/rotta-impl.md agents/rotta-review.md agents/rotta-ops.md agents/rotta-cleaner.md
 var FS embed.FS

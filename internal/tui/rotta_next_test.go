@@ -21,8 +21,8 @@ func TestRottaNextTUIProjectSelectionSkipsRetiredModeScreens(t *testing.T) {
 	model.Screen = ScreenProjectPath
 	model.ProjectInput.SetValue("/tmp/project")
 	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if got := next.(Model).Screen; got != ScreenAncora {
-		t.Fatalf("project selection screen = %v, want Ancora setup", got)
+	if got := next.(Model).Screen; got != ScreenModelRouting {
+		t.Fatalf("project selection screen = %v, want model-routing selection", got)
 	}
 }
 

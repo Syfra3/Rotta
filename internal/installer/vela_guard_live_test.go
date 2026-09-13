@@ -2,7 +2,6 @@ package installer
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -38,7 +37,7 @@ func TestInstallOpenCodeVelaGuardWritesInertPlugin(t *testing.T) {
 	if strings.Contains(strings.ToLower(string(data)), "vela update") || strings.Contains(strings.ToLower(string(data)), "vela build") {
 		t.Fatalf("installed plugin retained automatic Vela command:\n%s", data)
 	}
-	config, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	config, err := os.ReadFile(openCodeConfigPath(home))
 	if err != nil || !strings.Contains(string(config), openCodePluginFileURL(pluginPath)) {
 		t.Fatalf("installed plugin configuration = %q, %v", config, err)
 	}
