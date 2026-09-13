@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.0](https://github.com/Syfra3/Rotta/compare/v1.15.0...v1.16.0) (2026-09-13)
+
+
+### Features
+
+* **opencode:** add installer model routing ([624dc7a](https://github.com/Syfra3/Rotta/commit/624dc7a5cecb5f70ab7fcf61b100955969511178))
+* **opencode:** add installer model routing ([046f785](https://github.com/Syfra3/Rotta/commit/046f78513894f078d759ac242006013273010f47))
+
 ## [1.15.0](https://github.com/Syfra3/Rotta/compare/v1.14.0...v1.15.0) (2026-09-08)
 
 
