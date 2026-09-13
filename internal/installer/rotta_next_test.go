@@ -179,8 +179,15 @@ func TestRottaNextInstallsCoreAndAllRoles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".config", "opencode", "opencode.json"), configData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := installOpenCode(Options{}, home); err == nil {
-		t.Fatal("modified managed OpenCode agent was overwritten")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("field-level routing rejected a user-owned non-model field: %v", err)
+	}
+	configData, err = os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configData), "user modification") {
+		t.Fatal("field-level routing overwrote the user-owned agent field")
 	}
 }
 

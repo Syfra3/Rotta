@@ -125,14 +125,23 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
+	routing := flags.String("model-routing", "", "OpenCode model routing: enabled or disabled (default: enabled; disabled removes only Rotta-owned model fields)")
+	confirmRouting := flags.Bool("confirm-model-routing", false, "confirm OpenCode model-routing changes")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *routing != "" && *routing != string(installer.ModelRoutingEnabled) && *routing != string(installer.ModelRoutingDisabled) {
+		return fmt.Errorf("--model-routing must be enabled or disabled")
+	}
+	if (*target == "opencode" || *target == "both" || *target == "all") && !*confirmRouting {
+		return fmt.Errorf("OpenCode model routing requires --confirm-model-routing")
 	}
 	result, err := installer.Install(installer.Options{
 		Target:        *target,
 		ProjectPath:   *projectPath,
 		SetupAncora:   *setupAncora,
 		SetupVela:     *setupVela,
+		ModelRouting:  installer.ModelRoutingRequest(*routing),
 		CommandStdin:  os.Stdin,
 		CommandStdout: stdout,
 		CommandStderr: stderr,
