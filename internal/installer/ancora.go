@@ -103,7 +103,7 @@ func serializeAncoraMCPCommand(home, host string) error {
 	case "claude-code":
 		return serializeManagedMCPCommand(filepath.Join(home, ".claude", "mcp", "ancora.json"), "", "ancora")
 	case "opencode":
-		return serializeManagedMCPCommand(filepath.Join(home, ".config", "opencode", "opencode.jsonc"), "ancora", "ancora")
+		return serializeManagedMCPCommand(filepath.Join(openCodeConfigDir(home), "opencode.jsonc"), "ancora", "ancora")
 	default:
 		return fmt.Errorf("unsupported Ancora setup target %q", host)
 	}

@@ -1,0 +1,17 @@
+schema_version: 1
+feature: opencode-model-routing
+purpose: local approved-routing TDD baseline for OpenCode model routing
+contract:
+  path: .rotta/strict/opencode-model-routing-v1.md
+  sha256: 072c4bfe2403c2560c76915e637a74f2dda500fde2c9e364b2f94f22c9d1e9d0
+scenarios:
+  - SCN-001
+  - SCN-002
+  - SCN-003
+  - SCN-004
+  - SCN-005
+  - SCN-006
+baseline:
+  status: confirmed
+  commit: c1b2093b5aa46057170a0ab51232c41bde0527ad
+  source: pre-operation HEAD
