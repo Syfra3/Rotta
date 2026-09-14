@@ -151,6 +151,10 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Installed rotta for %s\n", result.Target)
 	fmt.Fprintf(stdout, "Backup: %s\n", result.BackupDir)
+	if capability, ok := result.Hosts["opencode"].Capabilities["source_loading"]; ok {
+		fmt.Fprintf(stdout, "OpenCode policy loading: %s\n%s\n%s\n", capability.Status, capability.Reason, capability.Remediation)
+	}
+	fmt.Fprintln(stdout, "Restart the coding agent to load the installed policy bundle.")
 	return nil
 }
 
