@@ -173,6 +173,11 @@ func install(opts Options) (*Result, error) {
 		return result, err
 	}
 	if noOp {
+		hostResult, err := installedHostResult(opts, "opencode", home, nil)
+		if err != nil {
+			return result, err
+		}
+		result.Hosts["opencode"] = hostResult
 		return result, nil
 	}
 	if routingNoOp {

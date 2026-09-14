@@ -14,7 +14,10 @@ const (
 
 func installCodex(opts Options, home string) ([]string, error) {
 	path := filepath.Join(home, ".codex", "AGENTS.md")
-	instructions, err := codexInstructions(opts)
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("Codex source loading unresolved: instruction path %q is not absolute; set an absolute HOME", path)
+	}
+	instructions, err := codexInstructions(opts, path)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +81,7 @@ func codexManagedMCPBlock(opts Options) string {
 	return b.String()
 }
 
-func codexInstructions(opts Options) (string, error) {
+func codexInstructions(opts Options, path string) (string, error) {
 	core, err := readRenderedAsset("core/rotta-core.md", opts)
 	if err != nil {
 		return "", err
@@ -86,14 +89,24 @@ func codexInstructions(opts Options) (string, error) {
 	var b strings.Builder
 	b.WriteString("# Rotta Codex Instructions\n\n")
 	b.WriteString("Codex adapts Rotta Next roles into this instruction file. Route work through the orchestrator and follow the shared policy below.\n\n")
+	fmt.Fprintf(&b, `## Resolved Codex inline policy bundle
+
+The resolved bundle is the single instruction file %q. Its named "Embedded policy: rotta-core" section and "Embedded policy: <role>" sections are the canonical core and roles for this host. Consuming these complete embedded sections satisfies all instructions below to load/read core or role files from the explicit resolved bundle; no separate SKILL.md reads are required or expected. Apply the core and the active role, not every role's duties at once.
+Use sections already supplied in the current context only when complete through their "End embedded policy" marker. If a required section is absent or truncated, read that section from this exact AGENTS.md with the host's available file-reading tool. Do not search for SKILL.md files, invoke name-based skill loading, or substitute Claude Code/OpenCode bundles. If the file or section cannot be fully read, report its exact path, section, and reason as source loading blocked/unknown and stop.
+Record source identity as this absolute AGENTS.md path plus the core and active-role section names. Pass that same file and section identity to children; a conflicting source requires safe-stop and rebaseline.
+
+`, path)
+	b.WriteString("## Embedded policy: rotta-core\n\n")
 	b.Write(core)
+	b.WriteString("\n\n<!-- End embedded policy: rotta-core -->\n")
 	for _, agent := range rottaAgents {
 		role, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
 			return "", err
 		}
-		b.WriteString("\n\n")
+		fmt.Fprintf(&b, "\n\n## Embedded policy: %s\n\n", agent.skillName)
 		b.Write(role)
+		fmt.Fprintf(&b, "\n\n<!-- End embedded policy: %s -->\n", agent.skillName)
 	}
 	return b.String(), nil
 }
