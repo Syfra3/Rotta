@@ -19,6 +19,19 @@ func readRenderedAsset(path string, opts Options) ([]byte, error) {
 	return []byte(text), nil
 }
 
+func bindHostAsset(data []byte, instructions string) []byte {
+	text := string(data)
+	binding := instructions + "\n"
+	// Keep skill/agent frontmatter first so host discovery still recognizes it.
+	if strings.HasPrefix(text, "---\n") {
+		if end := strings.Index(text[4:], "\n---\n"); end >= 0 {
+			boundary := 4 + end + len("\n---\n")
+			return []byte(text[:boundary] + "\n" + binding + text[boundary:])
+		}
+	}
+	return []byte(binding + text)
+}
+
 func integrationInstructions(opts Options) string {
 	var b strings.Builder
 	b.WriteString("## Installed Integration Choices\n\n")
