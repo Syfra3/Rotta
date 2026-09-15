@@ -17,6 +17,17 @@ func TestRottaNextTUIShowsFastAndStrictModes(t *testing.T) {
 	}
 }
 
+func TestDeliveryFirstTUIDisplaysReconciliationWarnings(t *testing.T) {
+	model := New()
+	warning := "OpenCode work-record reconciliation required in /custom/opencode.json: preserved agent.rotta-orchestrator.tools.edit=false"
+	model.InstallResult = &installer.Result{Warnings: []string{warning}}
+	for _, view := range []string{model.viewSuccess(), model.viewError()} {
+		if !strings.Contains(view, "Warning: "+warning) {
+			t.Fatalf("TUI hid reconciliation warning: %s", view)
+		}
+	}
+}
+
 func TestSuccessShowsUnresolvedPolicyLoadingAndRecovery(t *testing.T) {
 	model := New()
 	model.Screen = ScreenSuccess

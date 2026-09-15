@@ -70,3 +70,29 @@ func TestCLIRoutingRequiresConfirmationBeforeMutation(t *testing.T) {
 		t.Fatalf("confirmation help = %q, %v", stderr.String(), err)
 	}
 }
+
+func TestDeliveryFirstCLIReportsPreservedDisabledTools(t *testing.T) {
+	home := t.TempDir()
+	xdg := filepath.Join(home, "xdg")
+	project := filepath.Join(home, "project")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("OPENCODE_CONFIG", "")
+	configPath := filepath.Join(xdg, "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"agent":{"rotta-orchestrator":{"tools":{"edit":false,"write":false,"bash":false},"prompt":"custom"}},"theme":"custom"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runCLI([]string{"install", "--target", "opencode", "--project", project, "--confirm-model-routing"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Warning:", configPath, "tools.edit=false", "tools.write=false", "restart OpenCode"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("CLI did not surface %q: %s", want, stderr.String())
+		}
+	}
+}

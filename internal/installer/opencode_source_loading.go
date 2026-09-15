@@ -31,7 +31,11 @@ func openCodeAgentPrompt(agent agentEntry, root string) string {
 	// Retain the baseline text as an exact migration fingerprint, but remove its
 	// ambiguous loading sentence from every newly generated prompt.
 	legacyLoader := fmt.Sprintf("Load rotta-core and %s from ~/.config/opencode/skills/rotta-next/ before acting. ", agent.skillName)
-	return strings.Replace(agent.prompt, legacyLoader, "", 1) + "\n\n" + openCodeBundleInstructions(root, agent.skillName)
+	prompt := strings.Replace(agent.prompt, legacyLoader, "", 1)
+	if agent.key == "rotta-orchestrator" {
+		prompt += " Use file edits only for workflow records and approval packets under core policy."
+	}
+	return prompt + "\n\n" + openCodeBundleInstructions(root, agent.skillName)
 }
 
 func bindOpenCodeAsset(data []byte, root, role string) []byte {
