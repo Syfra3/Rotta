@@ -68,6 +68,7 @@ type Result struct {
 	VelaBin                         string // resolved path to the vela binary
 	Context7                        Context7Result
 	MCPStatuses                     map[string]map[string]MCPStatusResult
+	Warnings                        []string
 }
 
 // MCPStatus reports a selected MCP's installation configuration or health state.
@@ -285,6 +286,13 @@ func prepareInstall(opts Options) (*Result, string, string, bool, bool, error) {
 	if err != nil {
 		recordSelectedHostFailure(result, opts, err)
 		return result, "", "", false, false, err
+	}
+	if targetsOpenCode(opts.Target) {
+		warnings, err := openCodeWorkRecordWarnings(opts, home)
+		if err != nil {
+			return result, "", "", false, false, err
+		}
+		result.Warnings = append(result.Warnings, warnings...)
 	}
 	if routingNoOp && !hasNonRoutingInstallWork(opts) {
 		return result, home, projectPath, true, true, nil

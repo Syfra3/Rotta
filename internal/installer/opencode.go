@@ -36,9 +36,9 @@ var rottaAgents = []agentEntry{
 		description: "Rotta Next — lightweight Fast/Strict router",
 		mode:        "primary",
 		hidden:      false,
-		tools:       map[string]bool{"bash": false, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": false, "read": true, "write": false},
+		tools:       map[string]bool{"bash": false, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": true, "read": true, "write": true},
 		permission:  map[string]string{"question": "allow"},
-		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Do not implement code or execute ordinary operations.",
+		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Use file edits only for workflow records and approval packets under core policy. Do not implement code or execute ordinary operations.",
 		assetPath:   "agents/rotta-orchestrator.md",
 		skillName:   "rotta-orchestrator",
 	},
@@ -221,6 +221,32 @@ func failRoutingAt(stage string) error {
 		return nil
 	}
 	return routingFailureHook(stage)
+}
+
+// Existing agent tool values are not installer-owned. Report explicit disabled
+// file tools even on a no-op rerun instead of silently granting write access.
+func openCodeWorkRecordWarnings(opts Options, home string) ([]string, error) {
+	resolution, err := resolveOpenCodeConfig(opts, home)
+	if err != nil {
+		return nil, err
+	}
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return nil, err
+	}
+	agents, _ := document.config["agent"].(map[string]interface{})
+	orchestrator, _ := agents["rotta-orchestrator"].(map[string]interface{})
+	tools, _ := orchestrator["tools"].(map[string]interface{})
+	var disabled []string
+	for _, tool := range []string{"edit", "write"} {
+		if enabled, explicit := tools[tool].(bool); explicit && !enabled {
+			disabled = append(disabled, "agent.rotta-orchestrator.tools."+tool+"=false")
+		}
+	}
+	if len(disabled) == 0 {
+		return nil, nil
+	}
+	return []string{fmt.Sprintf("OpenCode work-record reconciliation required in %s: preserved %s. Refreshed policies alone do not enable local work-record persistence. Reconcile these disabled file tools with the intended workflow-record access and applicable permissions, then restart OpenCode; bash does not need enabling. Existing agent and custom settings were not overwritten.", resolution.Path, strings.Join(disabled, ", "))}, nil
 }
 
 func rollbackOpenCodeRouting(cause error, configPath string, config []byte, configExists bool, manifestPath string, manifest []byte, manifestExists bool, assets map[string]routingFileSnapshot) error {

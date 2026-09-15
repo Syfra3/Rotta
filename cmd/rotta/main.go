@@ -146,6 +146,11 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 		CommandStdout: stdout,
 		CommandStderr: stderr,
 	})
+	if result != nil {
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(stderr, "Warning: %s\n", warning)
+		}
+	}
 	if err != nil {
 		return err
 	}

@@ -403,6 +403,9 @@ func (m Model) viewSuccess() string {
 			b.WriteString(progressDoneStyle.Render("  ✓ ") + valueStyle.Render(f) + "\n")
 		}
 		b.WriteString("\n")
+		for _, warning := range m.InstallResult.Warnings {
+			b.WriteString(valueStyle.Render("Warning: "+warning) + "\n\n")
+		}
 		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
 	}
 
@@ -420,6 +423,9 @@ func (m Model) viewError() string {
 	b.WriteString(errorStyle.Render("✗ Installation Failed") + "\n\n")
 	b.WriteString(valueStyle.Render(m.InstallError) + "\n\n")
 	if m.InstallResult != nil {
+		for _, warning := range m.InstallResult.Warnings {
+			b.WriteString(valueStyle.Render("Warning: "+warning) + "\n\n")
+		}
 		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
 	}
 	b.WriteString(helpStyle.Render("Press Enter or q to exit"))
