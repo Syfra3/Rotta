@@ -9,35 +9,43 @@ import (
 
 // installClaudeCode copies skills and patches Claude Code settings.
 func installClaudeCode(opts Options, home string) ([]string, error) {
-	skillsDir := filepath.Join(home, ".claude", "skills")
+	root, err := claudeBundleRoot(home)
+	if err != nil {
+		return nil, err
+	}
 	agentsDir := filepath.Join(home, ".claude", "agents")
 	managed := map[string][]byte{}
 	core, err := readRenderedAsset("core/rotta-core.md", opts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read embedded core policy: %w", err)
 	}
-	managed[filepath.Join(skillsDir, "rotta-next", "rotta-core", "SKILL.md")] = core
+	managed[filepath.Join(root, "rotta-core", "SKILL.md")] = bindClaudeAsset(core, root, "rotta-core")
 	for _, agent := range rottaAgents {
 		data, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
-		managed[filepath.Join(skillsDir, "rotta-next", agent.skillName, "SKILL.md")] = data
-		managed[filepath.Join(agentsDir, agent.key+".md")] = data
+		bound := bindClaudeAsset(data, root, agent.skillName)
+		managed[filepath.Join(root, agent.skillName, "SKILL.md")] = bound
+		managed[filepath.Join(agentsDir, agent.key+".md")] = bound
 	}
 	return installManagedFiles(home, managed)
 }
 
 func installClaudeCodeAgents(opts Options, agentsDir string) ([]string, error) {
+	home := filepath.Clean(filepath.Join(agentsDir, "..", ".."))
+	root, err := claudeBundleRoot(home)
+	if err != nil {
+		return nil, err
+	}
 	managed := map[string][]byte{}
 	for _, agent := range rottaAgents {
 		data, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
-		managed[filepath.Join(agentsDir, agent.key+".md")] = data
+		managed[filepath.Join(agentsDir, agent.key+".md")] = bindClaudeAsset(data, root, agent.skillName)
 	}
-	home := filepath.Clean(filepath.Join(agentsDir, "..", ".."))
 	return installManagedFiles(home, managed)
 }
 

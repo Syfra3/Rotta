@@ -43,6 +43,11 @@ func installedHostResult(opts Options, host, home string, files []string) (HostI
 		return HostInstallResult{}, err
 	}
 	result.OpenCodeConfig = resolution
+	document, err := readResolvedOpenCodeConfig(resolution)
+	if err != nil {
+		return HostInstallResult{}, err
+	}
+	result.Capabilities = map[string]HostCapability{"source_loading": openCodeSourceLoadingCapability(home, document.config)}
 	return result, nil
 }
 
