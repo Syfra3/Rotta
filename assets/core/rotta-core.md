@@ -17,6 +17,18 @@ Fast mode is the default. It recovers relevant context, classifies risk, optiona
 
 Strict mode is required for security, authentication, payments, migrations, destructive operations, public contracts, high-impact multi-component changes, or an explicit user request. Before implementation, write a compact contract under `.rotta/strict/` and obtain one explicit approval. Use approved Gherkin only when behavioral UI, public-interface, validation, authorization, destructive-confirmation, or workflow examples are material to unambiguous approval. A user may request a documented Fast-mode exception to a Strict trigger.
 
+Classify the intended behavior, not keywords or file count: cosmetic text in a finance product is not automatically payment logic. State the mode and concrete reason once; reconsider only on material new facts. A newly discovered Strict boundary holds only the unapproved affected work, retaining relevant discovery and evidence.
+
+## Goal and Approval Continuity
+
+Keep the user's outcome as the acceptance boundary. Fast: concise scope → implement → relevant checks → independent review → complete. Strict adds material clarification and one execution approval before that same loop. When Gherkin is needed, render it with the contract in one approval packet, not a second equivalent gate. A specification-only request ends with the requested specification, without unsolicited implementation or mandatory independent spec-review cycles.
+
+An implementation request plus approval of the rendered execution scope permits ordinary in-scope implementation and delegation allowed by the user's model/agent constraints. Decomposing approved work does not require child contracts or fresh approvals. A reviewer recommendation cannot create an approval gate. Honor an existing application contract's explicit child gates until the user amends that boundary; never silently reinterpret old approval.
+
+Keep contracts compact (about 1,000 words of explanatory prose by default, not a hard gate). A master is either a bounded execution contract or a roadmap: do not require an exhaustive implementation-ready master and then repeat that detail in child contracts. Reference shared schemas/fixtures for exactness. Resolve only material product, risk, scope and operational decisions; choose ordinary reversible implementation details using project conventions.
+
+Reapproval is required for a material change to observable acceptance, invariants, scope or operational effect, not routine in-scope correction. Preserve approved artifact bytes and put non-normative notes/evidence separately. If normative content changes, classify and present the affected delta; do not reuse a stale digest or reopen unaffected approval. Completion advances to the next authorized slice without a generic continuation prompt. It never grants unrelated operational authority.
+
 Use concise capsule checks by default. Documentation, formatting, dependency/audit remediation, unchanged-behavior refactors, and cosmetic UI changes do not need Gherkin unless they alter observable behavior. Treat UI state transitions, validation, authorization, destructive confirmation, and accessibility behavior as behavioral.
 
 ## Delivery and Approval Boundary
@@ -29,7 +41,9 @@ Plan tasks around a user-visible boundary, not domain/document milestones. Each 
 
 ## Task Capsules
 
-Establish one resolved policy source per canonical project root before work begins. Record the resolved loaded core and orchestrator paths in the initial capsule and final outcome. If either source changes during a session, require a safe-stop and rebaseline before further work, and report the provenance change. Advisory evidence cannot replace this source check.
+Establish one resolved policy source per canonical project root before work begins. Record the resolved loaded core and orchestrator paths in the initial capsule and final outcome. If either source changes during a session, require a safe-stop and rebaseline for affected policy-dependent work, and report the provenance change. Advisory evidence cannot replace this source check.
+
+Honor an explicit installed or parent-provided bundle: read core and roles by their exact absolute paths, not by ambiguous skill names. Every instruction to load a skill means the file in that bundle. Record actual loaded paths and content/bundle identity once, reuse fully loaded content, and pass that bundle to children. Never mix same-named Claude/OpenCode/legacy copies or let a legacy phase skill override Next routing. Missing, conflicting or unreadable sources hold the affected execution with the exact reason; do not silently fall back. Preserve independent authorized work. Installation changes require a checkpoint/rebaseline and host restart where applicable, not a reset of approvals or review history.
 
 Every task capsule uses these literal labels, exactly: `Objective`; `Acceptance checks`; `Declared scope`; `Non-goals`; `Baseline`; `Relevant paths or facts`; `Verification commands`; `Expected result format`. Exclude credentials, raw logs, unrelated history, and duplicated core policy. Refuse to proceed when baseline or scope is materially unclear.
 
@@ -48,6 +62,8 @@ Before each local update, re-read the record and compare the expected work ID, w
 On resume, restore the local record once, validate workspace, current diff and approval references, and refresh only materially changed evidence. Missing approval evidence holds only affected scope for confirmation; it does not erase findings/counts or restart discovery. A renamed approval artifact needs verified content/identity, not a guessed replacement. Local state records exact progress; Ancora is an optional advisory summary and pointer only. Stale memory cannot authorize work, replace local approval evidence, reset counts or advance status. If no durable record is available, report continuity as unavailable and return the compact packet; never claim it was persisted.
 
 These are agent-turn file-tool instructions, not a Go controller or host-enforced state machine. `feature_progress.go` is legacy worktree-bound progress, and `ancora_state.go` validates advisory pointers; neither is an automatic Next agent persistence hook.
+
+Renaming, resuming, new agents or internal decomposition never reset review history. Coordinate overlapping writes; serialize affected edits when isolation is unavailable, without imposing worktrees on every task.
 
 ## Native Questions
 
@@ -75,13 +91,19 @@ Before independent review, the implementer must run reproducible acceptance chec
 
 The orchestrator checks that handoff before dispatching review. If 57 of 61 acceptance checks fail while focused tests pass, route to correction, not independent review. Any known deterministic in-scope acceptance failure returns to the implementer with stable finding IDs and the same approval; do not use a reviewer to discover already-known failures. A material required environment gap holds dependent review readiness and names the missing observation. Continue independent authorized work. Re-run checks invalidated by the repair; preserve still-valid passed evidence. Do not repeatedly run the same failing attempt without a new hypothesis or evidence.
 
+Before review, correct known deterministic failures and check affected interactions, fixture arithmetic, identifier/schema consistency and response/error paths when material. Use meaningful regression checks, not tests that mirror implementation. A changed file invalidates only evidence dependent on changed behavior/content, not every earlier result. An unavailable required environment remains an explicit evidence gap; optional tools or missing telemetry cannot create a gate.
+
 ## Finding Admission and Review Convergence
 
-Use one initial independent review per coherent acceptance boundary, then one consolidated ordinary repair and delta check, then at most one root-cause recovery and final delta check. Keep cumulative counts in the work record; renaming or replacing agents never grants a fresh budget. Test iterations are not independent reviews. Recovery explains why the prior correction failed before changing code. Material new scope questions go directly to the user when discovered.
+These are agent-turn instructions, not a runtime-enforced controller. Keep correctness and progress together in both Fast and Strict.
 
-Findings have stable IDs, severity and `blocker`, `advisory` or `evidence-gap` classification. Blockers identify a violated approved requirement or concrete correctness/security invariant, affected path/behavior, causal evidence, material impact and smallest in-scope correction. Style, workflow preferences and unrelated pre-existing defects are advisory absent material evidence. Missing evidence blocks only when required behavior cannot be established. A delta check verifies finding closure and plausible repair regressions; reopen unchanged accepted scope only for new material evidence. No blockers means advance without a review-of-review or continuation prompt.
-
-If recovery leaves blockers, preserve the unresolved boundary and cumulative history, hold only dependent work and continue independent authorized work. Ask only for a real material decision, missing authority/evidence, or a bounded further attempt with a new hypothesis. A counter alone is not a new approval gate; never conceal incomplete acceptance or downgrade defects to pass.
+- Classify findings as `blocker`, `advisory` or `evidence-gap`, with stable IDs and severity. A blocker names a violated approved requirement or concrete correctness/security invariant, affected path/behavior, causal evidence or reproduction, material impact and smallest in-scope correction. Real invariants need not have been exhaustively listed to protect correctness.
+- An evidence gap blocks only when material required behavior cannot be established; name the missing observation. Style, unrelated pre-existing defects, speculative hardening and workflow preferences are advisory without new material evidence. Severity labels alone cannot expand scope, require approvals or universal full suites. Preserve residual risks without inventing blockers.
+- Use one initial independent review for a coherent acceptance boundary. Consolidate all identified blockers before one ordinary repair and relevant checks. Do not send a known-failing handoff as approval-ready.
+- The first delta check verifies admitted finding closure, changed behavior and plausible repair-induced regressions. Reopen unchanged accepted scope only for new material evidence; explain any necessary broadening. Reuse the reviewer session when useful, or pass compact findings/evidence to a new reviewer. No blockers means advance automatically.
+- Remaining blockers trigger one automatic root-cause recovery: explain why the first correction failed, consolidate affected invariants, make one coherent repair, verify and perform one final independent delta check. Do not create a new plan approval or child contract for this recovery. Material new scope/authority decisions go to the user immediately, not after guessing through the allowance.
+- The unchanged packet permits at most three independent review invocations: initial review, ordinary delta check, recovery delta check. Targeted test iterations are not reviews, but repeating an unchanged failure requires a new hypothesis or evidence. Resuming or changing agent does not grant another invocation.
+- If recovery still leaves blockers, hold only dependent work, preserve findings and continue independent authorized work. Ask only for a real decision, missing authority/evidence or a bounded further attempt with a new hypothesis; a counter alone is not a user gate. If no useful authorized action remains, report the precise blocker and recommended next action honestly. Do not reset the budget by renaming the packet, conceal incomplete acceptance or downgrade a real defect to pass.
 
 ## Advisory Integrations
 
@@ -96,6 +118,8 @@ Route every named structural Vela question through `rotta-explore`; only that ex
 Every terminal outcome explicitly declares one terminal state: `completed`, `blocked`, or `safely stopped`. It reports all of these literal fields: `Mode`; `Roles invoked`; `Human decision count`; `Tests run`; `Review result`; `Unresolved risk`; `Active elapsed time`; `Child-session count`; `Retries`; `User-waiting/external-outage time`. State `unknown` or `unavailable` rather than omitting an applicable value. Compare equivalent tasks when benchmarking Fast mode.
 
 Lead user-facing updates with the capability delivered, acceptance evidence and next meaningful action. Keep detailed counters/provenance in the compact work record, showing them when useful or requested. Distinguish `implemented` (code/artifact exists), `integrated` (connected to the real consumer path), `verified` (required checks passed on that path), and `delivered` (the approved user-visible outcome is usable at its agreed boundary). Report each status with evidence or its gap. A foundation/domain/doc milestone may be implemented and verified locally while the feature remains undelivered. `completed` describes only the named assigned boundary, never silently the whole feature. Delivery does not imply deployment or grant operational authority.
+
+Updates/todos describe deliverables and the next meaningful action, not preplanned chains of final re-reviews. Count initial/delta reviews, dispatches, unique reviewers and recoveries separately; never equate context-window tokens with total consumption or unknown active time with elapsed time. Missing optional metrics never block ordinary work.
 
 ## Governance scenarios
 

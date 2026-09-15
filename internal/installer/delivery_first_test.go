@@ -251,7 +251,11 @@ func TestDeliveryFirstInstalledConsumersAndTools(t *testing.T) {
 					paths = []string{filepath.Join(home, ".codex", "AGENTS.md")}
 				}
 				for _, path := range paths {
-					assertRottaNextFileContains(t, path, policy)
+					// Host bindings are inserted between frontmatter and body.
+					// Require both original sections without rejecting that binding.
+					for _, section := range strings.SplitN(policy, "\n\n", 2) {
+						assertRottaNextFileContains(t, path, section)
+					}
 				}
 			}
 			if host == "opencode" {
@@ -281,7 +285,13 @@ func assertDeliveryFirstOpenCodeTools(t *testing.T, home string) {
 		if !ok {
 			t.Fatalf("missing consumer %s", role)
 		}
-		assertRottaNextContainsAll(t, agent.Prompt, []string{"Load rotta-core and " + role, "~/.config/opencode/skills/rotta-next/"})
+		root := filepath.Join(home, ".config", "opencode", "skills", "rotta-next")
+		assertRottaNextContainsAll(t, agent.Prompt, []string{
+			"use the read tool with absolute filePath",
+			filepath.Join(root, "rotta-core", "SKILL.md"),
+			filepath.Join(root, role, "SKILL.md"),
+		})
+		assertRottaNextLacksAll(t, agent.Prompt, []string{"Load rotta-core and " + role, "~/.config/opencode/skills/rotta-next/"})
 		if !agent.Tools["read"] {
 			t.Fatalf("%s cannot read shared work record", role)
 		}

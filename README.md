@@ -40,8 +40,9 @@ For a normal request, expect this sequence:
 1. `rotta-orchestrator` recovers only relevant context and classifies risk.
 2. It optionally asks `rotta-explore` a bounded structural question.
 3. `rotta-impl` completes one coherent implementation slice and supplies reproducible acceptance results. Known acceptance failures route back to correction even when focused tests pass.
-4. Once acceptance-ready, `rotta-review` independently inspects the final diff, affected code, handoff, and test evidence.
-5. The orchestrator reports results, unresolved risk, and the next safe action.
+4. Once acceptance-ready, `rotta-review` independently inspects the final diff, affected code, handoff, and test evidence, returning concrete blockers together.
+5. The orchestrator advances on success. If needed, it routes a consolidated repair and focused delta check, then at most one root-cause recovery and final delta check.
+6. It reports delivered outcomes and limitations. Unresolved blockers hold only dependent work; independent authorized work can continue.
 
 The workflow asks the human only for a material product decision, missing requirements, a Strict-mode approval, credentials, or an external or destructive operation. Passing review never authorizes a commit, push, release, graph index, or cleanup action.
 
@@ -56,14 +57,21 @@ flowchart TD
     strict -- Yes --> contract[One compact outcome/invariants/acceptance packet with necessary examples]
     contract --> approval{Human approves?}
     approval -- No --> clarify[Clarify, revise, or stop]
-    approval -- Yes --> implement
+    approval -- Yes: one execution approval --> implement
 
     implement --> verify[Run focused and required acceptance checks]
     verify --> ready{Acceptance-ready?}
     ready -- Known failures --> implement
     ready -- Required evidence unavailable --> gap[Report gap and hold dependent readiness]
-    ready -- Yes --> review[Independent diff and evidence review]
-    review --> operation{External or destructive action requested?}
+    ready -- Yes --> review[One initial independent diff and evidence review]
+    review -- No blockers --> operation{External or destructive action requested?}
+    review -- Blockers --> repair[Consolidated repair and relevant checks]
+    repair --> delta[Focused delta check]
+    delta -- No blockers --> operation
+    delta -- Blockers --> recovery[One root-cause recovery, repair and final delta check]
+    recovery -- No blockers --> operation
+    recovery -- Blockers remain --> partial[Hold dependent work; continue independent authorized work]
+    partial --> decision[Report concrete missing decision or evidence]
     operation -- No --> report[Report outcome and residual risk]
     operation -- Yes --> consent[Require explicit user request]
     consent --> ops[Run one bounded rotta-ops action]
@@ -95,6 +103,10 @@ Generated files are written for the selected target:
 
 All core and role files are tracked in `~/.config/rotta/managed-artifacts.json` with SHA-256 digests. Reinstalling updates only Rotta-owned, unmodified files. Installation rejects unowned, modified, malformed, or symlinked managed targets instead of silently overwriting them.
 
+OpenCode prompts and installed skills explicitly read the core and role from the same absolute bundle under the effective `XDG_CONFIG_HOME` (or `~/.config`). They do not resolve `rotta-core` by name, avoiding stale same-named skills under `~/.claude/` or other discovery paths. Exact legacy prompts are upgraded only with intact managed-role ownership evidence. Custom prompts are preserved; setup reports degraded `source_loading` with a concrete remediation when their loader cannot be established. This reports generated configuration, not proof of live host behavior: overlays and read permissions can still intervene. Restart OpenCode and verify the actual loaded paths after installing. Duplicate custom/other-host skills are not deleted.
+
+Claude agents explicitly read their matching `.claude/skills/rotta-next/` bundle. Codex uses the core and role sections embedded in its generated `.codex/AGENTS.md`, without searching for external skills. User-specified model and delegation constraints still apply.
+
 During setup, Ancora and Vela are independent choices.
 
 - If Ancora is enabled, agents recover concise relevant context and save compact decisions, discoveries, and end summaries. An Ancora failure is a warning, not a workflow failure.
@@ -125,6 +137,8 @@ Gherkin is optional in Strict mode. Rotta uses it only when UI state transitions
 
 Strict combines outcome, scope, invariants, acceptance checks and necessary examples in **one approval packet**. It does not automatically run independent contract reviews or equivalent child approvals. Material ambiguity goes directly to the user. Internal tasks and ordinary corrections reuse the approved scope.
 
+Material changes to acceptance, invariants, scope or operational effect need a narrow amendment. Existing application contracts with explicit child approvals remain binding until the user changes them. A specification-only request ends with the specification.
+
 ### Work continuity and delivery
 
 The orchestrator owns one stable local work record across agents, resumes and renames, using existing durable project/session records or `.rotta/work/<work-id>.md`. It retains approved scope and approval evidence references, outstanding acceptance findings, cumulative review/recovery counts, passed checks and next action. Children read its ID/revision and return deltas; the orchestrator re-reads, checks revision, merges and reads back updates. Fast does not need a legacy worktree or feature manifest. Ancora is an optional advisory summary; stale memory cannot authorize work.
@@ -135,12 +149,22 @@ These rules ship as core/role instructions consumed through the existing install
 
 **Upgrading an older OpenCode installation:** even an untouched older generated orchestrator can retain `tools.edit: false` and `tools.write: false`. New defaults apply to absent agent entries; the installer preserves existing agent settings rather than guessing ownership. Installation and no-op reruns report a reconciliation warning with the resolved config path and each explicitly disabled file tool. Reconcile those settings and applicable permissions for workflow-record access, then restart OpenCode. Bash can stay disabled. Until reconciled, refreshed policy files alone do not make local work-record persistence usable. Custom prompts, tools and unrelated configuration are preserved.
 
+### Review that converges
+
+- **Blocker:** a violated requirement or concrete correctness/security invariant, supported by causal evidence, material impact and an in-scope correction.
+- **Advisory:** preferences, speculative hardening or unrelated existing issues without a demonstrated material violation. Recommendations cannot invent approval gates.
+- **Evidence gap:** blocks only when material required behavior cannot be established by current evidence.
+
+One initial review is followed, when necessary, by one consolidated repair/delta check and one autonomous root-cause recovery/final delta check. Delta checks focus on finding closure and repair-induced regressions. Reopening unchanged accepted scope requires new material evidence. A pass advances automatically; a counter alone does not trigger a generic “continue?” question. If the final check still finds real blockers, preserve work, continue independent authorized work and explain the concrete decision or missing evidence. Never hide a defect to fit the budget. Renaming tasks or resuming agents does not reset review history.
+
+These are agent-turn policies, **not a runtime-enforced state machine**. Installer tests verify generated loaders and ownership behavior; policy/evaluation evidence must distinguish simulated decisions from live workflow execution. No percentage speedup is claimed without comparable measured tasks.
+
 ## What To Expect
 
 - The default interaction is shorter and more autonomous, but it still ends with a fresh review.
 - Verification is proportional: changed behavior gets focused checks first; expensive full-suite, coverage, static-analysis, or audit runs happen only when policy, risk, evidence, or the user requires them.
 - Review findings are concrete and ordered by severity. If there are no findings, the review states that and names residual testing gaps.
-- Outcome reports include the selected mode, invoked roles, requested human decisions, tests run, review result, unresolved risk, elapsed active time, child sessions, and retries.
+- User-facing reports lead with delivered outcomes, checks and material limitations. Detailed mode/role/decision/timing/retry records stay compact in session evidence and can be expanded on request. Missing optional metrics do not block work.
 - Historical v2-only tests remain available behind the `legacy_v2` Go build tag. Default `go test ./...` validates the active Rotta Next installer, CLI, and TUI behavior.
 
 ## Development

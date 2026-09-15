@@ -28,6 +28,26 @@ func TestDeliveryFirstTUIDisplaysReconciliationWarnings(t *testing.T) {
 	}
 }
 
+func TestSuccessShowsUnresolvedPolicyLoadingAndRecovery(t *testing.T) {
+	model := New()
+	model.Screen = ScreenSuccess
+	model.InstallResult = &installer.Result{Hosts: map[string]installer.HostInstallResult{
+		"opencode": {Capabilities: map[string]installer.HostCapability{
+			"source_loading": {
+				Status:      installer.HostCapabilityStatusDegraded,
+				Reason:      "Custom loader preserved: agent.rotta-review.prompt",
+				Remediation: "Use the selected absolute core/role paths and restart OpenCode.",
+			},
+		}},
+	}}
+	view := model.View()
+	for _, want := range []string{"OpenCode policy loading: degraded", "agent.rotta-review.prompt", "selected absolute core/role paths", "Restart your coding agent"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("source-loading warning hidden: missing %q in %s", want, view)
+		}
+	}
+}
+
 func TestRottaNextTUIProjectSelectionSkipsRetiredModeScreens(t *testing.T) {
 	model := New()
 	model.Screen = ScreenProjectPath
