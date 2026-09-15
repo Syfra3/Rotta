@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.2](https://github.com/Syfra3/Rotta/compare/v1.16.1...v1.16.2) (2026-09-15)
+
+
+### Bug Fixes
+
+* **workflow:** make delivery and acceptance drive execution ([4c0c8ac](https://github.com/Syfra3/Rotta/commit/4c0c8ac8ca58984df93ee0a048b67c5657394c74))
+* **workflow:** make delivery and acceptance drive execution ([59af54a](https://github.com/Syfra3/Rotta/commit/59af54a429dc8cfbe36322b0e338dce64ce25d2c))
+
 ## [1.16.1](https://github.com/Syfra3/Rotta/compare/v1.16.0...v1.16.1) (2026-09-14)
 
 
