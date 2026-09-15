@@ -88,6 +88,10 @@ func TestOpenCodeCanonicalLoadingUpgradesLegacyAndThenNoOps(t *testing.T) {
 		}
 		legacyFiles[filepath.Join(root, agent.skillName, "SKILL.md")] = data
 		entry := openCodeAgentEntry(agent)
+		if agent.key == "rotta-orchestrator" {
+			// Pin the shipped legacy fingerprint independently of current defaults.
+			entry["prompt"] = "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Do not implement code or execute ordinary operations."
+		}
 		entry["description"] = "keep custom description"
 		agents[agent.key] = entry
 	}
