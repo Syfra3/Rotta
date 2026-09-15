@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Syfra3/Rotta/internal/installer"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -12,6 +13,17 @@ func TestRottaNextTUIShowsFastAndStrictModes(t *testing.T) {
 	for _, want := range []string{"Fast mode", "Strict mode", "Orchestrator, Explore, Implementation, Review, Operations"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("welcome view missing %q", want)
+		}
+	}
+}
+
+func TestDeliveryFirstTUIDisplaysReconciliationWarnings(t *testing.T) {
+	model := New()
+	warning := "OpenCode work-record reconciliation required in /custom/opencode.json: preserved agent.rotta-orchestrator.tools.edit=false"
+	model.InstallResult = &installer.Result{Warnings: []string{warning}}
+	for _, view := range []string{model.viewSuccess(), model.viewError()} {
+		if !strings.Contains(view, "Warning: "+warning) {
+			t.Fatalf("TUI hid reconciliation warning: %s", view)
 		}
 	}
 }
