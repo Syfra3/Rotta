@@ -38,7 +38,7 @@ var rottaAgents = []agentEntry{
 		hidden:      false,
 		tools:       map[string]bool{"bash": false, "delegate": true, "delegation_list": true, "delegation_read": true, "edit": true, "read": true, "write": true},
 		permission:  map[string]string{"question": "allow"},
-		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Use file edits only for workflow records and approval packets under core policy. Do not implement code or execute ordinary operations.",
+		prompt:      "You are Rotta-Orchestrator. Load rotta-core and rotta-orchestrator from ~/.config/opencode/skills/rotta-next/ before acting. Do not implement code or execute ordinary operations.",
 		assetPath:   "agents/rotta-orchestrator.md",
 		skillName:   "rotta-orchestrator",
 	},
@@ -157,7 +157,12 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := validateManagedFiles(home, managed); err != nil {
+	manifest, err := validateManagedFiles(home, managed)
+	if err != nil {
+		return nil, err
+	}
+	root, err := openCodeBundleRoot(home)
+	if err != nil {
 		return nil, err
 	}
 	original, readErr := readPrivateFile(resolution.Path)
@@ -178,7 +183,12 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	configChanged := false
 	for _, agent := range rottaAgents {
 		if _, exists := agentMap[agent.key]; !exists {
-			agentMap[agent.key] = openCodeAgentEntry(agent)
+			entry := openCodeAgentEntry(agent)
+			entry["prompt"] = openCodeAgentPrompt(agent, root)
+			agentMap[agent.key] = entry
+			configChanged = true
+		} else if entry, ok := agentMap[agent.key].(map[string]interface{}); ok && canUpgradeOpenCodePrompt(agent, entry, root, manifest) {
+			entry["prompt"] = openCodeAgentPrompt(agent, root)
 			configChanged = true
 		}
 	}
@@ -328,6 +338,15 @@ func preflightSelectedOpenCodeInstall(opts Options, home string) (bool, error) {
 	manifest, err := validateManagedFiles(home, managed)
 	if err != nil {
 		return false, err
+	}
+	root, err := openCodeBundleRoot(home)
+	if err != nil {
+		return false, err
+	}
+	for _, agent := range rottaAgents {
+		if entry, ok := agents[agent.key].(map[string]interface{}); ok && canUpgradeOpenCodePrompt(agent, entry, root, manifest) {
+			return false, nil
+		}
 	}
 	return !openCodeRoutingConfigurationNeedsChange(document.config, agents, routing) &&
 		!managedFilesNeedUpdate(manifest, managed) &&
@@ -510,20 +529,23 @@ func openCodeAgentOwnershipKey(configPath, agentKey string) string {
 }
 
 func openCodeManagedSkills(opts Options, home string) (map[string][]byte, error) {
-	skillsBase := filepath.Join(openCodeConfigHome(home), "opencode", "skills")
+	root, err := openCodeBundleRoot(home)
+	if err != nil {
+		return nil, err
+	}
 	managed := map[string][]byte{}
 	for _, agent := range rottaAgents {
 		data, err := readRenderedAsset(agent.assetPath, opts)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read embedded %s: %w", agent.assetPath, err)
 		}
-		managed[filepath.Join(skillsBase, "rotta-next", agent.skillName, "SKILL.md")] = data
+		managed[filepath.Join(root, agent.skillName, "SKILL.md")] = bindOpenCodeAsset(data, root, agent.skillName)
 	}
 	core, err := readRenderedAsset("core/rotta-core.md", opts)
 	if err != nil {
 		return nil, err
 	}
-	managed[filepath.Join(skillsBase, "rotta-next", "rotta-core", "SKILL.md")] = core
+	managed[filepath.Join(root, "rotta-core", "SKILL.md")] = bindOpenCodeAsset(core, root, "rotta-core")
 	return managed, nil
 }
 

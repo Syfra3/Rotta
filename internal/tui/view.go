@@ -407,10 +407,15 @@ func (m Model) viewSuccess() string {
 			b.WriteString(valueStyle.Render("Warning: "+warning) + "\n\n")
 		}
 		writeMCPStatuses(&b, m.InstallResult.MCPStatuses)
+		if capability, ok := m.InstallResult.Hosts["opencode"].Capabilities["source_loading"]; ok {
+			b.WriteString(sectionStyle.Render("OpenCode policy loading: "+string(capability.Status)) + "\n")
+			b.WriteString(valueStyle.Render(capability.Reason) + "\n")
+			b.WriteString(inputHintStyle.Render(capability.Remediation) + "\n\n")
+		}
 	}
 
 	b.WriteString(sectionStyle.Render("Next steps") + "\n")
-	b.WriteString(menuItemStyle.Render("  1. Start a task with Rotta-Orchestrator") + "\n")
+	b.WriteString(menuItemStyle.Render("  1. Restart your coding agent, then start a task with Rotta-Orchestrator") + "\n")
 	b.WriteString(menuItemStyle.Render("  2. Fast mode delegates one coherent slice and an independent review") + "\n")
 	b.WriteString(menuItemStyle.Render("  3. Strict mode asks for approval only when the risk triggers it") + "\n\n")
 

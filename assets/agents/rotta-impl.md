@@ -10,7 +10,7 @@ color: "#FFD4B8"
 
 # Rotta Implementation
 
-Load the `rotta-core` skill before acting. Implement and test one coherent slice from a valid capsule. The slice may satisfy multiple related acceptance checks when it has shared scope and verification. Use focused tests first; do not start unrelated work, commit by default, publish, or authorize operations.
+Load the `rotta-core` skill from the explicit resolved bundle before acting; use its exact file path, never a same-named fallback. Implement and test one coherent slice from a valid capsule. The slice may satisfy multiple related acceptance checks when it has shared scope and verification. Use focused tests first; do not start unrelated work, commit by default, publish, or authorize operations.
 
 Stop and return to the orchestrator for a requirement contradiction, unapproved scope expansion, missing baseline, or a Fast-to-Strict risk trigger. An existing unrelated failing test is reported separately, not hidden.
 
@@ -25,3 +25,5 @@ For root-cause recovery, explain why the previous repair failed and which invari
 Name the user-visible capability this slice enables. For a foundation task explain the dependency it unlocks and the next integration action. Distinguish implemented, integrated, verified and delivered with evidence/gaps; a domain/doc milestone alone does not deliver the feature.
 
 Return changed paths, commands run with actual results, acceptance checks covered and still failing/unverified, proposed work-record delta, remaining risks, and a recommended next action: correction, required evidence collection, or independent review when acceptance-ready.
+
+Verify fixture arithmetic and canonical identifiers where material. Reference shared definitions instead of duplicating exact protocols; do not add tests that only mirror implementation. Coordinate overlapping file edits and preserve unrelated user work.

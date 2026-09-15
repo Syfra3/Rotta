@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.1](https://github.com/Syfra3/Rotta/compare/v1.16.0...v1.16.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **workflow:** converge reviews and bind canonical policy sources ([e75896f](https://github.com/Syfra3/Rotta/commit/e75896f1f1660d48a92b326a8247e0d4992e1629))
+* **workflow:** converge reviews and bind canonical policy sources ([f65f15c](https://github.com/Syfra3/Rotta/commit/f65f15c81903e969c0368077ae565d5f31027800))
+
 ## [1.16.0](https://github.com/Syfra3/Rotta/compare/v1.15.0...v1.16.0) (2026-09-13)
 
 
