@@ -48,7 +48,9 @@ const (
 	TargetClaudeCode = "claude-code"
 	TargetOpenCode   = "opencode"
 	TargetCodex      = "codex"
+	TargetPi         = "pi"
 	TargetBoth       = "both"
+	TargetAll        = "all"
 )
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -90,7 +92,7 @@ type Model struct {
 	Height     int
 
 	// Target selection
-	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Both
+	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Pi, 4=Both, 5=All
 	Target       string
 
 	// Project path
@@ -145,8 +147,8 @@ type Model struct {
 	RecoveryError   string
 }
 
-var targets = []string{"Claude Code", "OpenCode", "Codex", "Both"}
-var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetBoth}
+var targets = []string{"Claude Code", "OpenCode", "Codex", "Pi", "Both", "All"}
+var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetPi, TargetBoth, TargetAll}
 var modeNames = []string{"Spec Mode (Spec Partner + Gherkin Author)", "Implementation Mode (TDD Craftsman)", "Review Mode (Judge + Mutation Tester)"}
 var modeDescriptions = []string{
 	"Draft → Hard Spec → Gherkin → Human approval",

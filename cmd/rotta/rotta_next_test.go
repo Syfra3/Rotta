@@ -63,3 +63,15 @@ func TestCLIReportsPreservedCustomLoaderOnNoOpInstall(t *testing.T) {
 		t.Fatalf("no-op installation changed custom configuration: %v", err)
 	}
 }
+
+func TestCLIInstallsGlobalPiExtensionWithoutOpenCodeConfirmation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var stdout bytes.Buffer
+	if err := runCLI([]string{"install", "--target", "pi", "--project", filepath.Join(home, "project")}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "extensions", "rotta.ts")); err != nil {
+		t.Fatalf("managed Pi extension was not installed: %v", err)
+	}
+}

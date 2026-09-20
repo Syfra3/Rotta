@@ -242,7 +242,7 @@ func (m Model) updateModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func targetIncludesOpenCode(target string) bool {
-	return target == TargetOpenCode || target == TargetBoth
+	return target == TargetOpenCode || target == TargetBoth || target == TargetAll
 }
 
 func (m *Model) startModelDiscovery() tea.Cmd {

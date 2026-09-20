@@ -99,11 +99,16 @@ Generated files are written for the selected target:
 | OpenCode | Agent entries in `~/.config/opencode/opencode.json` and skills under `~/.config/opencode/skills/rotta-next/` |
 | Claude Code | Role agents under `~/.claude/agents/` and skills under `~/.claude/skills/rotta-next/` |
 | Codex | Adapted instructions in `~/.codex/AGENTS.md` |
-| Both or all | Installs the selected host integrations |
+| Pi | Executable global extension at `~/.pi/agent/extensions/rotta.ts` |
+| Both or all | Installs the selected host integrations; `all` includes Pi exactly once |
 
 All core and role files are tracked in `~/.config/rotta/managed-artifacts.json` with SHA-256 digests. Reinstalling updates only Rotta-owned, unmodified files. Installation rejects unowned, modified, malformed, or symlinked managed targets instead of silently overwriting them.
 
 When OpenCode is selected, the installer offers **Default**, **Custom**, and **Disabled** model routing. Default retains Rotta's built-in seven-role mapping; Custom starts as an exact copy and lets you select locally discovered `opencode models` entries for each phase before confirmation; Disabled removes only Rotta-owned model fields. Discovery uses the local CLI without refreshing model data and does not verify provider credentials. If discovery is unavailable or empty, the visible default assignments remain available and no configuration changes occur until confirmation.
+
+### Pi integration
+
+Pi support is global-only and installs the managed executable extension above plus Pi-specific core and role files beneath `~/.pi/agent/rotta-next/`. The extension passes those exact installed policy paths to its Pi adapter (and safely stops if its host adapter cannot resolve the home path); it does not reuse OpenCode loading instructions. It performs bounded, isolated delegation with adapter-enforced role tool allowlists (reviewers have no shell-capable tool), parent-only serialized work-record writes, cancellation/timeout/output limits, fresh reviewer contexts, and validated result/error transport. Its question adapter accepts only Rotta governance triggers and fails closed for unavailable UI, cancellation, or stale/invalid decision bindings. These are adapter constraints, not an OS sandbox or proof of host-wide tool enforcement. Rotta never installs Pi or dependencies, runs a Pi model, or invokes a package manager. The recorded `earendil-works/pi` 0.86.1 manifest commit is research provenance only, not a supported-version claim; compatible installed-Pi runtime verification requires separate authority.
 
 OpenCode prompts and installed skills explicitly read the core and role from the same absolute bundle under the effective `XDG_CONFIG_HOME` (or `~/.config`). They do not resolve `rotta-core` by name, avoiding stale same-named skills under `~/.claude/` or other discovery paths. Exact legacy prompts are upgraded only with intact managed-role ownership evidence. Custom prompts are preserved; setup reports degraded `source_loading` with a concrete remediation when their loader cannot be established. This reports generated configuration, not proof of live host behavior: overlays and read permissions can still intervene. Restart OpenCode and verify the actual loaded paths after installing. Duplicate custom/other-host skills are not deleted.
 

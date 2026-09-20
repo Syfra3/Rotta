@@ -121,7 +121,7 @@ func readBenchmarkInput(input string) ([]workflow.OutcomeRecord, []string, error
 func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	target := flags.String("target", "both", "install target: claude-code, opencode, or both")
+	target := flags.String("target", "both", "install target: claude-code, opencode, codex, pi, both, or all")
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")

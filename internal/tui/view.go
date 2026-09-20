@@ -184,7 +184,9 @@ func (m Model) viewTargetSelect() string {
 		{"Claude Code", "Managed core and role skills → ~/.claude/skills/rotta-next/"},
 		{"OpenCode", "Agent entries + managed core and role skills for Rotta Next"},
 		{"Codex", "Codex instructions → ~/.codex/AGENTS.md"},
+		{"Pi", "Executable Rotta extension → ~/.pi/agent/extensions/rotta.ts"},
 		{"Both", "Install for both tools"},
+		{"All", "Install every supported host integration once"},
 	}
 
 	for i, item := range items {
