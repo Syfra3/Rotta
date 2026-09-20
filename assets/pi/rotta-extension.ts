@@ -14,14 +14,54 @@ const KILL_GRACE_MS = 5_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 120_000;
 const QUESTION_TIMEOUT_MS = 30_000;
+const memoryTools = [
+  "rotta_ancora_save",
+  "rotta_ancora_summarize",
+  "rotta_ancora_start",
+  "rotta_ancora_end",
+  "rotta_ancora_search",
+  "rotta_ancora_context",
+  "rotta_ancora_get",
+] as const;
+const docsTools = [
+  "rotta_context7_resolve_library_id",
+  "rotta_context7_query_docs",
+] as const;
+const velaTools = [
+  "rotta_vela_explore",
+  "rotta_vela_lookup",
+  "rotta_vela_dependencies",
+  "rotta_vela_reverse_dependencies",
+  "rotta_vela_impact",
+  "rotta_vela_path",
+  "rotta_vela_explain",
+  "rotta_vela_rank",
+  "rotta_vela_hotspots",
+  "rotta_vela_module_summary",
+  "rotta_vela_status",
+] as const;
 const roles = {
-  implementation: { skill: "rotta-impl", tools: ["read", "write", "edit"] },
-  reviewer: { skill: "rotta-review", tools: ["read", "grep", "find", "ls"] },
+  implementation: {
+    skill: "rotta-impl",
+    tools: ["read", "write", "edit", ...memoryTools, ...docsTools],
+  },
+  reviewer: {
+    skill: "rotta-review",
+    tools: ["read", "grep", "find", "ls", ...memoryTools, ...docsTools],
+  },
   exploration: {
     skill: "rotta-explore",
-    tools: ["read", "grep", "find", "ls"],
+    tools: [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      ...memoryTools,
+      ...velaTools,
+      ...docsTools,
+    ],
   },
-  operations: { skill: "rotta-ops", tools: ["read"] },
+  operations: { skill: "rotta-ops", tools: ["read", ...memoryTools] },
 } as const;
 type Role = keyof typeof roles;
 type Spawn = typeof nodeSpawn;
@@ -176,6 +216,24 @@ async function loadMCPBridge(
   }
 }
 function validChildResult(stdout: string) {
+  const parseEnvelope = (text: string) => {
+    const trimmed = text.trim();
+    const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(trimmed);
+    try {
+      const value = JSON.parse(fenced ? fenced[1] : trimmed);
+      if (
+        value && typeof value === "object" &&
+        ((value.status === "success" && typeof value.output === "string") ||
+          (value.status === "error" && typeof value.message === "string"))
+      ) {
+        return value as { status: "success"; output: string } | {
+          status: "error";
+          message: string;
+        };
+      }
+    } catch { /* invalid envelope */ }
+    return null;
+  };
   let finalAssistant = "";
   for (const line of stdout.split(/\r?\n/).reverse()) {
     try {
@@ -195,37 +253,13 @@ function validChildResult(stdout: string) {
           ).join("")
           : "";
         if (!finalAssistant) continue;
-        try {
-          const nested = JSON.parse(finalAssistant);
-          if (
-            nested && typeof nested === "object" &&
-            ((nested.status === "success" &&
-              typeof nested.output === "string") ||
-              (nested.status === "error" && typeof nested.message === "string"))
-          ) {
-            return nested as { status: "success"; output: string } | {
-              status: "error";
-              message: string;
-            };
-          }
-        } catch {
-          return null;
-        }
+        return parseEnvelope(finalAssistant);
       }
-      if (
-        value && typeof value === "object" &&
-        typeof value.status === "string" &&
-        ((value.status === "success" && typeof value.output === "string") ||
-          (value.status === "error" && typeof value.message === "string"))
-      ) {
-        return value as { status: "success"; output: string } | {
-          status: "error";
-          message: string;
-        };
-      }
+      const direct = parseEnvelope(line);
+      if (direct) return direct;
     } catch { /* next line */ }
   }
-  return finalAssistant ? null : null;
+  return null;
 }
 
 async function runChild(

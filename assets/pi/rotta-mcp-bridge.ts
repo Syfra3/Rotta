@@ -694,24 +694,24 @@ export function registerMCPBridge(
   const activate = async (signal?: AbortSignal) => {
     if (active) return active;
     active = (async () => {
-      for (const service of SERVICES) {
+      await Promise.all(SERVICES.map(async (service) => {
         if (!current()) {
           statuses[service] = {
             state: "unavailable",
             reason: "invalid or missing managed config",
           };
-          continue;
+          return;
         }
         if (!current()!.services[service].enabled) {
           statuses[service] = { state: "disabled" };
-          continue;
+          return;
         }
         if (!permitted[service].size) {
           statuses[service] = {
             state: "disabled",
             reason: "role not permitted",
           };
-          continue;
+          return;
         }
         try {
           const client = await clientFor(service, signal);
@@ -778,7 +778,7 @@ export function registerMCPBridge(
           } catch { /* original error wins */ }
           clients.delete(service);
         }
-      }
+      }));
     })();
     try {
       await active;

@@ -118,6 +118,36 @@ Deno.test("bridge activates only initialize/list, pages tools, preserves remote 
   assert(transport.calls.some((call) => call.params?.name === "ancora_search"));
 });
 
+Deno.test("bridge starts permitted MCP services concurrently", async () => {
+  const transport = stdio([[]]);
+  let spawned = 0, spawnedAtFirstInitialize = 0;
+  const spawn = ((...args: any[]) => {
+    const proc = transport.spawn(...args);
+    spawned++;
+    const write = proc.stdin.write;
+    proc.stdin.write = (line: string, done?: () => void) => {
+      if (
+        !spawnedAtFirstInitialize && JSON.parse(line).method === "initialize"
+      ) spawnedAtFirstInitialize = spawned;
+      return write.call(proc.stdin, line, done);
+    };
+    return proc;
+  }) as any;
+  const bridge = registerMCPBridge(host().pi as any, {
+    ...deps(
+      transport,
+      "exploration",
+      config({ ancora: true, vela: true, context7: false }),
+    ),
+    spawn,
+  });
+  await bridge.activate();
+  assert(
+    spawnedAtFirstInitialize === 2,
+    `MCP services started sequentially (${spawnedAtFirstInitialize}/2)`,
+  );
+});
+
 Deno.test("bridge enforces config, role intersection, collision safety and Vela capsule limit", async () => {
   const noConfig = host();
   await registerMCPBridge(
