@@ -1,4 +1,4 @@
-// Explicit child-only guard loaded with -e after --no-extensions.
+// Child-only guard, also auto-discovered by top-level Pi sessions.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -81,6 +81,10 @@ export function isProtectedWorkPath(input: string, workspace = root) {
 }
 
 export default function guard(pi: ExtensionAPI) {
+  // The extension directory is auto-loaded by top-level Pi sessions.
+  // Enforce child restrictions only when delegation assigned a child role.
+  if (!role) return;
+
   pi.on("tool_call", async (event: { toolName: string; input: unknown }) => {
     if (
       !allowed[role]?.includes(event.toolName) && !allowedMCP(event.toolName)

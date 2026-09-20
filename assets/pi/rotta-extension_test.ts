@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import registerRottaExtension, { registerRotta } from "./rotta-extension.ts";
-import guard, {
+import {
   isAllowedChildMCP,
   isProtectedWorkPath,
 } from "./rotta-child-guard.ts";
@@ -493,7 +493,40 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
   }, () => {});
 });
 
+async function loadGuard(role?: string) {
+  const previous = Deno.env.get("ROTTA_CHILD_ROLE");
+  try {
+    if (role === undefined) Deno.env.delete("ROTTA_CHILD_ROLE");
+    else Deno.env.set("ROTTA_CHILD_ROLE", role);
+    const module = await import(
+      `./rotta-child-guard.ts?test=${crypto.randomUUID()}`
+    );
+    return module.default;
+  } finally {
+    if (previous === undefined) Deno.env.delete("ROTTA_CHILD_ROLE");
+    else Deno.env.set("ROTTA_CHILD_ROLE", previous);
+  }
+}
+
+Deno.test("auto-loaded guard leaves top-level Pi sessions unrestricted", async () => {
+  for (const role of [undefined, ""]) {
+    const guard = await loadGuard(role);
+    const mock = host();
+    guard(mock.pi as any);
+    assert(!mock.events.tool_call, "parent session received child restrictions");
+  }
+});
+
+Deno.test("unknown child role still blocks tools", async () => {
+  const guard = await loadGuard("unknown");
+  const mock = host();
+  guard(mock.pi as any);
+  const handler = mock.events.tool_call as (event: unknown) => Promise<any>;
+  assert((await handler({ toolName: "read", input: {} })).block);
+});
+
 Deno.test("child guard blocks all canonical and symlinked work-record write targets", async () => {
+  const guard = await loadGuard("implementation");
   const fixture = Deno.makeTempDirSync();
   const external = Deno.makeTempDirSync();
   try {
@@ -521,6 +554,11 @@ Deno.test("child guard blocks all canonical and symlinked work-record write targ
         handlers.push(handler);
       },
     } as any);
+    assert(handlers.length === 1, "child guard was not registered");
+    assert(
+      await handlers[0]({ toolName: "read", input: {} }) === undefined,
+      "allowed child read was blocked",
+    );
     const blocked = await handlers[0]({
       toolName: "write",
       input: { path: `${Deno.cwd()}/.rotta/work/new/missing.md` },
