@@ -1,10 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import registerRottaExtension, { registerRotta } from "./rotta-extension.ts";
-import {
-  isAllowedChildMCP,
-  isProtectedWorkPath,
-} from "./rotta-child-guard.ts";
+import { isAllowedChildMCP, isProtectedWorkPath } from "./rotta-child-guard.ts";
 
 function assert(value: unknown, message = "assertion failed"): asserts value {
   if (!value) throw new Error(message);
@@ -98,7 +95,10 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
       args.includes("--no-context-files"),
   );
   assert(
-    args.includes("--tools") && args.includes("read,grep,find,ls"),
+    args.includes("--tools") &&
+      args.includes(
+        "read,grep,find,ls,rotta_ancora_save,rotta_ancora_summarize,rotta_ancora_start,rotta_ancora_end,rotta_ancora_search,rotta_ancora_context,rotta_ancora_get,rotta_context7_resolve_library_id,rotta_context7_query_docs",
+      ),
     "reviewer received a shell-capable tool",
   );
   assert(
@@ -113,6 +113,30 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     args.includes("/test-home/.pi/agent/rotta-next/rotta-mcp-bridge.ts"),
     "child MCP bridge not activated",
   );
+
+  const exploration = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{\\"status\\":\\"success\\",\\"output\\":\\"explored\\"}"}]}}\n',
+  });
+  const explorationHost = host();
+  registerRotta(explorationHost.pi as any, {
+    spawn: exploration.spawn,
+    home: () => "/test-home",
+  });
+  await tool(explorationHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "exploration", task: "trace dependencies" },
+    signal().signal,
+    () => {},
+    explorationHost.ctx,
+  );
+  const explorationArgs = exploration.calls[0][1] as string[];
+  const allowedTools = explorationArgs[explorationArgs.indexOf("--tools") + 1]
+    .split(",");
+  assert(allowedTools.includes("rotta_vela_dependencies"));
+  assert(allowedTools.includes("rotta_ancora_context"));
+  assert(allowedTools.includes("rotta_context7_query_docs"));
+  assert(!allowedTools.includes("bash"));
 });
 
 Deno.test("parent activation injects only exact installed core and orchestrator policies", async () => {
@@ -297,10 +321,18 @@ Deno.test("every child role gets its own isolated process allowlist", async () =
       mock.ctx,
     );
     const args = fixture.calls[0][1] as string[];
+    const allowed = args[args.indexOf("--tools") + 1].split(",");
     assert(
-      args.includes(tools) && args.includes("--no-session"),
+      tools.split(",").every((name) => allowed.includes(name)) &&
+        allowed.includes("rotta_ancora_context") &&
+        args.includes("--no-session"),
       `${role} process was not isolated/allowlisted`,
     );
+    assert(
+      allowed.includes("rotta_vela_explore") === (role === "exploration"),
+      `${role} received the wrong Vela permission`,
+    );
+    assert(!allowed.includes("bash"), `${role} received shell access`);
   }
 });
 
@@ -415,6 +447,23 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
   ).then(() => {
     throw new Error("invalid protocol succeeded");
   }, () => {});
+  const fenced = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"```json\\n{\\"status\\":\\"success\\",\\"output\\":\\"bounded report\\"}\\n```"}]}}\n',
+  });
+  const fencedHost = host();
+  registerRotta(fencedHost.pi as any, {
+    spawn: fenced.spawn,
+    home: () => "/test-home",
+  });
+  const fencedResult = await tool(fencedHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "operations", task: "report status" },
+    signal().signal,
+    () => {},
+    fencedHost.ctx,
+  );
+  assert(fencedResult.content[0].text === "bounded report");
   const slow = fakeSpawn({ wait: true });
   const timeoutHost = host();
   registerRotta(timeoutHost.pi as any, {
@@ -513,7 +562,10 @@ Deno.test("auto-loaded guard leaves top-level Pi sessions unrestricted", async (
     const guard = await loadGuard(role);
     const mock = host();
     guard(mock.pi as any);
-    assert(!mock.events.tool_call, "parent session received child restrictions");
+    assert(
+      !mock.events.tool_call,
+      "parent session received child restrictions",
+    );
   }
 });
 
