@@ -78,17 +78,20 @@ func (m Model) writeConfirmFiles(b *strings.Builder) {
 }
 
 func (m Model) writeConfirmHostFiles(b *strings.Builder) {
-	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
+	if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/rotta-core/SKILL.md")
 		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/<role>/SKILL.md")
 	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
+	if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (agent entries)")
 		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/rotta-core/SKILL.md")
 		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/<role>/SKILL.md")
 	}
-	if m.Target == TargetCodex {
+	if m.Target == TargetCodex || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.codex/AGENTS.md  (Codex instructions)")
+	}
+	if m.Target == TargetPi || m.Target == TargetAll {
+		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
 	}
 }
 

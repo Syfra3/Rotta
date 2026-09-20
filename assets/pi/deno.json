@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "typebox": "./test-shims/typebox.ts",
+    "@earendil-works/pi-coding-agent": "./test-shims/pi-coding-agent.ts"
+  }
+}

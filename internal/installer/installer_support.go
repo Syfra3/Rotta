@@ -148,10 +148,10 @@ func context7MCPCapability(host string) HostCapability {
 func selectedHosts(target string) []string {
 	switch target {
 	case "all":
-		return []string{"claude-code", "opencode", "codex"}
+		return []string{"claude-code", "opencode", "codex", "pi"}
 	case "both":
 		return []string{"claude-code", "opencode"}
-	case "claude-code", "opencode", "codex":
+	case "claude-code", "opencode", "codex", "pi":
 		return []string{target}
 	}
 	return nil
@@ -159,7 +159,7 @@ func selectedHosts(target string) []string {
 func targetsCodex(target string) bool { return target == "codex" || target == "all" }
 func isSupportedInstallTarget(target string) bool {
 	switch target {
-	case "", "claude-code", "opencode", "codex", "both", "all":
+	case "", "claude-code", "opencode", "codex", "pi", "both", "all":
 		return true
 	}
 	return false
@@ -167,7 +167,7 @@ func isSupportedInstallTarget(target string) bool {
 
 func installAllHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
 	var installErr error
-	for _, host := range []string{"claude-code", "opencode", "codex"} {
+	for _, host := range []string{"claude-code", "opencode", "codex", "pi"} {
 		files, err := cleanAndInstallHost(opts, host, home)
 		if err != nil {
 			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
@@ -214,6 +214,8 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 			return nil, err
 		}
 		return installCodex(hostOpts, home)
+	case "pi":
+		return installPi(hostOpts, home)
 	}
 	return nil, fmt.Errorf("unsupported host target %q", host)
 }
