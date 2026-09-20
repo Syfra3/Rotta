@@ -1,13 +1,38 @@
 package installer
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func installSelectedHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
 	if opts.Target == "all" {
 		return installAllHosts(opts, result, home, projectPath)
 	}
 	if err := installNamedHosts(opts, result, home); err != nil {
-		return nil, err
+		if opts.Target == "pi" {
+			result.Hosts["pi"] = HostInstallResult{Host: "pi", Status: HostInstallStatusFailed, Capabilities: map[string]HostCapability{}}
+			recordMCPStatuses(result, opts)
+			for name, enabled := range map[string]bool{"ancora": opts.SetupAncora, "vela": opts.SetupVela, "context7": opts.SetupContext7} {
+				if !enabled {
+					continue
+				}
+				result.MCPStatuses["pi"][name] = MCPStatusResult{Status: MCPStatusUnavailable, Reason: "Pi installation failed before managed MCP configuration was available: " + err.Error(), Remediation: "Repair the Pi installation failure and rerun Rotta.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}}
+				result.Hosts["pi"].Capabilities["mcp:"+name] = HostCapability{Name: "mcp:" + name, Status: HostCapabilityStatusFailed, Reason: err.Error(), Remediation: "Repair the Pi installation failure and rerun Rotta."}
+			}
+		}
+		if piConfigOwnershipRefusal(err, home) {
+			// Ownership refusal is deliberately not a successful installation.
+			// Still expose the preserved bytes as unvalidated evidence so callers
+			// do not mistake the selected service for pending/healthy.
+			for name, enabled := range map[string]bool{"ancora": opts.SetupAncora, "vela": opts.SetupVela, "context7": opts.SetupContext7} {
+				if enabled {
+					result.MCPStatuses["pi"][name] = MCPStatusResult{Status: MCPStatusPreserved, Reason: "Managed Pi configuration was preserved unvalidated after ownership refusal: " + err.Error(), Remediation: "Reconcile the user-owned Pi file before rerunning Rotta.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}}
+					result.Hosts["pi"].Capabilities["mcp:"+name] = HostCapability{Name: "mcp:" + name, Status: HostCapabilityStatusFailed, Reason: result.MCPStatuses["pi"][name].Reason, Remediation: result.MCPStatuses["pi"][name].Remediation}
+				}
+			}
+		}
+		return result, err
 	}
 	files, err := installConfig(projectPath)
 	if err != nil {
@@ -15,6 +40,16 @@ func installSelectedHosts(opts Options, result *Result, home, projectPath string
 	}
 	result.Files = append(result.Files, files...)
 	return result, nil
+}
+
+// Ownership is the sole error class that preserves an existing user file.
+// Asset, snapshot, write, injected-failure and rollback errors must remain
+// ordinary failed installation evidence rather than a fabricated preservation.
+func piConfigOwnershipRefusal(err error, home string) bool {
+	path := piMCPConfigPath(home)
+	return err != nil && strings.Contains(err.Error(), path) &&
+		strings.Contains(err.Error(), "managed") &&
+		(strings.Contains(err.Error(), "modified") || strings.Contains(err.Error(), "unmanaged"))
 }
 
 func installNamedHosts(opts Options, result *Result, home string) error {
@@ -67,7 +102,7 @@ func installHost(opts Options, host, home string) ([]string, error) {
 }
 
 func setupContext7(opts Options, result *Result, home, projectPath string) (bool, error) {
-	if !opts.SetupContext7 {
+	if !opts.SetupContext7 || opts.Target == "pi" {
 		return false, nil
 	}
 	context7Result, err := ConfigureContext7(opts, home)

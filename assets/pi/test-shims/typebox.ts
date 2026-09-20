@@ -7,4 +7,5 @@ export const Type = {
   Number: () => ({ type: "number" }),
   Array: (value: unknown) => value,
   Optional: (value: unknown) => value,
+  Unsafe: (value: unknown) => value,
 };

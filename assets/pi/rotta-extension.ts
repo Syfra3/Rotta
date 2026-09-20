@@ -3,6 +3,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { Type } from "typebox";
@@ -31,6 +32,15 @@ export type RottaDependencies = {
   maxTimeoutMs?: number;
   killGraceMs?: number;
   questionTimeoutMs?: number;
+  // Test seam; production reads only the explicitly selected optional key.
+  env?: (key: string) => string | undefined;
+  // Parent-only seams for the real installed bridge's transport boundary.
+  mcp?: {
+    fetch?: typeof fetch;
+    exists?: (file: string) => boolean;
+    env?: (key: string) => string | undefined;
+    timeoutMs?: number;
+  };
 };
 type DelegateParams = {
   role: string;
@@ -122,7 +132,7 @@ function policyPrompt(home: string, role: Role) {
     path.join(root, "rotta-core", "SKILL.md")
   } and ${
     path.join(root, roles[role].skill, "SKILL.md")
-  }. You are ${role}. Do not use unavailable tools or delegate. Return one JSON object only: {"status":"success","output":"..."} or {"status":"error","message":"..."}.`;
+  }. You are ${role}. Managed MCP tools, if discovered, are named rotta_ancora_*, rotta_vela_*, and rotta_context7_*; use only names permitted by your installed role policy. Do not use unavailable tools or delegate. Return one JSON object only: {"status":"success","output":"..."} or {"status":"error","message":"..."}.`;
 }
 function policyPaths(home: string, role: Role) {
   const root = path.join(home, ".pi", "agent", "rotta-next");
@@ -133,6 +143,37 @@ function policyPaths(home: string, role: Role) {
 }
 function childGuard(home: string) {
   return path.join(home, ".pi", "agent", "extensions", "rotta-child-guard.ts");
+}
+function mcpBridge(home: string) {
+  return path.join(home, ".pi", "agent", "rotta-next", "rotta-mcp-bridge.ts");
+}
+async function loadMCPBridge(
+  pi: ExtensionAPI,
+  home: string,
+  dependencies: RottaDependencies,
+) {
+  // The bridge is intentionally a sibling managed resource, not an
+  // auto-discovered global extension.  Dynamic loading keeps this source
+  // directly testable while installed imports resolve from ~/.pi/agent.
+  try {
+    const module = await import(pathToFileURL(mcpBridge(home)).href);
+    return module.registerMCPBridge(pi, {
+      spawn: dependencies.spawn,
+      home: () => home,
+      ...dependencies.mcp,
+      role: "parent",
+    });
+  } catch (error) {
+    const reason = trimUtf8(
+      error instanceof Error ? error.message : String(error),
+      1024,
+    );
+    return {
+      activate: async () => {},
+      close: async () => {},
+      status: () => ({ bridge: { state: "unavailable", reason } }),
+    };
+  }
 }
 function validChildResult(stdout: string) {
   let finalAssistant = "";
@@ -202,6 +243,7 @@ async function runChild(
   signal: AbortSignal,
   onUpdate: (result: ReturnType<typeof toolResult>) => void,
   spawn: Spawn,
+  context7Key?: string,
 ) {
   const promptDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "rotta-pi-"),
@@ -219,6 +261,8 @@ async function runChild(
     "--no-extensions",
     "-e",
     childGuard(home),
+    "-e",
+    mcpBridge(home),
     "--no-skills",
     "--skill",
     core,
@@ -273,7 +317,17 @@ async function runChild(
           cwd,
           shell: false,
           stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, ROTTA_CHILD_ROLE: role, ROTTA_WORK_ROOT: cwd },
+          // Do not forward ambient credentials or arbitrary host settings to
+          // the isolated child; only Pi discovery and the fixed guard need
+          // these values.
+          env: {
+            PATH: process.env.PATH ?? "",
+            HOME: process.env.HOME ?? home,
+            XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? "",
+            ROTTA_CHILD_ROLE: role,
+            ROTTA_WORK_ROOT: cwd,
+            ...(context7Key ? { CONTEXT7_API_KEY: context7Key } : {}),
+          },
         });
       } catch (error) {
         finish(
@@ -337,6 +391,27 @@ async function runChild(
   }
 }
 
+function selectedContext7Key(
+  home: string,
+  role: Role,
+  env: (key: string) => string | undefined,
+) {
+  // The managed config, rather than a caller/model hint, is the authority for
+  // forwarding this optional credential.  Operations cannot use docs tools.
+  if (role === "operations") return undefined;
+  try {
+    const value = JSON.parse(fs.readFileSync(
+      path.join(home, ".pi", "agent", "rotta-next", "mcp.json"),
+      "utf8",
+    ));
+    return value?.version === 1 && value?.services?.context7?.enabled === true
+      ? env("CONTEXT7_API_KEY")
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const Delegate = Type.Object({
   role: Type.Union([
     Type.Literal("implementation"),
@@ -373,6 +448,7 @@ export function registerRotta(
 ) {
   const active = new Map<string, object>();
   const spawn = dependencies.spawn ?? nodeSpawn;
+  const env = dependencies.env ?? ((key: string) => process.env[key]);
   const homeDir = dependencies.home ?? os.homedir;
   const limits = {
     defaultTimeoutMs: dependencies.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -380,6 +456,11 @@ export function registerRotta(
     killGraceMs: dependencies.killGraceMs ?? KILL_GRACE_MS,
   };
   const questionTimeout = dependencies.questionTimeoutMs ?? QUESTION_TIMEOUT_MS;
+  // One bridge belongs to this extension lifetime, not to every agent turn.
+  const bridgeHome = dependencies.home
+    ? homeDir()
+    : process.env.HOME ?? os.homedir();
+  const bridge = loadMCPBridge(pi, bridgeHome, dependencies);
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
     const home = homeDir();
     const root = path.join(home, ".pi", "agent", "rotta-next");
@@ -397,10 +478,39 @@ export function registerRotta(
         "safe stop: installed Rotta core/orchestrator policy is missing or unreadable",
       );
     }
+    try {
+      await (await bridge).activate();
+    } catch {
+      /* status tool exposes boot failure without preventing Pi startup */
+    }
     return {
       systemPrompt:
-        `${event.systemPrompt}\n\n<rotta-installed-policy source="${root}">\n${policies}\n</rotta-installed-policy>`,
+        `${event.systemPrompt}\n\n<rotta-installed-policy source="${root}">\n${policies}\n</rotta-installed-policy>\nManaged MCP tools, when discovered, use rotta_ancora_*, rotta_vela_*, and rotta_context7_* names; only call role-permitted tools.`,
     };
+  });
+  pi.registerTool({
+    name: "rotta_mcp_status",
+    label: "Rotta MCP status",
+    description:
+      "Show observed managed MCP service state and sanitized failure reason.",
+    parameters: Type.Object({}),
+    async execute() {
+      try {
+        return toolResult(JSON.stringify((await bridge).status()), {
+          status: (await bridge).status(),
+        });
+      } catch (error) {
+        return toolResult("MCP bridge unavailable", {
+          status: {
+            bridge: "unavailable",
+            reason: trimUtf8(
+              error instanceof Error ? error.message : String(error),
+              1024,
+            ),
+          },
+        });
+      }
+    },
   });
   pi.registerTool({
     name: "rotta_delegate",
@@ -429,6 +539,7 @@ export function registerRotta(
         signal,
         onUpdate,
         spawn,
+        selectedContext7Key(homeDir(), selected, env),
       );
       if (result.details.failed) fail(result.content[0].text);
       return result;
@@ -520,6 +631,9 @@ export function registerRotta(
   });
 }
 
-export default function registerRottaExtension(pi: ExtensionAPI) {
-  registerRotta(pi);
+export default function registerRottaExtension(
+  pi: ExtensionAPI,
+  dependencies: RottaDependencies = {},
+) {
+  registerRotta(pi, dependencies);
 }

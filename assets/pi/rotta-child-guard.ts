@@ -13,6 +13,43 @@ const allowed: Record<string, string[]> = {
   exploration: ["read", "grep", "find", "ls"],
   operations: ["read"],
 };
+const mcpAllowed: Record<string, Record<string, string[]>> = {
+  implementation: {
+    ancora: ["save", "summarize", "start", "end", "search", "context", "get"],
+    context7: ["resolve_library_id", "query_docs"],
+  },
+  reviewer: {
+    ancora: ["save", "summarize", "start", "end", "search", "context", "get"],
+    context7: ["resolve_library_id", "query_docs"],
+  },
+  exploration: {
+    ancora: ["save", "summarize", "start", "end", "search", "context", "get"],
+    vela: [
+      "explore",
+      "lookup",
+      "dependencies",
+      "reverse_dependencies",
+      "impact",
+      "path",
+      "explain",
+      "rank",
+      "hotspots",
+      "module_summary",
+      "status",
+    ],
+    context7: ["resolve_library_id", "query_docs"],
+  },
+  operations: {
+    ancora: ["save", "summarize", "start", "end", "search", "context", "get"],
+  },
+};
+export function isAllowedChildMCP(childRole: string, name: string) {
+  const match = /^rotta_(ancora|vela|context7)_(.+)$/.exec(name);
+  return !!match && !!mcpAllowed[childRole]?.[match[1]]?.includes(match[2]);
+}
+function allowedMCP(name: string) {
+  return isAllowedChildMCP(role, name);
+}
 
 // realpath only works for existing paths. Resolve the deepest existing ancestor
 // first, then restore the missing suffix so a symlinked .rotta or workspace
@@ -45,7 +82,9 @@ export function isProtectedWorkPath(input: string, workspace = root) {
 
 export default function guard(pi: ExtensionAPI) {
   pi.on("tool_call", async (event: { toolName: string; input: unknown }) => {
-    if (!allowed[role]?.includes(event.toolName)) {
+    if (
+      !allowed[role]?.includes(event.toolName) && !allowedMCP(event.toolName)
+    ) {
       return { block: true, reason: "Rotta child guard denied tool" };
     }
     if (

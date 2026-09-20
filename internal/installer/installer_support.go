@@ -11,6 +11,10 @@ import (
 	"github.com/Syfra3/Rotta/assets"
 )
 
+// Test seams only: Pi preflight observes paths; it never executes services.
+var piLookPath = exec.LookPath
+var piStat = os.Stat
+
 func recordMCPHealthFailure(result *Result, opts Options, capabilityName string, health Context7HealthResult) {
 	for _, host := range selectedHosts(opts.Target) {
 		hostResult, ok := result.Hosts[host]
@@ -40,6 +44,13 @@ func recordMCPStatuses(result *Result, opts Options) {
 	result.MCPStatuses = map[string]map[string]MCPStatusResult{}
 	for _, host := range selectedHosts(opts.Target) {
 		hostStatuses := map[string]MCPStatusResult{}
+		if host == "pi" {
+			for _, name := range []string{"ancora", "vela", "context7"} {
+				hostStatuses[name] = piMCPStatus(opts, name)
+			}
+			result.MCPStatuses[host] = hostStatuses
+			continue
+		}
 		for _, capabilityName := range selectedMCPCapabilities(opts) {
 			name := strings.TrimPrefix(capabilityName, "mcp:")
 			status := mcpStatusResult(result.Hosts[host], capabilityName)
@@ -50,6 +61,26 @@ func recordMCPStatuses(result *Result, opts Options) {
 		}
 		result.MCPStatuses[host] = hostStatuses
 	}
+}
+
+func piMCPStatus(opts Options, name string) MCPStatusResult {
+	enabled := map[string]bool{"ancora": opts.SetupAncora, "vela": opts.SetupVela, "context7": opts.SetupContext7}[name]
+	if !enabled {
+		return MCPStatusResult{Status: MCPStatusDisabled, Reason: "Disabled in the managed Pi MCP configuration.", Remediation: "Select the service and rerun Rotta to update ~/.pi/agent/rotta-next/mcp.json.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}}
+	}
+	if name == "ancora" || name == "vela" {
+		command := name
+		if _, err := piLookPath(command); err != nil {
+			return MCPStatusResult{Status: MCPStatusUnavailable, Reason: fmt.Sprintf("Selected Pi %s binary is unavailable: %v", name, err), Remediation: "Install the selected binary, then rerun Rotta; the installer did not launch it.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}}
+		}
+	}
+	if name == "vela" {
+		graph := filepath.Join(opts.ProjectPath, ".vela", "graph.json")
+		if _, err := piStat(graph); err != nil {
+			return MCPStatusResult{Status: MCPStatusUnavailable, Reason: fmt.Sprintf("Selected Vela graph is unavailable: %s", graph), Remediation: "Create the graph separately, then rerun Rotta; the installer did not index it.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}}
+		}
+	}
+	return MCPStatusResult{Status: MCPStatusConfiguredPendingHealth, Reason: "Managed Pi MCP configuration was written; runtime initialize and tools/list were not observed.", Remediation: "Restart Pi and inspect extension errors. The installer does not launch, probe, install, or index services.", RuntimeFallback: MCPRuntimeFallback{State: MCPRuntimeFallbackNotObserved}, FileWrite: MCPObservation{Status: MCPObservationCompleted, Detail: "Managed ~/.pi/agent/rotta-next/mcp.json was written."}, ToolDiscovery: MCPObservation{Status: MCPObservationNotObservable, Detail: "Pi runtime discovery was not observed during installation."}}
 }
 
 func openCodeMCPStatus(result *Result, name string, status MCPStatusResult) MCPStatusResult {
@@ -128,6 +159,8 @@ func statusForCapability(status HostCapabilityStatus) MCPStatus {
 		return MCPStatusDegraded
 	case HostCapabilityStatusFailed:
 		return MCPStatusFailed
+	case HostCapabilityStatusPending:
+		return MCPStatusConfiguredPendingHealth
 	}
 	return MCPStatusConfigured
 }
