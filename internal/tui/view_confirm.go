@@ -25,6 +25,11 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
 	writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
+	if m.ModelRouting == installer.ModelRoutingCustom {
+		for _, role := range routingRoles {
+			writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key])
+		}
+	}
 	b.WriteString("\n")
 }
 
@@ -33,7 +38,9 @@ func confirmRoutingLabel(request installer.ModelRoutingRequest) string {
 	case installer.ModelRoutingDisabled:
 		return "explicitly disabled"
 	case installer.ModelRoutingEnabled:
-		return "explicitly enabled"
+		return "explicitly enabled (Default)"
+	case installer.ModelRoutingCustom:
+		return "Custom"
 	default:
 		return "omitted (defaults to enabled)"
 	}

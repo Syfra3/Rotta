@@ -26,6 +26,7 @@ type Options struct {
 	SetupVela           bool // whether to install/configure Vela graph intelligence
 	SetupContext7       bool // whether to configure Context7 documentation MCP
 	ModelRouting        ModelRoutingRequest
+	ModelRoutingModels  map[string]string
 	CommandStdin        io.Reader
 	CommandStdout       io.Writer
 	CommandStderr       io.Writer
@@ -38,6 +39,7 @@ type ModelRoutingRequest string
 const (
 	ModelRoutingUnset    ModelRoutingRequest = ""
 	ModelRoutingEnabled  ModelRoutingRequest = "enabled"
+	ModelRoutingCustom   ModelRoutingRequest = "custom"
 	ModelRoutingDisabled ModelRoutingRequest = "disabled"
 )
 
@@ -45,10 +47,12 @@ func (r ModelRoutingRequest) resolved() (ModelRoutingRequest, error) {
 	switch r {
 	case ModelRoutingUnset, ModelRoutingEnabled:
 		return ModelRoutingEnabled, nil
+	case ModelRoutingCustom:
+		return ModelRoutingCustom, nil
 	case ModelRoutingDisabled:
 		return ModelRoutingDisabled, nil
 	default:
-		return ModelRoutingUnset, fmt.Errorf("OpenCode model routing must be enabled or disabled")
+		return ModelRoutingUnset, fmt.Errorf("OpenCode model routing must be enabled, custom, or disabled")
 	}
 }
 

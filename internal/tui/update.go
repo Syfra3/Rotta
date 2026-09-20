@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Syfra3/Rotta/internal/installer"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -44,6 +45,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.Installing = false
 		return m, nil
+
+	case modelDiscoveryResultMsg:
+		if msg.generation != m.ModelDiscoveryGeneration {
+			return m, nil
+		}
+		m.AvailableModels = msg.models
+		m.ModelDiscoveryError = msg.err
+		m.ModelDiscoveryDone = true
+		m.ModelDiscoveryInFlight = false
+		return m, nil
 	}
 
 	// Forward textinput events on ScreenProjectPath
@@ -66,7 +77,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
-		ScreenModeSelect: m.updateModeSelect, ScreenModelRouting: m.updateModelRouting, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
+		ScreenModeSelect: m.updateModeSelect, ScreenModelRouting: m.updateModelRouting, ScreenCustomModelRouting: m.updateCustomModelRouting, ScreenModelPicker: m.updateModelPicker, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
 		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
@@ -177,7 +188,11 @@ func (m Model) updateProjectPath(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.ProjectPath = path
 		m.PrevScreen = ScreenProjectPath
-		m.Screen = ScreenModelRouting
+		if targetIncludesOpenCode(m.Target) {
+			m.Screen = ScreenModelRouting
+		} else {
+			m.Screen = ScreenAncora
+		}
 	case "esc", "b":
 		m.Screen = ScreenTargetSelect
 		m.ProjectInput.Blur()
@@ -186,23 +201,129 @@ func (m Model) updateProjectPath(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !targetIncludesOpenCode(m.Target) {
+		m.ModelRouting = installer.ModelRoutingUnset
+		m.Screen = ScreenAncora
+		return m, nil
+	}
 	switch msg.String() {
 	case "j", "down":
-		m.ModelRoutingCursor = 1
-	case "k", "up":
-		m.ModelRoutingCursor = 0
-	case "enter", " ":
-		if m.ModelRoutingCursor == 0 {
-			m.ModelRouting = installer.ModelRoutingEnabled
-		} else {
-			m.ModelRouting = installer.ModelRoutingDisabled
+		if m.ModelRoutingCursor < 2 {
+			m.ModelRoutingCursor++
 		}
-		m.PrevScreen = ScreenModelRouting
-		m.Screen = ScreenAncora
+	case "k", "up":
+		if m.ModelRoutingCursor > 0 {
+			m.ModelRoutingCursor--
+		}
+	case "enter", " ":
+		switch m.ModelRoutingCursor {
+		case 0:
+			m.ModelRouting = installer.ModelRoutingEnabled
+			m.PrevScreen = ScreenModelRouting
+			m.Screen = ScreenAncora
+		case 1:
+			m.ModelRouting = installer.ModelRoutingCustom
+			if m.CustomRouting == nil {
+				m.CustomRouting = installer.DefaultOpenCodeRouting()
+			}
+			m.Screen = ScreenCustomModelRouting
+			if !m.ModelDiscoveryDone && !m.ModelDiscoveryInFlight {
+				return m, m.startModelDiscovery()
+			}
+		case 2:
+			m.ModelRouting = installer.ModelRoutingDisabled
+			m.PrevScreen = ScreenModelRouting
+			m.Screen = ScreenAncora
+		}
 	case "esc", "b":
 		m.Screen = ScreenProjectPath
 	}
 	return m, nil
+}
+
+func targetIncludesOpenCode(target string) bool {
+	return target == TargetOpenCode || target == TargetBoth
+}
+
+func (m *Model) startModelDiscovery() tea.Cmd {
+	m.ModelDiscoveryGeneration++
+	m.ModelDiscoveryInFlight = true
+	m.ModelDiscoveryDone = false
+	m.ModelDiscoveryError = ""
+	return discoverOpenCodeModelsCmd(m.ModelDiscoveryGeneration)
+}
+
+func (m Model) updateCustomModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.CustomRoutingCursor < len(routingRoles)-1 {
+			m.CustomRoutingCursor++
+		}
+	case "k", "up":
+		if m.CustomRoutingCursor > 0 {
+			m.CustomRoutingCursor--
+		}
+	case "enter", " ":
+		if len(m.AvailableModels) > 0 {
+			m.ModelPickerCursor = 0
+			m.ModelPickerQuery = ""
+			m.Screen = ScreenModelPicker
+		}
+	case "esc", "b":
+		m.PrevScreen = ScreenCustomModelRouting
+		m.Screen = ScreenModelRouting
+	case "n":
+		m.PrevScreen = ScreenCustomModelRouting
+		m.Screen = ScreenAncora
+	case "r":
+		if m.ModelDiscoveryError != "" && !m.ModelDiscoveryInFlight {
+			return m, m.startModelDiscovery()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) updateModelPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	models := m.filteredModels()
+	switch msg.String() {
+	case "down":
+		if m.ModelPickerCursor < len(models)-1 {
+			m.ModelPickerCursor++
+		}
+	case "up":
+		if m.ModelPickerCursor > 0 {
+			m.ModelPickerCursor--
+		}
+	case "enter":
+		if len(models) > 0 {
+			m.CustomRouting[routingRoles[m.CustomRoutingCursor].key] = models[m.ModelPickerCursor]
+			m.Screen = ScreenCustomModelRouting
+		}
+	case "backspace":
+		if len(m.ModelPickerQuery) > 0 {
+			m.ModelPickerQuery = m.ModelPickerQuery[:len(m.ModelPickerQuery)-1]
+			m.ModelPickerCursor = 0
+		}
+	case "esc":
+		m.Screen = ScreenCustomModelRouting
+	default:
+		if len(msg.Runes) == 1 && !strings.ContainsRune(" \t", msg.Runes[0]) {
+			m.ModelPickerQuery += string(msg.Runes)
+			m.ModelPickerCursor = 0
+		}
+	}
+	return m, nil
+}
+
+func (m Model) filteredModels() []string {
+	query := strings.ToLower(m.ModelPickerQuery)
+	var matches []string
+	for _, model := range m.AvailableModels {
+		if strings.Contains(strings.ToLower(model), query) {
+			matches = append(matches, model)
+		}
+	}
+	return matches
 }
 
 func (m Model) updateModeSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -344,19 +465,20 @@ func (m Model) updateDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func runInstall(m Model) tea.Cmd {
 	return func() tea.Msg {
 		opts := installer.Options{
-			Target:          m.Target,
-			ProjectPath:     m.ProjectPath,
-			InstallSpec:     m.SelectedModes[0],
-			InstallImpl:     m.SelectedModes[1],
-			InstallReview:   m.SelectedModes[2],
-			UseDefaultGates: m.UseDefaults,
-			SetupAncora:     m.SetupAncora,
-			SetupVela:       m.SetupVela,
-			SetupContext7:   m.SetupContext7,
-			ModelRouting:    m.ModelRouting,
-			CommandStdin:    bytes.NewReader(nil),
-			CommandStdout:   io.Discard,
-			CommandStderr:   io.Discard,
+			Target:             m.Target,
+			ProjectPath:        m.ProjectPath,
+			InstallSpec:        m.SelectedModes[0],
+			InstallImpl:        m.SelectedModes[1],
+			InstallReview:      m.SelectedModes[2],
+			UseDefaultGates:    m.UseDefaults,
+			SetupAncora:        m.SetupAncora,
+			SetupVela:          m.SetupVela,
+			SetupContext7:      m.SetupContext7,
+			ModelRouting:       m.ModelRouting,
+			ModelRoutingModels: m.CustomRouting,
+			CommandStdin:       bytes.NewReader(nil),
+			CommandStdout:      io.Discard,
+			CommandStderr:      io.Discard,
 		}
 		result, err := installer.Install(opts)
 		return installDoneMsg{result: result, err: err}

@@ -12,8 +12,10 @@ import (
 func TestSCN003_KeyboardRoutingSelectionReachesConfirmation(t *testing.T) {
 	// Scenario: TUI selection is keyboard accessible and confirmation-gated.
 	model := New()
+	model.Target = TargetOpenCode
 	model.Screen = ScreenModelRouting
 	moved, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	moved, _ = moved.(Model).Update(tea.KeyMsg{Type: tea.KeyDown})
 	selected, _ := moved.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	got := selected.(Model)
 	if got.ModelRouting != installer.ModelRoutingDisabled {
@@ -36,6 +38,7 @@ func TestSCN003_KeyboardRoutingSelectionReachesConfirmation(t *testing.T) {
 
 func TestTUIVisibleEnabledSelectionIsExplicitWhileDefaultRemainsUnset(t *testing.T) {
 	model := New()
+	model.Target = TargetOpenCode
 	if model.ModelRouting != installer.ModelRoutingUnset {
 		t.Fatalf("default routing request = %q, want unset", model.ModelRouting)
 	}

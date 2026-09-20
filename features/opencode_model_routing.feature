@@ -26,12 +26,21 @@ Feature: Installer-managed OpenCode model routing
   @SCN-003
   Scenario: TUI selection is keyboard accessible and confirmation-gated
     Given the installer TUI is on the OpenCode model-routing selection
-    When the user navigates by keyboard to "disabled"
+    When the user navigates by keyboard to "Disabled"
     And confirms that selection by keyboard on the confirmation screen
     Then the request submitted to the adapter is explicitly disabled
     And no mutation occurs before confirmation
     But when the user cancels or declines confirmation
     Then no configuration, asset, backup, or ownership record is changed
+
+  Scenario: Custom routing starts from defaults and records exact selections
+    Given the user selects "Custom" in the OpenCode model-routing TUI
+    Then all seven friendly phase labels show a fresh copy of the default routing map
+    When the local `opencode models` command returns available provider/model IDs
+    Then each phase has a searchable keyboard picker for those IDs
+    And confirmation shows the resolved custom assignments
+    And installation writes those exact model fields and ownership digests
+    But model discovery does not verify credentials or refresh model data
 
   @SCN-004
   Scenario: User-owned configuration is preserved and conflicts refuse safely

@@ -26,6 +26,8 @@ const (
 	ScreenTargetSelect
 	ScreenProjectPath
 	ScreenModelRouting
+	ScreenCustomModelRouting
+	ScreenModelPicker
 	ScreenModeSelect
 	ScreenQualityGates
 	ScreenAncora
@@ -96,8 +98,17 @@ type Model struct {
 	ProjectPath  string
 
 	// OpenCode routing remains unset until the user makes an explicit choice.
-	ModelRoutingCursor int
-	ModelRouting       installer.ModelRoutingRequest
+	ModelRoutingCursor       int
+	ModelRouting             installer.ModelRoutingRequest
+	CustomRouting            map[string]string
+	CustomRoutingCursor      int
+	ModelPickerCursor        int
+	ModelPickerQuery         string
+	AvailableModels          []string
+	ModelDiscoveryError      string
+	ModelDiscoveryDone       bool
+	ModelDiscoveryInFlight   bool
+	ModelDiscoveryGeneration int
 
 	// Mode selection: [0]=spec, [1]=implementation, [2]=review
 	ModeCursor    int
@@ -141,6 +152,19 @@ var modeDescriptions = []string{
 	"Draft → Hard Spec → Gherkin → Human approval",
 	"Red → Green → Refactor per Gherkin scenario",
 	"Traceability → Coverage → Mutation → Quality gates",
+}
+
+var routingRoles = []struct {
+	key   string
+	label string
+}{
+	{"rotta-orchestrator", "Orchestration"},
+	{"rotta-architect", "Architecture"},
+	{"rotta-explore", "Exploration"},
+	{"rotta-impl", "Implementation"},
+	{"rotta-review", "Review"},
+	{"rotta-ops", "Operations"},
+	{"rotta-cleaner", "Cleanup"},
 }
 
 func New() Model {
