@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { registerRotta } from "./rotta-extension.ts";
-import guard, { isProtectedWorkPath } from "./rotta-child-guard.ts";
+import registerRottaExtension, { registerRotta } from "./rotta-extension.ts";
+import guard, {
+  isAllowedChildMCP,
+  isProtectedWorkPath,
+} from "./rotta-child-guard.ts";
 
 function assert(value: unknown, message = "assertion failed"): asserts value {
   if (!value) throw new Error(message);
@@ -78,7 +81,7 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     home: () => "/test-home",
   });
   assert(
-    mock.tools.length === 2,
+    mock.tools.length === 3,
     "default registration did not expose both tools",
   );
   const result = await tool(mock.tools, "rotta_delegate").execute(
@@ -105,6 +108,10 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
   assert(
     args.includes("/test-home/.pi/agent/extensions/rotta-child-guard.ts"),
     "child guard not activated",
+  );
+  assert(
+    args.includes("/test-home/.pi/agent/rotta-next/rotta-mcp-bridge.ts"),
+    "child MCP bridge not activated",
   );
 });
 
@@ -135,6 +142,130 @@ Deno.test("parent activation injects only exact installed core and orchestrator 
         activated.systemPrompt.includes("ORCHESTRATOR") &&
         activated.systemPrompt.includes(`${home}/.pi/agent/rotta-next`),
     );
+  } finally {
+    Deno.removeSync(home, { recursive: true });
+  }
+});
+
+Deno.test("default parent entrypoint loads the installed bridge once and reports observed failure", async () => {
+  const home = Deno.makeTempDirSync();
+  const events: Record<string, any[]> = {}, tools: any[] = [];
+  let spawns = 0;
+  const pi = {
+    registerTool: (entry: any) => tools.push(entry),
+    on: (name: string, handler: any) => (events[name] ??= []).push(handler),
+  };
+  const spawn = (() => {
+    spawns++;
+    const proc: any = new EventEmitter();
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.stdin = {
+      write(line: string, done?: () => void) {
+        const request = JSON.parse(line);
+        done?.();
+        if (!request.id) return true;
+        const response = request.method === "initialize"
+          ? { protocolVersion: "2025-06-18", capabilities: {} }
+          : request.method === "tools/list"
+          ? { tools: [{ name: "ancora_search" }] }
+          : {
+            error: {
+              code: -32000,
+              message: "Bearer synthetic-key unavailable",
+            },
+          };
+        queueMicrotask(() =>
+          proc.stdout.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: request.id,
+                ...(response.error ? response : { result: response }),
+              }) + "\n",
+            ),
+          )
+        );
+        return true;
+      },
+    };
+    proc.kill = () => true;
+    return proc;
+  }) as any;
+  try {
+    const root = `${home}/.pi/agent/rotta-next`;
+    Deno.mkdirSync(`${root}/rotta-core`, { recursive: true });
+    Deno.mkdirSync(`${root}/rotta-orchestrator`, { recursive: true });
+    Deno.writeTextFileSync(`${root}/rotta-core/SKILL.md`, "CORE");
+    Deno.writeTextFileSync(
+      `${root}/rotta-orchestrator/SKILL.md`,
+      "ORCHESTRATOR",
+    );
+    Deno.writeTextFileSync(
+      `${root}/mcp.json`,
+      JSON.stringify({
+        version: 1,
+        services: {
+          ancora: { enabled: true },
+          vela: { enabled: false },
+          context7: { enabled: false },
+        },
+      }),
+    );
+    Deno.writeTextFileSync(
+      `${root}/rotta-mcp-bridge.ts`,
+      await Deno.readTextFile(
+        new URL("./rotta-mcp-bridge.ts", import.meta.url),
+      ),
+    );
+    registerRottaExtension(pi as any, {
+      home: () => home,
+      spawn,
+      mcp: { exists: () => true, env: (key) => key === "PATH" ? "/bin" : "" },
+    });
+    const event = { systemPrompt: "BASE" };
+    await events.before_agent_start[0](event);
+    await Promise.all(
+      events.before_agent_start.map((handler) => handler(event)),
+    );
+    const search = tools.find((entry) => entry.name === "rotta_ancora_search");
+    const status = tools.find((entry) => entry.name === "rotta_mcp_status");
+    assert(
+      search && status && spawns === 1,
+      "default consumer did not load one installed bridge",
+    );
+    assert((await status.execute()).details.status.ancora.state === "healthy");
+    await search.execute("x", {}, new AbortController().signal).then(() => {
+      throw Error("failed service call succeeded");
+    }, () => {});
+    const observed = await status.execute();
+    assert(
+      observed.details.status.ancora.state === "unavailable" &&
+        !observed.content[0].text.includes("synthetic-key"),
+    );
+  } finally {
+    Deno.removeSync(home, { recursive: true });
+  }
+});
+
+Deno.test("default parent entrypoint reports missing installed bridge separately", async () => {
+  const home = Deno.makeTempDirSync();
+  try {
+    for (const name of ["rotta-core", "rotta-orchestrator"]) {
+      Deno.mkdirSync(`${home}/.pi/agent/rotta-next/${name}`, {
+        recursive: true,
+      });
+      Deno.writeTextFileSync(
+        `${home}/.pi/agent/rotta-next/${name}/SKILL.md`,
+        name,
+      );
+    }
+    const mock = host();
+    registerRottaExtension(mock.pi as any, { home: () => home });
+    await (mock.events.before_agent_start as any)({ systemPrompt: "BASE" });
+    const result = await tool(mock.tools, "rotta_mcp_status").execute();
+    assert(result.details.status.bridge.state === "unavailable");
   } finally {
     Deno.removeSync(home, { recursive: true });
   }
@@ -173,6 +304,83 @@ Deno.test("every child role gets its own isolated process allowlist", async () =
   }
 });
 
+Deno.test("child receives Context7 key only when trusted managed config enables docs", async () => {
+  const home = Deno.makeTempDirSync();
+  const enabled = `${home}/.pi/agent/rotta-next/mcp.json`;
+  Deno.mkdirSync(`${home}/.pi/agent/rotta-next`, { recursive: true });
+  const fixture = fakeSpawn({ stdout: '{"status":"success","output":"ok"}\n' });
+  try {
+    Deno.writeTextFileSync(
+      enabled,
+      JSON.stringify({
+        version: 1,
+        services: {
+          ancora: { enabled: false },
+          vela: { enabled: false },
+          context7: { enabled: true },
+        },
+      }),
+    );
+    const mock = host();
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => home,
+      env: (key) =>
+        key === "CONTEXT7_API_KEY"
+          ? "synthetic-key"
+          : key === "PATH"
+          ? "/bin"
+          : "",
+    });
+    await tool(mock.tools, "rotta_delegate").execute(
+      "x",
+      { role: "reviewer", task: "docs" },
+      signal().signal,
+      () => {},
+      mock.ctx,
+    );
+    const childEnv = fixture.calls[0][2] as { env: Record<string, string> };
+    assert(
+      childEnv.env.CONTEXT7_API_KEY === "synthetic-key" &&
+        !childEnv.env.OTHER_SECRET,
+      "selected optional key was not narrowly forwarded",
+    );
+    Deno.writeTextFileSync(
+      enabled,
+      JSON.stringify({
+        version: 1,
+        services: {
+          ancora: { enabled: false },
+          vela: { enabled: false },
+          context7: { enabled: false },
+        },
+      }),
+    );
+    const disabled = fakeSpawn({
+      stdout: '{"status":"success","output":"ok"}\n',
+    });
+    const disabledHost = host();
+    registerRotta(disabledHost.pi as any, {
+      spawn: disabled.spawn,
+      home: () => home,
+      env: (key) => key === "CONTEXT7_API_KEY" ? "synthetic-key" : "",
+    });
+    await tool(disabledHost.tools, "rotta_delegate").execute(
+      "x",
+      { role: "reviewer", task: "docs" },
+      signal().signal,
+      () => {},
+      disabledHost.ctx,
+    );
+    assert(
+      !(disabled.calls[0][2] as any).env.CONTEXT7_API_KEY,
+      "disabled service leaked key",
+    );
+  } finally {
+    Deno.removeSync(home, { recursive: true });
+  }
+});
+
 Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminates cancellation or timeout", async () => {
   const huge = "é".repeat(70_000);
   const capped = fakeSpawn({
@@ -198,7 +406,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     spawn: invalid.spawn,
     home: () => "/test-home",
   });
-  await tool(mock.tools.slice(2), "rotta_delegate").execute(
+  await tool(mock.tools.slice(3), "rotta_delegate").execute(
     "call",
     { role: "reviewer", task: "review" },
     signal().signal,
@@ -330,6 +538,13 @@ Deno.test("child guard blocks all canonical and symlinked work-record write targ
     Deno.removeSync(fixture, { recursive: true });
     Deno.removeSync(external, { recursive: true });
   }
+});
+
+Deno.test("child MCP guard permits required memory lifecycle but never Vela outside exploration", () => {
+  assert(isAllowedChildMCP("implementation", "rotta_ancora_summarize"));
+  assert(!isAllowedChildMCP("implementation", "rotta_vela_explore"));
+  assert(isAllowedChildMCP("exploration", "rotta_vela_module_summary"));
+  assert(!isAllowedChildMCP("reviewer", "rotta_context7_delete"));
 });
 
 Deno.test("question adapter binds current session/cwd/action and fails closed", async () => {

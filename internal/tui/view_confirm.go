@@ -92,6 +92,8 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 	}
 	if m.Target == TargetPi || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/rotta-mcp-bridge.ts  (managed MCP bridge)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
 	}
 }
 
@@ -115,17 +117,21 @@ func (m Model) writeConfirmIntegrationFiles(b *strings.Builder) {
 		m.writeConfirmVelaFiles(b)
 	}
 	if m.SetupContext7 {
-		writeConfirmFile(b, "  ~/.claude/mcp/context7.json  (mcp.context7)")
-		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (mcp.context7)")
+		if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
+			writeConfirmFile(b, "  ~/.claude/mcp/context7.json  (mcp.context7)")
+		}
+		if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
+			writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (mcp.context7)")
+		}
 	}
 }
 
 func (m Model) writeConfirmAncoraFiles(b *strings.Builder) {
-	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
+	if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.claude/mcp/ancora.json")
 		writeConfirmFile(b, "  ~/.claude/settings.json  (permissions.allow)")
 	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
+	if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.config/opencode/opencode.jsonc  (mcp.ancora)")
 	}
 }

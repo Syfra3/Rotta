@@ -463,6 +463,8 @@ func piBackupPaths(home string) []string {
 	return []string{
 		piExtensionPath(home),
 		filepath.Join(home, ".pi", "agent", "extensions", "rotta-child-guard.ts"),
+		filepath.Join(home, ".pi", "agent", "rotta-next", "rotta-mcp-bridge.ts"),
+		piMCPConfigPath(home),
 		filepath.Join(home, ".pi", "agent", "rotta-next"),
 	}
 }
