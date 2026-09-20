@@ -166,6 +166,13 @@ function trimUtf8(text: string, limit = MAX_OUTPUT_BYTES) {
 function appendBounded(current: string, next: string) {
   return trimUtf8(current + next);
 }
+function appendTailBounded(current: string, next: string) {
+  const bytes = Buffer.from(current + next, "utf8");
+  if (bytes.length <= MAX_OUTPUT_BYTES) return bytes.toString("utf8");
+  let start = bytes.length - MAX_OUTPUT_BYTES;
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+  return bytes.subarray(start).toString("utf8");
+}
 function policyPrompt(home: string, role: Role) {
   const root = path.join(home, ".pi", "agent", "rotta-next");
   return `Read and obey these exact installed policies before acting: ${
@@ -389,7 +396,7 @@ async function runChild(
         }, effectiveTimeout);
       }
       proc!.stdout!.on("data", (data) => {
-        stdout = appendBounded(stdout, outDecoder.write(data));
+        stdout = appendTailBounded(stdout, outDecoder.write(data));
         onUpdate(toolResult(stdout || "(running...)", { role, running: true }));
       });
       proc!.stderr!.on("data", (data) => {
