@@ -130,7 +130,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if opts.skipOpenCodeRouting {
 		return nil, nil
 	}
-	routing, err := opts.ModelRouting.resolved()
+	routing, err := resolveOpenCodeRouting(opts.ModelRouting, opts.ModelRoutingModels)
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +193,8 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 		}
 	}
 	config["agent"] = agentMap
-	if routing == ModelRoutingEnabled {
-		configChanged = applyOpenCodeRoutingModels(agentMap) || configChanged
+	if routing.enabled {
+		configChanged = applyOpenCodeRoutingModels(agentMap, routing.models) || configChanged
 	} else {
 		configChanged = removeOpenCodeRoutingModels(agentMap) || configChanged
 	}
@@ -215,7 +215,7 @@ func installOpenCode(opts Options, home string) ([]string, error) {
 	if err := failRoutingAt("after-assets"); err != nil {
 		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
 	}
-	if err := recordOpenCodeAgentOwnership(home, resolution.Path, agentMap, routing); err != nil {
+	if err := recordOpenCodeAgentOwnership(home, resolution.Path, routing); err != nil {
 		return nil, rollbackOpenCodeRouting(err, resolution.Path, original, originalExists, manifestPath, manifestOriginal, manifestExists, assetOriginal)
 	}
 	if err := failRoutingAt("after-managed-state"); err != nil {
@@ -302,6 +302,64 @@ var immutableOpenCodeRouting = map[string]string{
 	"rotta-cleaner":      "openai/gpt-5.6-luna",
 }
 
+type resolvedOpenCodeRouting struct {
+	enabled bool
+	models  map[string]string
+}
+
+func defaultOpenCodeRouting() map[string]string {
+	routing := make(map[string]string, len(immutableOpenCodeRouting))
+	for role, model := range immutableOpenCodeRouting {
+		routing[role] = model
+	}
+	return routing
+}
+
+// DefaultOpenCodeRouting returns a copy of Rotta's seven-role default assignments.
+func DefaultOpenCodeRouting() map[string]string {
+	return defaultOpenCodeRouting()
+}
+
+// IsValidOpenCodeModelID accepts the provider/model form emitted by `opencode models`.
+func IsValidOpenCodeModelID(model string) bool {
+	if strings.TrimSpace(model) != model || strings.Count(model, "/") != 1 {
+		return false
+	}
+	parts := strings.Split(model, "/")
+	return parts[0] != "" && parts[1] != "" && !strings.ContainsAny(model, "\t\r\n |\\")
+}
+
+// resolveOpenCodeRouting returns a fresh routing map so callers cannot mutate defaults.
+func resolveOpenCodeRouting(request ModelRoutingRequest, custom map[string]string) (resolvedOpenCodeRouting, error) {
+	resolved, err := request.resolved()
+	if err != nil {
+		return resolvedOpenCodeRouting{}, err
+	}
+	if resolved == ModelRoutingDisabled {
+		return resolvedOpenCodeRouting{}, nil
+	}
+	if resolved == ModelRoutingCustom {
+		if len(custom) != len(immutableOpenCodeRouting) {
+			return resolvedOpenCodeRouting{}, fmt.Errorf("custom OpenCode model routing must select all seven roles")
+		}
+		models := make(map[string]string, len(custom))
+		for role := range immutableOpenCodeRouting {
+			model, exists := custom[role]
+			if !exists || !IsValidOpenCodeModelID(model) {
+				return resolvedOpenCodeRouting{}, fmt.Errorf("custom OpenCode model routing must select a model for %s", role)
+			}
+			models[role] = model
+		}
+		for role := range custom {
+			if _, known := immutableOpenCodeRouting[role]; !known {
+				return resolvedOpenCodeRouting{}, fmt.Errorf("custom OpenCode model routing contains unknown role %s", role)
+			}
+		}
+		return resolvedOpenCodeRouting{enabled: true, models: models}, nil
+	}
+	return resolvedOpenCodeRouting{enabled: true, models: defaultOpenCodeRouting()}, nil
+}
+
 // preflightSelectedOpenCodeInstall validates routing ownership and every
 // routing-managed target before an installation transaction creates a backup.
 // A fully reconciled OpenCode-only request is a true no-op and needs no backup.
@@ -320,7 +378,7 @@ func preflightSelectedOpenCodeInstall(opts Options, home string) (bool, error) {
 	if err := validateOpenCodeConfigurationShape(document.config); err != nil {
 		return false, fmt.Errorf("schema validation blocked: %w", err)
 	}
-	routing, err := opts.ModelRouting.resolved()
+	routing, err := resolveOpenCodeRouting(opts.ModelRouting, opts.ModelRoutingModels)
 	if err != nil {
 		return false, err
 	}
@@ -353,19 +411,19 @@ func preflightSelectedOpenCodeInstall(opts Options, home string) (bool, error) {
 		!openCodeRoutingOwnershipNeedsChange(manifest, resolution.Path, routing), nil
 }
 
-func openCodeRoutingConfigurationNeedsChange(config, agents map[string]interface{}, routing ModelRoutingRequest) bool {
+func openCodeRoutingConfigurationNeedsChange(config, agents map[string]interface{}, routing resolvedOpenCodeRouting) bool {
 	for _, agent := range rottaAgents {
 		if _, exists := agents[agent.key]; !exists {
 			return true
 		}
 	}
-	for role, expected := range immutableOpenCodeRouting {
+	for role := range immutableOpenCodeRouting {
 		agent := agents[role].(map[string]interface{})
 		_, hasModel := agent["model"]
-		if routing == ModelRoutingEnabled && agent["model"] != expected {
+		if routing.enabled && agent["model"] != routing.models[role] {
 			return true
 		}
-		if routing == ModelRoutingDisabled && hasModel {
+		if !routing.enabled && hasModel {
 			return true
 		}
 	}
@@ -385,23 +443,23 @@ func managedFilesNeedUpdate(manifest managedArtifactsManifest, files map[string]
 	return false
 }
 
-func openCodeRoutingOwnershipNeedsChange(manifest managedArtifactsManifest, configPath string, routing ModelRoutingRequest) bool {
-	for role, model := range immutableOpenCodeRouting {
+func openCodeRoutingOwnershipNeedsChange(manifest managedArtifactsManifest, configPath string, routing resolvedOpenCodeRouting) bool {
+	for role := range immutableOpenCodeRouting {
 		key := openCodeModelOwnershipKey(configPath, role)
 		_, exists := manifest.Files[key]
-		if routing == ModelRoutingEnabled && manifest.Files[key] != contentDigest([]byte(model)) {
+		if routing.enabled && manifest.Files[key] != contentDigest([]byte(routing.models[role])) {
 			return true
 		}
-		if routing == ModelRoutingDisabled && exists {
+		if !routing.enabled && exists {
 			return true
 		}
 	}
 	return false
 }
 
-func applyOpenCodeRoutingModels(agentMap map[string]interface{}) bool {
+func applyOpenCodeRoutingModels(agentMap map[string]interface{}, models map[string]string) bool {
 	changed := false
-	for role, model := range immutableOpenCodeRouting {
+	for role, model := range models {
 		agent, ok := agentMap[role].(map[string]interface{})
 		if !ok {
 			continue
@@ -440,7 +498,7 @@ func restoreOpenCodeConfig(path string, data []byte, existed bool) error {
 	return writePrivateFile(path, data, 0o600)
 }
 
-func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string]interface{}, routing ModelRoutingRequest) error {
+func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string]interface{}, routing resolvedOpenCodeRouting) error {
 	manifestPath := managedArtifactsManifestPath(home)
 	manifest, err := readManagedArtifactsManifest(manifestPath)
 	if err != nil {
@@ -456,7 +514,7 @@ func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string
 			return routingConflict(configPath, role, "unrecognized ownership record")
 		}
 	}
-	for role, expected := range immutableOpenCodeRouting {
+	for role := range immutableOpenCodeRouting {
 		raw, exists := agentMap[role]
 		if !exists {
 			continue
@@ -467,22 +525,12 @@ func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string
 		}
 		current, hasModel := agent["model"]
 		model, isString := current.(string)
-		owned := manifest.Files[openCodeModelOwnershipKey(configPath, role)] == contentDigest([]byte(expected))
-		switch routing {
-		case ModelRoutingEnabled:
-			if !hasModel {
-				continue
-			}
-			if !isString || model != expected || !owned {
-				return routingConflict(configPath, role, "non-owned or diverged model")
-			}
-		case ModelRoutingDisabled:
-			if !hasModel && !owned {
-				continue
-			}
-			if !hasModel || !isString || model != expected || !owned {
-				return routingConflict(configPath, role, "ownership cannot prove the matching model")
-			}
+		owned := isString && manifest.Files[openCodeModelOwnershipKey(configPath, role)] == contentDigest([]byte(model))
+		if !hasModel && !owned {
+			continue
+		}
+		if !hasModel || !isString || !owned {
+			return routingConflict(configPath, role, "ownership cannot prove the matching model")
 		}
 	}
 	return nil
@@ -492,7 +540,7 @@ func routingConflict(configPath, role, reason string) error {
 	return fmt.Errorf("refusing OpenCode model routing at %s agent.%s.model: %s; remediation: preserve the user value or restore the recorded Rotta model", configPath, role, reason)
 }
 
-func recordOpenCodeAgentOwnership(home, configPath string, agentMap map[string]interface{}, routing ModelRoutingRequest) error {
+func recordOpenCodeAgentOwnership(home, configPath string, routing resolvedOpenCodeRouting) error {
 	manifestPath := managedArtifactsManifestPath(home)
 	manifest, err := readManagedArtifactsManifest(manifestPath)
 	if err != nil {
@@ -500,7 +548,7 @@ func recordOpenCodeAgentOwnership(home, configPath string, agentMap map[string]i
 	}
 	changed := false
 	for _, agent := range rottaAgents {
-		if model, ok := immutableOpenCodeRouting[agent.key]; ok && routing == ModelRoutingEnabled {
+		if model, ok := routing.models[agent.key]; ok && routing.enabled {
 			key := openCodeModelOwnershipKey(configPath, agent.key)
 			if manifest.Files[key] != contentDigest([]byte(model)) {
 				manifest.Files[key] = contentDigest([]byte(model))
