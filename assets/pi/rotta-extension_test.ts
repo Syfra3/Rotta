@@ -433,6 +433,24 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
   ).then(() => {
     throw new Error("oversized protocol succeeded");
   }, () => {});
+  const verbose = fakeSpawn({
+    stdout:
+      `${JSON.stringify({ type: "session", detail: "x".repeat(70_000) })}\n` +
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{\\"status\\":\\"success\\",\\"output\\":\\"tail result\\"}"}]}}\n',
+  });
+  const verboseHost = host();
+  registerRotta(verboseHost.pi as any, {
+    spawn: verbose.spawn,
+    home: () => "/test-home",
+  });
+  const verboseResult = await tool(verboseHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "exploration", task: "inspect graph" },
+    signal().signal,
+    () => {},
+    verboseHost.ctx,
+  );
+  assert(verboseResult.content[0].text === "tail result");
   const invalid = fakeSpawn({ stdout: "not-json\n" });
   registerRotta(mock.pi as any, {
     spawn: invalid.spawn,
