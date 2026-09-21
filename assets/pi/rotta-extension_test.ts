@@ -139,6 +139,84 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
   assert(!allowedTools.includes("bash"));
 });
 
+Deno.test("Pi routing profile applies complete roles, but explicit and inheritance win safely", async () => {
+  const home = Deno.makeTempDirSync();
+  const root = `${home}/.pi/agent/rotta-next`;
+  Deno.mkdirSync(root, { recursive: true });
+  const profile: any = {
+    version: 1,
+    roles: {
+      implementation: "openai-codex/gpt-5.6-terra",
+      reviewer: "openai-codex/gpt-5.6-sol",
+      exploration: "openai-codex/gpt-5.6-luna",
+      operations: "openai-codex/gpt-5.6-luna",
+    },
+  };
+  try {
+    Deno.writeTextFileSync(
+      `${root}/model-routing.json`,
+      JSON.stringify(profile),
+    );
+    const invoke = async (
+      params: Record<string, unknown>,
+      ctx = host().ctx,
+    ) => {
+      const fixture = fakeSpawn({
+        stdout: '{"status":"success","output":"ok"}\n',
+      });
+      const mock = host();
+      registerRotta(mock.pi as any, { home: () => home, spawn: fixture.spawn });
+      await tool(mock.tools, "rotta_delegate").execute(
+        "x",
+        params,
+        signal().signal,
+        () => {},
+        ctx,
+      );
+      return fixture.calls[0][1] as string[];
+    };
+    for (
+      const [role, expected] of Object.entries(profile.roles) as [
+        string,
+        string,
+      ][]
+    ) {
+      const args = await invoke({ role, task: "delegate" });
+      assert(
+        args.includes("--model") && args.includes(expected),
+        `${role} routing was not applied`,
+      );
+    }
+    let args: string[];
+    args = await invoke({
+      role: "reviewer",
+      task: "review",
+      model: "custom/once",
+    });
+    assert(
+      args.includes("custom/once") &&
+        !args.includes("openai-codex/gpt-5.6-sol"),
+    );
+    profile.roles = { implementation: "only/one" } as any;
+    Deno.writeTextFileSync(
+      `${root}/model-routing.json`,
+      JSON.stringify(profile),
+    );
+    args = await invoke({ role: "reviewer", task: "review" });
+    assert(
+      args.includes("test/parent-model"),
+      "invalid profile did not inherit parent",
+    );
+    args = await invoke(
+      { role: "reviewer", task: "review" },
+      { ...host().ctx, model: undefined } as any,
+    );
+    assert(!args.includes("--model"), "absent parent should leave model unset");
+  } finally {
+    Deno.removeSync(home, { recursive: true });
+  }
+});
+
 Deno.test("parent activation injects only exact installed core and orchestrator policies", async () => {
   const home = Deno.makeTempDirSync();
   try {

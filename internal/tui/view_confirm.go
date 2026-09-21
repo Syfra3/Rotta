@@ -24,10 +24,20 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
-	writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
-	if m.ModelRouting == installer.ModelRoutingCustom {
-		for _, role := range routingRoles {
-			writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key])
+	if targetIncludesOpenCode(m.Target) {
+		writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
+		if m.ModelRouting == installer.ModelRoutingCustom {
+			for _, role := range routingRoles {
+				writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key])
+			}
+		}
+	}
+	if m.Target == TargetPi || m.Target == TargetAll {
+		writeConfirmValue(b, "Pi model routing:", confirmRoutingLabel(m.PiModelRouting))
+		if m.PiModelRouting == installer.ModelRoutingCustom {
+			for _, role := range piRoutingRoles {
+				writeConfirmValue(b, "  "+role.label+":", m.PiCustomRouting[role.key])
+			}
 		}
 	}
 	b.WriteString("\n")
@@ -94,6 +104,7 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/rotta-mcp-bridge.ts  (managed MCP bridge)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models)")
 	}
 }
 

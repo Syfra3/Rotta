@@ -25,7 +25,7 @@ func fakePiObservations(t *testing.T, graph bool) {
 func TestPiInstallIsManagedIdempotentAndPreservesConflicts(t *testing.T) {
 	home := t.TempDir()
 	files, err := installPi(Options{}, home)
-	if err != nil || len(files) != len(rottaAgents)+5 {
+	if err != nil || len(files) != len(rottaAgents)+6 {
 		t.Fatalf("first Pi install = %v, %v", files, err)
 	}
 	path := piExtensionPath(home)

@@ -28,6 +28,9 @@ const (
 	ScreenModelRouting
 	ScreenCustomModelRouting
 	ScreenModelPicker
+	ScreenPiModelRouting
+	ScreenPiCustomModelRouting
+	ScreenPiModelPicker
 	ScreenModeSelect
 	ScreenQualityGates
 	ScreenAncora
@@ -112,6 +115,17 @@ type Model struct {
 	ModelDiscoveryInFlight   bool
 	ModelDiscoveryGeneration int
 
+	PiModelRouting             installer.ModelRoutingRequest
+	PiCustomRouting            map[string]string
+	PiModelRoutingCursor       int
+	PiCustomRoutingCursor      int
+	PiModelPickerCursor        int
+	PiAvailableModels          []string
+	PiModelDiscoveryError      string
+	PiModelDiscoveryDone       bool
+	PiModelDiscoveryInFlight   bool
+	PiModelDiscoveryGeneration int
+
 	// Mode selection: [0]=spec, [1]=implementation, [2]=review
 	ModeCursor    int
 	SelectedModes [3]bool
@@ -167,6 +181,16 @@ var routingRoles = []struct {
 	{"rotta-review", "Review"},
 	{"rotta-ops", "Operations"},
 	{"rotta-cleaner", "Cleanup"},
+}
+
+var piRoutingRoles = []struct {
+	key   string
+	label string
+}{
+	{"implementation", "Implementation"},
+	{"reviewer", "Reviewer"},
+	{"exploration", "Exploration"},
+	{"operations", "Operations"},
 }
 
 func New() Model {
