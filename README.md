@@ -106,6 +106,57 @@ All core and role files are tracked in `~/.config/rotta/managed-artifacts.json` 
 
 When OpenCode is selected, the installer offers **Default**, **Custom**, and **Disabled** model routing. Default retains Rotta's built-in seven-role mapping; Custom starts as an exact copy and lets you select locally discovered `opencode models` entries for each phase before confirmation; Disabled removes only Rotta-owned model fields. Discovery uses the local CLI without refreshing model data and does not verify provider credentials. If discovery is unavailable or empty, the visible default assignments remain available and no configuration changes occur until confirmation. Pi has an independent four-role profile: Default is `implementation=openai-codex/gpt-5.6-terra`, `reviewer=openai-codex/gpt-5.6-sol`, and `exploration`/`operations`=`openai-codex/gpt-5.6-luna`; Custom starts from those values and reads `pi --offline --list-models`; Disabled leaves every child to inherit its parent model. Explicit `rotta_delegate.model` always wins.
 
+### Jev decision foundation
+
+The first Jev integration slice adds a host-neutral **System One decision foundation** under `internal/workflow`. It does not call TypeSafe live, select LLM models, or change the installed role model-routing profiles by itself. Instead, it defines typed decision questions, adapter boundaries, thresholds, fallback reasons, and telemetry that later host shims can consume from one canonical kit.
+
+```mermaid
+flowchart TD
+    request[User task / current diff / acceptance evidence] --> policy[Rotta policy and deterministic rails]
+    policy --> strict{Strict, review, or operation consent required?}
+
+    strict -- Yes --> rigorous[Existing rigorous Rotta path]
+    strict -- No --> enabled{Jev enabled and adapter available?}
+    enabled -- No --> rigorous
+
+    enabled -- Yes --> routeQ[Choice question: orchestrator routing]
+    routeQ --> routeResult{Route result p >= 0.90?}
+    routeResult -- No / malformed --> rigorous
+    routeResult -- Yes --> allowed{Chosen route already authorized?}
+    allowed -- No --> rigorous
+    allowed -- Yes --> selected[Use selected next state: implement_direct, plan_rigorous, explore, or review]
+
+    evidence[Acceptance criteria + verification evidence] --> failures{Known deterministic failures?}
+    failures -- Yes --> notReady[Completion gate false]
+    failures -- No --> completionQ[Noul question: acceptance complete?]
+    completionQ --> completionResult{True with p >= 0.90?}
+    completionResult -- No / malformed --> notReady
+    completionResult -- Yes --> ready[Acceptance-ready for existing review flow]
+
+    selected --> telemetry[Telemetry: kind, selected result, probability, fallback reason, work ID/revision]
+    rigorous --> telemetry
+    ready --> telemetry
+    notReady --> telemetry
+
+    kit[Canonical Jev kit spec] --> routeQ
+    kit --> completionQ
+    hosts[Pi / OpenCode / Claude Code shims] --> kit
+```
+
+Jev currently makes only two kinds of decisions:
+
+- **Routing `Choice`**: selects one already-authorized next state (`implement_direct`, `plan_rigorous`, `explore`, or `review`). High confidence is a routing signal only; it cannot approve work, skip Strict mode, skip review, or authorize operations.
+- **Completion `Noul`**: judges whether the current evidence satisfies acceptance criteria. Code checks known deterministic acceptance failures first, so a Jev `true` result cannot mark failed work ready.
+
+This is intentionally separate from the previously implemented **model routing** profiles:
+
+| Layer | Question answered | Current owner | Effect |
+|-------|-------------------|---------------|--------|
+| Jev routing foundation | “What workflow state should happen next?” and “is acceptance complete?” | `internal/workflow/jev_decision.go` | Produces typed advisory decisions and telemetry; defaults disabled and falls back safely. |
+| OpenCode/Pi model routing | “Which generative model should each Rotta role use?” | installer/TUI profiles and host adapters | Writes or consumes host-specific role model assignments; explicit delegate model still wins. |
+
+There is no current conflict because Jev PR1 does not choose role models, write installer profiles, mutate Pi/OpenCode routing files, or override `rotta_delegate.model`. The reserved `0.85` model-arbitration threshold is only a named constant for a later chained PR; it is not wired into routing behavior. A future model-arbitration slice must keep the same precedence boundary: explicit per-call model override > installed host profile > parent inheritance/default, with Jev acting only as an advisory selector among already-authorized model tiers.
+
 ### Pi integration
 
 Pi support is global-only and installs the managed executable extension above plus Pi-specific core and role files beneath `~/.pi/agent/rotta-next/`. It explicitly loads the sibling `rotta-mcp-bridge.ts`; the bridge is not globally auto-discovered as a second parent extension. Its separately managed `model-routing.json` is versioned and applies only a complete valid four-role profile; malformed, incomplete, unknown-role, or disabled profiles fail closed to normal parent inheritance. The managed `mcp.json` contains only version 1 and enabled booleans for Ancora, Vela, and Context7, reflecting the installer selections. The extension passes those exact installed policy paths to its Pi adapter (and safely stops if its host adapter cannot resolve the home path); it does not reuse OpenCode loading instructions. It performs bounded, isolated delegation with adapter-enforced role tool allowlists (reviewers have no shell-capable tool), parent-only serialized work-record writes, cancellation/timeout/output limits, fresh reviewer contexts, and validated result/error transport. Its question adapter accepts only Rotta governance triggers and fails closed for unavailable UI, cancellation, or stale/invalid decision bindings. These are adapter constraints, not an OS sandbox or proof of host-wide tool enforcement.
