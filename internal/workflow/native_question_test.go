@@ -627,6 +627,146 @@ func TestDisplayedNativeQuestionRevalidatesItsSealedIssuedQuestion(t *testing.T)
 	}
 }
 
+func TestTextFallbackRendersHostNeutralPromptAndConsumesSimpleAliases(t *testing.T) {
+	question := testMaterialPolicyQuestion(t, "policy-text", "Keep")
+	prompt, err := RenderTextQuestionFallback(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Prompt ID: policy-text", "Workspace: /workspace", "Action: " + MaterialPolicyDecisionAction, "1. Keep", "Reply with exactly one option"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("fallback prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, reply := range []string{"1", "option 1", "1.", "Keep", " keep "} {
+		t.Run(reply, func(t *testing.T) {
+			displayed, err := NewDisplayedNativeQuestion(question)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := ConsumeTextQuestionReply(displayed, reply, question.Context)
+			if err != nil || result.Selected != "Keep" || result.PendingAction != nil || result.ExactApproval != nil {
+				t.Fatalf("ConsumeTextQuestionReply(%q) = %#v, %v; want Keep decision evidence only", reply, result, err)
+			}
+		})
+	}
+}
+
+func TestTextFallbackRejectsCustomAmbiguousStaleAndReplacedReplies(t *testing.T) {
+	question, err := NewMaterialPolicyDecisionQuestion(
+		QuestionContext{PromptID: "policy-text", SessionID: "session-1", Workspace: "/workspace", Action: MaterialPolicyDecisionAction},
+		MaterialPolicyDecision{Question: "Which bounded policy applies?", Header: "Policy", Alternatives: []QuestionOption{{Label: "One", Description: "First."}, {Label: "one", Description: "Second."}}, SafeDefault: "One"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		reply   string
+		current QuestionContext
+		replace bool
+		want    string
+	}{
+		{name: "custom", reply: "please approve", current: question.Context, want: "option"},
+		{name: "ambiguous exact", reply: "one", current: question.Context, want: "ambiguous"},
+		{name: "stale", reply: "1", current: QuestionContext{PromptID: "old", SessionID: "session-1", Workspace: "/workspace", Action: MaterialPolicyDecisionAction}, want: "stale"},
+		{name: "replaced", reply: "1", current: question.Context, replace: true, want: "replaced"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			displayed, err := NewDisplayedNativeQuestion(question)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.replace {
+				displayed.Replace()
+			}
+			if _, err := ConsumeTextQuestionReply(displayed, test.reply, test.current); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ConsumeTextQuestionReply() error = %v, want %q rejection", err, test.want)
+			}
+		})
+	}
+}
+
+func TestTextFallbackAcceptsSuboptionOnlyWhenRenderedLabelStartsWithToken(t *testing.T) {
+	question, err := NewMaterialPolicyDecisionQuestion(
+		QuestionContext{PromptID: "policy-sub", SessionID: "session-1", Workspace: "/workspace", Action: MaterialPolicyDecisionAction},
+		MaterialPolicyDecision{Question: "Which bounded policy applies?", Header: "Policy", Alternatives: []QuestionOption{{Label: "1a scoped exception", Description: "Use the named suboption."}}, SafeDefault: "1a scoped exception"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayed, err := NewDisplayedNativeQuestion(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConsumeTextQuestionReply(displayed, "1a", question.Context)
+	if err != nil || result.Selected != "1a scoped exception" {
+		t.Fatalf("suboption result = %#v, %v", result, err)
+	}
+
+	plain := testMaterialPolicyQuestion(t, "plain-sub", "Keep")
+	displayed, err = NewDisplayedNativeQuestion(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConsumeTextQuestionReply(displayed, "1a", plain.Context); err == nil || !strings.Contains(err.Error(), "option") {
+		t.Fatalf("unrendered suboption error = %v, want option rejection", err)
+	}
+}
+
+func TestTextFallbackExactApprovalBindsCurrentRenderedContract(t *testing.T) {
+	approval := ExactStrictApprovalContext{ContractPath: ".rotta/strict/contract.md", ContentDigest: strings.Repeat("a", 64), RenderedRevision: "rev-1", SessionID: "session", Workspace: "/workspace", Action: ExactStrictApprovalAction}
+	question, err := NewExactStrictApprovalQuestion(QuestionContext{PromptID: "approval-text", SessionID: approval.SessionID, Workspace: approval.Workspace, Action: approval.Action}, approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayed, err := NewDisplayedNativeQuestion(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConsumeExactStrictApprovalTextReply(displayed, "1", approval)
+	if err != nil || result.ExactApproval == nil || result.ExactApproval.Context != approval || result.PendingAction != nil {
+		t.Fatalf("text approval result = %#v, %v", result, err)
+	}
+
+	changed := approval
+	changed.ContentDigest = strings.Repeat("b", 64)
+	displayed, err = NewDisplayedNativeQuestion(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConsumeExactStrictApprovalTextReply(displayed, ExactStrictApproveOption, changed); err == nil || !strings.Contains(err.Error(), "binding") {
+		t.Fatalf("changed contract error = %v, want binding rejection", err)
+	}
+}
+
+func TestTextFallbackOperationConsentCreatesOnlyPendingAuthorization(t *testing.T) {
+	consent := ExactOperationConsentContext{Action: "delete-preview", OperationClass: DestructiveOperationClass, CanonicalTarget: "/workspace/preview", SessionID: "session", Workspace: "/workspace", MaterialEffect: "Deletes one preview.", ApprovalScope: "This one rendered deletion.", ContentDigest: strings.Repeat("b", 64), RenderedRevision: "rev-1"}
+	question, err := NewExactOperationConsentQuestion(QuestionContext{PromptID: "operation-text", SessionID: consent.SessionID, Workspace: consent.Workspace, Action: consent.Action}, consent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayed, err := NewDisplayedNativeQuestion(question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConsumeExactOperationConsentTextReply(displayed, "option 1", consent)
+	if err != nil || result.PendingAction == nil || result.PendingAction.Executed || result.PendingAction.Consent == nil || *result.PendingAction.Consent != consent {
+		t.Fatalf("text consent result = %#v, %v", result, err)
+	}
+}
+
+func TestHostQuestionAttemptUsesTextFallbackWhenNativeUnavailableOrFailed(t *testing.T) {
+	for _, attempt := range []HostQuestionAttempt{{Host: QuestionHostPi}, {Host: QuestionHostOpenCode, NativeAttempted: true, FailureReason: "identity mismatch"}, {Host: QuestionHostClaude, NativeAttempted: true}} {
+		if !ShouldRenderTextFallback(attempt) {
+			t.Fatalf("ShouldRenderTextFallback(%#v) = false, want true", attempt)
+		}
+	}
+	if ShouldRenderTextFallback(HostQuestionAttempt{Host: QuestionHostOpenCode, NativeAttempted: true, NativeSucceeded: true}) {
+		t.Fatal("successful native host question requested fallback")
+	}
+}
+
 func testMaterialPolicyQuestion(t *testing.T, promptID, safeDefault string) NativeQuestion {
 	t.Helper()
 	question, err := NewMaterialPolicyDecisionQuestion(
