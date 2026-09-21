@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.0](https://github.com/Syfra3/Rotta/compare/v1.17.0...v1.18.0) (2026-09-21)
+
+
+### Features
+
+* **workflow:** add host-neutral question fallback ([0a30919](https://github.com/Syfra3/Rotta/commit/0a3091947c655434a3e0d095f2b4e49222fce144))
+
 ## [1.17.0](https://github.com/Syfra3/Rotta/compare/v1.16.2...v1.17.0) (2026-09-21)
 
 
