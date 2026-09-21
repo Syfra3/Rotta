@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.17.0](https://github.com/Syfra3/Rotta/compare/v1.16.2...v1.17.0) (2026-09-21)
+
+
+### Features
+
+* **opencode:** add custom per-phase model routing ([398414f](https://github.com/Syfra3/Rotta/commit/398414f8e1540b3c326387f11ed498c7a70712ad))
+* **pi:** add integration and managed installation ([23c59f1](https://github.com/Syfra3/Rotta/commit/23c59f11911b0bc9fd87cfcceba30b2c38694213))
+* **pi:** add integration and managed installation ([151c02b](https://github.com/Syfra3/Rotta/commit/151c02b7c02bb09bcb968189920424f500139aaa))
+* **pi:** add per-role model routing ([45b02f2](https://github.com/Syfra3/Rotta/commit/45b02f25552957973af996cd7d02f3b6859d0bcb))
+* **pi:** connect Ancora Vela and Context7 MCP tools ([5b2de3d](https://github.com/Syfra3/Rotta/commit/5b2de3d5e9da55151400b993618f680ec5ad8568))
+
+
+### Bug Fixes
+
+* **pi:** expose MCP tools to delegated roles ([a601edb](https://github.com/Syfra3/Rotta/commit/a601edb6533cfbba0c510fc2158d320d8918011d))
+* **pi:** restrict child guard to delegated sessions ([410731d](https://github.com/Syfra3/Rotta/commit/410731dd232558be3e0a7de92124dc22edefe4cf))
+* **pi:** retain final child result event ([0097042](https://github.com/Syfra3/Rotta/commit/0097042bc9c97ddaa9b83e38dd7a0abc0a1d0bbf))
+
 ## [1.16.2](https://github.com/Syfra3/Rotta/compare/v1.16.1...v1.16.2) (2026-09-15)
 
 
