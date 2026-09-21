@@ -560,6 +560,77 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     fencedHost.ctx,
   );
   assert(fencedResult.content[0].text === "bounded report");
+  const plain = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Review complete: no blockers."}]}}\n',
+  });
+  const plainHost = host();
+  registerRotta(plainHost.pi as any, {
+    spawn: plain.spawn,
+    home: () => "/test-home",
+  });
+  const plainResult = await tool(plainHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    plainHost.ctx,
+  );
+  assert(plainResult.content[0].text === "Review complete: no blockers.");
+  const malformedEnvelope = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{not-json}"}]}}\n',
+  });
+  const malformedHost = host();
+  registerRotta(malformedHost.pi as any, {
+    spawn: malformedEnvelope.spawn,
+    home: () => "/test-home",
+  });
+  await tool(malformedHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    malformedHost.ctx,
+  ).then(() => {
+    throw new Error("malformed envelope succeeded");
+  }, () => {});
+  const malformedFence = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"```json\\n{not-json}"}]}}\n',
+  });
+  const malformedFenceHost = host();
+  registerRotta(malformedFenceHost.pi as any, {
+    spawn: malformedFence.spawn,
+    home: () => "/test-home",
+  });
+  await tool(malformedFenceHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    malformedFenceHost.ctx,
+  ).then(() => {
+    throw new Error("malformed fenced envelope succeeded");
+  }, () => {});
+  const proseMalformedFence = fakeSpawn({
+    stdout:
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Result:\\n```json\\n{not-json}\\n```"}]}}\n',
+  });
+  const proseMalformedFenceHost = host();
+  registerRotta(proseMalformedFenceHost.pi as any, {
+    spawn: proseMalformedFence.spawn,
+    home: () => "/test-home",
+  });
+  await tool(proseMalformedFenceHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    proseMalformedFenceHost.ctx,
+  ).then(() => {
+    throw new Error("prose plus malformed fenced envelope succeeded");
+  }, () => {});
   const slow = fakeSpawn({ wait: true });
   const timeoutHost = host();
   registerRotta(timeoutHost.pi as any, {

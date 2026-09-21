@@ -222,10 +222,16 @@ async function loadMCPBridge(
     };
   }
 }
-function validChildResult(stdout: string) {
+type ChildResult = { status: "success"; output: string } | {
+  status: "error";
+  message: string;
+};
+
+function validChildResult(stdout: string): ChildResult | null {
+  const jsonEnvelopePattern = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i;
   const parseEnvelope = (text: string) => {
     const trimmed = text.trim();
-    const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(trimmed);
+    const fenced = jsonEnvelopePattern.exec(trimmed);
     try {
       const value = JSON.parse(fenced ? fenced[1] : trimmed);
       if (
@@ -233,13 +239,15 @@ function validChildResult(stdout: string) {
         ((value.status === "success" && typeof value.output === "string") ||
           (value.status === "error" && typeof value.message === "string"))
       ) {
-        return value as { status: "success"; output: string } | {
-          status: "error";
-          message: string;
-        };
+        return value as ChildResult;
       }
     } catch { /* invalid envelope */ }
     return null;
+  };
+  const looksLikeBrokenEnvelope = (text: string) => {
+    const trimmed = text.trim();
+    return trimmed.startsWith("{") || trimmed.startsWith("```") ||
+      /```json/i.test(trimmed);
   };
   let finalAssistant = "";
   for (const line of stdout.split(/\r?\n/).reverse()) {
@@ -260,7 +268,12 @@ function validChildResult(stdout: string) {
           ).join("")
           : "";
         if (!finalAssistant) continue;
-        return parseEnvelope(finalAssistant);
+        const envelope = parseEnvelope(finalAssistant);
+        if (envelope) return envelope;
+        if (!looksLikeBrokenEnvelope(finalAssistant)) {
+          return { status: "success", output: finalAssistant.trim() };
+        }
+        return null;
       }
       const direct = parseEnvelope(line);
       if (direct) return direct;

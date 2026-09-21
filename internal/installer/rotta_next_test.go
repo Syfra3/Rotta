@@ -241,12 +241,12 @@ func TestRottaQuestionPolicyIsOrchestratorOnlyAndSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"five allow-listed triggers", "materially incomplete Strict clarification", "exact approval of a rendered Strict contract", "material non-operational policy decision", "one-time consent for one exact rendered destructive/external operation", "Approve the exact rendered operation once", "generic `continue`", "single-select", "standing authorization", "source fallback", "unauthorized pending re-index review", "sequential clarification flow", "at most three questions", "Stop / use safe defaults", "canonical contract path", "SHA-256 content digest", "rendered revision", "Agent-turn native-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+	for _, want := range []string{"five allow-listed triggers", "materially incomplete Strict clarification", "exact approval of a rendered Strict contract", "material non-operational policy decision", "one-time consent for one exact rendered destructive/external operation", "Approve the exact rendered operation once", "generic `continue`", "single-select", "standing authorization", "source fallback", "unauthorized pending re-index review", "sequential clarification flow", "at most three questions", "Stop / use safe defaults", "canonical contract path", "SHA-256 content digest", "rendered revision", "Agent-turn governance-question procedure", "host-native question UI", "bounded text fallback", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
 		if !strings.Contains(string(core), want) {
 			t.Fatalf("core question policy missing %q", want)
 		}
 	}
-	for _, want := range []string{"native OpenCode `question`", "Only this orchestrator", "five allow-listed triggers", "Approve the exact rendered operation once", "never invoke Vela", "Agent-turn native-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+	for _, want := range []string{"host-native question UI", "bounded text-response fallback", "Only this orchestrator", "five allow-listed triggers", "Approve the exact rendered operation once", "never invoke Vela", "Agent-turn governance-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
 		if !strings.Contains(string(orchestrator), want) {
 			t.Fatalf("orchestrator question policy missing %q:\n%s", want, orchestrator)
 		}
@@ -262,7 +262,7 @@ func TestRottaQuestionPolicyIsOrchestratorOnlyAndSafe(t *testing.T) {
 		filepath.Join(home, ".config", "opencode", "skills", "rotta-next", "rotta-orchestrator", "SKILL.md"),
 		filepath.Join(home, ".config", "opencode", "skills", "rotta-next", "rotta-core", "SKILL.md"),
 	} {
-		for _, want := range []string{"Agent-turn native-question procedure", "five allow-listed triggers", "Eligibility is structural", "exactly one item", "`multiple: false`", "`custom: false`", "only that tool call's answer", "discard the answer and safe-stop", "canonicalized target", "no Vela invocation"} {
+		for _, want := range []string{"Agent-turn governance-question procedure", "five allow-listed triggers", "Eligibility is structural", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "canonicalized target", "no Vela invocation"} {
 			assertRottaNextFileContains(t, path, want)
 		}
 	}
