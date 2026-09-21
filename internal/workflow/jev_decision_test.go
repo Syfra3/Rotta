@@ -14,6 +14,47 @@ type fakeJevAdapter struct {
 func (f fakeJevAdapter) Choice(JevChoiceQuestion) (JevChoiceResult, error) { return f.choice, f.err }
 func (f fakeJevAdapter) Noul(JevNoulQuestion) (JevNoulResult, error)       { return f.noul, f.err }
 
+func TestJevPolicyGateCombinesJevBrainWithDeterministicRails(t *testing.T) {
+	config := DefaultJevConfig()
+	config.Enabled = true
+	question := NewPolicyGateQuestion(testJevCorrelation(), "change auth", "auth diff", "", "strict policy")
+
+	deterministic := DecideJevPolicyGate(config, fakeJevAdapter{noul: JevNoulResult{Value: false, Probability: 0.99}}, JevPolicyGateInput{Question: question, DeterministicStrictTriggered: true})
+	if !deterministic.RequiresRigorousPath || deterministic.UsedJev || deterministic.Telemetry.FallbackReason != JevFallbackPolicyRequiresRigorous {
+		t.Fatalf("deterministic policy must remain authoritative, got %+v", deterministic)
+	}
+
+	semantic := DecideJevPolicyGate(config, fakeJevAdapter{noul: JevNoulResult{Value: true, Probability: 0.91}}, JevPolicyGateInput{Question: question})
+	if !semantic.RequiresRigorousPath || !semantic.UsedJev || semantic.Telemetry.FallbackReason != JevFallbackNone {
+		t.Fatalf("high-confidence Jev risk should add rigor, got %+v", semantic)
+	}
+
+	clear := DecideJevPolicyGate(config, fakeJevAdapter{noul: JevNoulResult{Value: false, Probability: 0.91}}, JevPolicyGateInput{Question: question})
+	if clear.RequiresRigorousPath || !clear.UsedJev || clear.Telemetry.FallbackReason != JevFallbackNone {
+		t.Fatalf("high-confidence clear risk should permit downstream routing, got %+v", clear)
+	}
+}
+
+func TestJevPolicyGateUncertaintyFailsCautiousWithoutOverridingDisabledDefault(t *testing.T) {
+	question := NewPolicyGateQuestion(testJevCorrelation(), "task", "diff", "command", "policy")
+	disabled := DecideJevPolicyGate(DefaultJevConfig(), fakeJevAdapter{noul: JevNoulResult{Value: true, Probability: 0.99}}, JevPolicyGateInput{Question: question})
+	if disabled.RequiresRigorousPath || disabled.UsedJev || disabled.Telemetry.FallbackReason != JevFallbackDisabled {
+		t.Fatalf("disabled Jev should preserve existing deterministic gate result, got %+v", disabled)
+	}
+
+	config := DefaultJevConfig()
+	config.Enabled = true
+	lowConfidence := DecideJevPolicyGate(config, fakeJevAdapter{noul: JevNoulResult{Value: false, Probability: 0.89}}, JevPolicyGateInput{Question: question})
+	if !lowConfidence.RequiresRigorousPath || lowConfidence.UsedJev || lowConfidence.Telemetry.FallbackReason != JevFallbackLowConfidence {
+		t.Fatalf("low confidence policy gate must fail cautious, got %+v", lowConfidence)
+	}
+
+	unavailable := DecideJevPolicyGate(config, nil, JevPolicyGateInput{Question: question})
+	if !unavailable.RequiresRigorousPath || unavailable.Telemetry.FallbackReason != JevFallbackUnavailable {
+		t.Fatalf("unavailable enabled policy gate must fail cautious, got %+v", unavailable)
+	}
+}
+
 func TestJevDisabledPreservesRigorousRoutingFallback(t *testing.T) {
 	question := NewRoutingQuestion(testJevCorrelation(), "fix typo", "no diff", "fast allowed")
 	decision := DecideJevRouting(DefaultJevConfig(), fakeJevAdapter{choice: JevChoiceResult{Option: JevRouteImplementDirect, Probability: 0.99}}, JevRoutingInput{Question: question})
@@ -120,10 +161,10 @@ func TestCanonicalJevKitSpecIsHostNeutralAndReservesLaterThresholds(t *testing.T
 			t.Fatalf("canonical kit missing host %s", host)
 		}
 	}
-	if spec.Thresholds["direct_routing"] != 0.90 || spec.Thresholds["model_arbitration_reserved"] != 0.85 {
+	if spec.Thresholds["policy_gate"] != 0.90 || spec.Thresholds["direct_routing"] != 0.90 || spec.Thresholds["model_arbitration_reserved"] != 0.85 {
 		t.Fatalf("unexpected thresholds: %+v", spec.Thresholds)
 	}
-	if len(spec.Instructions) != 2 || spec.Instructions[JevDecisionRouting] == "" || spec.Instructions[JevDecisionCompletionGate] == "" {
+	if len(spec.Instructions) != 3 || spec.Instructions[JevDecisionPolicyGate] == "" || spec.Instructions[JevDecisionRouting] == "" || spec.Instructions[JevDecisionCompletionGate] == "" {
 		t.Fatalf("canonical instructions must own decision semantics, got %+v", spec.Instructions)
 	}
 }

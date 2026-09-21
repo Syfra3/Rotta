@@ -112,11 +112,21 @@ The first Jev integration slice adds a host-neutral **System One decision founda
 
 ```mermaid
 flowchart TD
-    request[User task / current diff / acceptance evidence] --> policy[Rotta policy and deterministic rails]
-    policy --> strict{Strict, review, or operation consent required?}
+    request[User task / current diff / command / acceptance evidence] --> deterministic[Deterministic Rotta policy rails]
+    request --> riskQ[Noul question: semantic policy gate]
 
-    strict -- Yes --> rigorous[Existing rigorous Rotta path]
-    strict -- No --> enabled{Jev enabled and adapter available?}
+    kit[Canonical Jev kit spec] --> riskQ
+    kit --> routeQ
+    kit --> completionQ
+    hosts[Pi / OpenCode / Claude Code shims] --> kit
+
+    deterministic --> gate{Rigorous path required?}
+    riskQ --> riskResult{Semantic risk true with p >= 0.90?}
+    riskResult -- Yes --> gate
+    riskResult -- No but p < 0.90 / malformed --> gate
+    riskResult -- High-confidence no --> enabled{Jev routing enabled and adapter available?}
+
+    gate -- Deterministic Strict/review/operation consent OR Jev risk/uncertainty --> rigorous[Existing rigorous Rotta path]
     enabled -- No --> rigorous
 
     enabled -- Yes --> routeQ[Choice question: orchestrator routing]
@@ -137,14 +147,11 @@ flowchart TD
     rigorous --> telemetry
     ready --> telemetry
     notReady --> telemetry
-
-    kit[Canonical Jev kit spec] --> routeQ
-    kit --> completionQ
-    hosts[Pi / OpenCode / Claude Code shims] --> kit
 ```
 
-Jev currently makes only two kinds of decisions:
+Jev currently makes three kinds of decisions:
 
+- **Policy gate `Noul`**: identifies semantic risk that should force a rigorous path such as Strict approval, required review, or exact operation consent. This can add caution, but cannot override deterministic policy rails; uncertainty fails cautious.
 - **Routing `Choice`**: selects one already-authorized next state (`implement_direct`, `plan_rigorous`, `explore`, or `review`). High confidence is a routing signal only; it cannot approve work, skip Strict mode, skip review, or authorize operations.
 - **Completion `Noul`**: judges whether the current evidence satisfies acceptance criteria. Code checks known deterministic acceptance failures first, so a Jev `true` result cannot mark failed work ready.
 

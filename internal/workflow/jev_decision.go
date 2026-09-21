@@ -6,6 +6,7 @@ const (
 	JevDecisionSchemaV1 = "rotta.jev-decision/v1"
 	JevKitSchemaV1      = "rotta.jev-kit/v1"
 
+	JevPolicyGateThreshold               = 0.90
 	JevDirectRoutingThreshold            = 0.90
 	JevCompletionGateThreshold           = 0.90
 	JevModelArbitrationReservedThreshold = 0.85
@@ -22,6 +23,7 @@ const (
 type JevDecisionKind string
 
 const (
+	JevDecisionPolicyGate     JevDecisionKind = "policy_gate"
 	JevDecisionRouting        JevDecisionKind = "orchestrator_routing"
 	JevDecisionCompletionGate JevDecisionKind = "completion_gate"
 )
@@ -59,6 +61,7 @@ const (
 type JevConfig struct {
 	Enabled                    bool
 	Adapter                    string
+	PolicyGateThreshold        float64
 	DirectRoutingThreshold     float64
 	CompletionGateThreshold    float64
 	AllowLiveTypeSafeByDefault bool
@@ -68,6 +71,7 @@ func DefaultJevConfig() JevConfig {
 	return JevConfig{
 		Enabled:                 false,
 		Adapter:                 "disabled",
+		PolicyGateThreshold:     JevPolicyGateThreshold,
 		DirectRoutingThreshold:  JevDirectRoutingThreshold,
 		CompletionGateThreshold: JevCompletionGateThreshold,
 	}
@@ -123,6 +127,19 @@ type JevTelemetry struct {
 	Correlation    JevCorrelation    `json:"correlation"`
 }
 
+type JevPolicyGateInput struct {
+	Question                              JevNoulQuestion
+	DeterministicStrictTriggered          bool
+	DeterministicOperationConsentRequired bool
+	DeterministicReviewRequired           bool
+}
+
+type JevPolicyGateDecision struct {
+	RequiresRigorousPath bool
+	UsedJev              bool
+	Telemetry            JevTelemetry
+}
+
 type JevRoutingInput struct {
 	Question                 JevChoiceQuestion
 	StrictTriggered          bool
@@ -145,6 +162,22 @@ type JevCompletionDecision struct {
 	AcceptanceReady bool
 	UsedJev         bool
 	Telemetry       JevTelemetry
+}
+
+func NewPolicyGateQuestion(correlation JevCorrelation, objective, diffSummary, commandSummary, policySummary string) JevNoulQuestion {
+	return JevNoulQuestion{
+		SchemaVersion: JevDecisionSchemaV1,
+		Kind:          JevDecisionPolicyGate,
+		Primitive:     JevPrimitiveNoul,
+		Instructions:  "Return true when semantic risk means Rotta must use a rigorous path such as Strict approval, required review, or exact operation consent. This judgment can add caution but cannot override deterministic policy gates.",
+		State: map[string]string{
+			"objective":       objective,
+			"diff_summary":    diffSummary,
+			"command_summary": commandSummary,
+			"policy_summary":  policySummary,
+		},
+		Correlation: correlation,
+	}
 }
 
 func NewRoutingQuestion(correlation JevCorrelation, objective, diffSummary, policySummary string) JevChoiceQuestion {
@@ -175,6 +208,40 @@ func NewCompletionGateQuestion(correlation JevCorrelation, acceptanceCriteria, e
 		},
 		Correlation: correlation,
 	}
+}
+
+func DecideJevPolicyGate(config JevConfig, adapter JevAdapter, input JevPolicyGateInput) JevPolicyGateDecision {
+	threshold := thresholdOrDefault(config.PolicyGateThreshold, JevPolicyGateThreshold)
+	base := telemetry(input.Question.Correlation, JevDecisionPolicyGate, JevPrimitiveNoul)
+	fallback := func(requiresRigorous bool, reason JevFallbackReason) JevPolicyGateDecision {
+		base.FallbackReason = reason
+		base.Selected = fmt.Sprintf("%t", requiresRigorous)
+		return JevPolicyGateDecision{RequiresRigorousPath: requiresRigorous, Telemetry: base}
+	}
+	if input.DeterministicStrictTriggered || input.DeterministicOperationConsentRequired || input.DeterministicReviewRequired {
+		return fallback(true, JevFallbackPolicyRequiresRigorous)
+	}
+	if !config.Enabled {
+		return fallback(false, JevFallbackDisabled)
+	}
+	if adapter == nil {
+		return fallback(true, JevFallbackUnavailable)
+	}
+	result, err := adapter.Noul(input.Question)
+	if err != nil || !validProbability(result.Probability) {
+		return fallback(true, JevFallbackMalformed)
+	}
+	base.Selected = fmt.Sprintf("%t", result.Value)
+	base.Probability = result.Probability
+	if result.Value && result.Probability >= threshold {
+		base.FallbackReason = JevFallbackNone
+		return JevPolicyGateDecision{RequiresRigorousPath: true, UsedJev: true, Telemetry: base}
+	}
+	if result.Probability < threshold {
+		return fallback(true, JevFallbackLowConfidence)
+	}
+	base.FallbackReason = JevFallbackNone
+	return JevPolicyGateDecision{RequiresRigorousPath: false, UsedJev: true, Telemetry: base}
 }
 
 func DecideJevRouting(config JevConfig, adapter JevAdapter, input JevRoutingInput) JevRoutingDecision {
@@ -253,13 +320,15 @@ func CanonicalJevKitSpec() JevKitSpec {
 		SchemaVersion: JevKitSchemaV1,
 		Hosts:         []JevHost{JevHostNeutral, JevHostPi, JevHostOpenCode, JevHostClaudeCode},
 		Primitives:    []JevPrimitive{JevPrimitiveChoice, JevPrimitiveNoul, JevPrimitiveScore},
-		Decisions:     []JevDecisionKind{JevDecisionRouting, JevDecisionCompletionGate},
+		Decisions:     []JevDecisionKind{JevDecisionPolicyGate, JevDecisionRouting, JevDecisionCompletionGate},
 		Thresholds: map[string]float64{
+			"policy_gate":                JevPolicyGateThreshold,
 			"direct_routing":             JevDirectRoutingThreshold,
 			"completion_gate":            JevCompletionGateThreshold,
 			"model_arbitration_reserved": JevModelArbitrationReservedThreshold,
 		},
 		Instructions: map[JevDecisionKind]string{
+			JevDecisionPolicyGate:     "Noul: identify semantic risk requiring Strict/review/operation-consent rigor; deterministic policy remains authoritative and uncertainty fails cautious.",
 			JevDecisionRouting:        "Choice: select one already-authorized next state; confidence is a routing signal, never authorization.",
 			JevDecisionCompletionGate: "Noul: judge whether acceptance criteria are satisfied by current evidence; code blocks known deterministic failures.",
 		},
