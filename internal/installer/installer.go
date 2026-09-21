@@ -22,9 +22,11 @@ type Options struct {
 	InstallImpl          bool
 	InstallReview        bool
 	UseDefaultGates      bool
-	SetupAncora          bool // whether to install/configure Ancora memory
-	SetupVela            bool // whether to install/configure Vela graph intelligence
-	SetupContext7        bool // whether to configure Context7 documentation MCP
+	SetupAncora          bool   // whether to install/configure Ancora memory
+	SetupVela            bool   // whether to install/configure Vela graph intelligence
+	SetupContext7        bool   // whether to configure Context7 documentation MCP
+	SetupTypeSafe        bool   // whether to auto-enable TypeSafe/Jev in Pi sessions
+	TypeSafeAPIKey       string // optional TypeSafe/Jev API key to store for pi-typesafe
 	ModelRouting         ModelRoutingRequest
 	ModelRoutingModels   map[string]string
 	PiModelRouting       ModelRoutingRequest

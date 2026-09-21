@@ -24,6 +24,12 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
+	if targetIncludesPi(m.Target) {
+		writeConfirmValue(b, "TypeSafe/Jev:", confirmSetupLabel(m.SetupTypeSafe))
+		if m.SetupTypeSafe && m.TypeSafeAPIKey != "" {
+			writeConfirmValue(b, "TypeSafe key:", "provided (will be stored privately)")
+		}
+	}
 	if targetIncludesOpenCode(m.Target) {
 		writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
 		if m.ModelRouting == installer.ModelRoutingCustom {
@@ -104,6 +110,7 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/rotta-mcp-bridge.ts  (managed MCP bridge)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/typesafe.json  (TypeSafe/Jev session enablement)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models)")
 	}
 }
@@ -126,6 +133,9 @@ func (m Model) writeConfirmIntegrationFiles(b *strings.Builder) {
 	}
 	if m.SetupVela {
 		m.writeConfirmVelaFiles(b)
+	}
+	if m.SetupTypeSafe && targetIncludesPi(m.Target) && m.TypeSafeAPIKey != "" {
+		writeConfirmFile(b, "  ~/.pi/agent/pi-typesafe/auth.json  (TypeSafe API key, private)")
 	}
 	if m.SetupContext7 {
 		if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {

@@ -126,6 +126,8 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
+	setupTypeSafe := flags.Bool("typesafe", false, "auto-enable TypeSafe/Jev for Pi sessions")
+	typeSafeKey := flags.String("typesafe-api-key", "", "TypeSafe/Jev API key to store for pi-typesafe (prefer the interactive TUI or /typesafe login)")
 	routing := flags.String("model-routing", "", "OpenCode model routing: enabled, custom, or disabled")
 	piRouting := flags.String("pi-model-routing", "", "Pi model routing: enabled, custom, or disabled")
 	var piModels repeatedFlag
@@ -149,6 +151,8 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 		ProjectPath:          *projectPath,
 		SetupAncora:          *setupAncora,
 		SetupVela:            *setupVela,
+		SetupTypeSafe:        *setupTypeSafe,
+		TypeSafeAPIKey:       *typeSafeKey,
 		ModelRouting:         installer.ModelRoutingRequest(*routing),
 		PiModelRouting:       installer.ModelRoutingRequest(*piRouting),
 		PiModelRoutingModels: piCustom,

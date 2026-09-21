@@ -63,10 +63,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward textinput events on ScreenProjectPath
+	// Forward textinput events on input screens.
 	if m.Screen == ScreenProjectPath {
 		var cmd tea.Cmd
 		m.ProjectInput, cmd = m.ProjectInput.Update(msg)
+		return m, cmd
+	}
+	if m.Screen == ScreenTypeSafeKey {
+		var cmd tea.Cmd
+		m.TypeSafeKeyInput, cmd = m.TypeSafeKeyInput.Update(msg)
 		return m, cmd
 	}
 
@@ -84,7 +89,7 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
 		ScreenModeSelect: m.updateModeSelect, ScreenModelRouting: m.updateModelRouting, ScreenCustomModelRouting: m.updateCustomModelRouting, ScreenModelPicker: m.updateModelPicker, ScreenPiModelRouting: m.updatePiModelRouting, ScreenPiCustomModelRouting: m.updatePiCustomModelRouting, ScreenPiModelPicker: m.updatePiModelPicker, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
-		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
+		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenTypeSafe: m.updateTypeSafe, ScreenTypeSafeKey: m.updateTypeSafeKey, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
 	}
@@ -555,11 +560,61 @@ func (m Model) updateContext7(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.SetupContext7 = m.Context7Cursor == 0
 		m.PrevScreen = ScreenContext7
-		m.Screen = ScreenConfirm
+		if targetIncludesPi(m.Target) {
+			m.Screen = ScreenTypeSafe
+		} else {
+			m.Screen = ScreenConfirm
+		}
 	case "esc", "b":
 		m.Screen = ScreenVela
 	}
 	return m, nil
+}
+
+func (m Model) updateTypeSafe(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !targetIncludesPi(m.Target) {
+		m.SetupTypeSafe = false
+		m.Screen = ScreenConfirm
+		return m, nil
+	}
+	switch msg.String() {
+	case "j", "down":
+		if m.TypeSafeCursor < 1 {
+			m.TypeSafeCursor++
+		}
+	case "k", "up":
+		if m.TypeSafeCursor > 0 {
+			m.TypeSafeCursor--
+		}
+	case "enter", " ":
+		m.SetupTypeSafe = m.TypeSafeCursor == 0
+		if m.SetupTypeSafe {
+			m.Screen = ScreenTypeSafeKey
+			return m, m.TypeSafeKeyInput.Focus()
+		}
+		m.TypeSafeAPIKey = ""
+		m.Screen = ScreenConfirm
+	case "esc", "b":
+		m.Screen = ScreenContext7
+	}
+	return m, nil
+}
+
+func (m Model) updateTypeSafeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.TypeSafeAPIKey = strings.TrimSpace(m.TypeSafeKeyInput.Value())
+		m.TypeSafeKeyInput.Blur()
+		m.Screen = ScreenConfirm
+		return m, nil
+	case "esc":
+		m.TypeSafeKeyInput.Blur()
+		m.Screen = ScreenTypeSafe
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.TypeSafeKeyInput, cmd = m.TypeSafeKeyInput.Update(msg)
+	return m, cmd
 }
 
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -580,7 +635,11 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenInstalling
 		return m, tea.Batch(m.InstallSpinner.Tick, runInstall(m))
 	case "esc", "b":
-		m.Screen = ScreenContext7
+		if targetIncludesPi(m.Target) {
+			m.Screen = ScreenTypeSafe
+		} else {
+			m.Screen = ScreenContext7
+		}
 	}
 	return m, nil
 }
@@ -606,6 +665,8 @@ func runInstall(m Model) tea.Cmd {
 			SetupAncora:          m.SetupAncora,
 			SetupVela:            m.SetupVela,
 			SetupContext7:        m.SetupContext7,
+			SetupTypeSafe:        m.SetupTypeSafe && targetIncludesPi(m.Target),
+			TypeSafeAPIKey:       m.TypeSafeAPIKey,
 			ModelRouting:         m.ModelRouting,
 			ModelRoutingModels:   m.CustomRouting,
 			PiModelRouting:       m.PiModelRouting,

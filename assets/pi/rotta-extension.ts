@@ -11,8 +11,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 60_000;
-const MAX_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
+const MAX_TIMEOUT_MS = 600_000;
 const QUESTION_TIMEOUT_MS = 30_000;
 const memoryTools = [
   "rotta_ancora_save",
@@ -27,6 +27,7 @@ const docsTools = [
   "rotta_context7_resolve_library_id",
   "rotta_context7_query_docs",
 ] as const;
+const judgmentTools = ["typesafe_evaluate"] as const;
 const velaTools = [
   "rotta_vela_explore",
   "rotta_vela_lookup",
@@ -43,11 +44,26 @@ const velaTools = [
 const roles = {
   implementation: {
     skill: "rotta-impl",
-    tools: ["read", "write", "edit", ...memoryTools, ...docsTools],
+    tools: [
+      "read",
+      "write",
+      "edit",
+      ...memoryTools,
+      ...docsTools,
+      ...judgmentTools,
+    ],
   },
   reviewer: {
     skill: "rotta-review",
-    tools: ["read", "grep", "find", "ls", ...memoryTools, ...docsTools],
+    tools: [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      ...memoryTools,
+      ...docsTools,
+      ...judgmentTools,
+    ],
   },
   exploration: {
     skill: "rotta-explore",
@@ -59,6 +75,7 @@ const roles = {
       ...memoryTools,
       ...velaTools,
       ...docsTools,
+      ...judgmentTools,
     ],
   },
   operations: { skill: "rotta-ops", tools: ["read", ...memoryTools] },
@@ -173,13 +190,122 @@ function appendTailBounded(current: string, next: string) {
   while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
   return bytes.subarray(start).toString("utf8");
 }
+function roleLabel(role: unknown) {
+  return typeof role === "string" && role ? role : "unknown";
+}
+function summarizeTask(task: unknown, limit = 80) {
+  if (typeof task !== "string" || task.trim() === "") return "no task supplied";
+  const compact = task.replace(/\s+/g, " ").trim();
+  return compact.length > limit ? `${compact.slice(0, limit - 1)}…` : compact;
+}
+function elapsedLabel(ms: number) {
+  const safe = Math.max(0, Math.floor(ms));
+  const seconds = Math.floor(safe / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes <= 0) return `${rest}s`;
+  return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
+}
+function executionStartedMs(value: unknown) {
+  if (typeof value === "number") return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+  return Date.now();
+}
+function contentText(result: { content?: unknown }) {
+  const content =
+    (result as { content?: Array<{ type?: string; text?: string }> }).content;
+  if (!Array.isArray(content)) return "";
+  return content.filter((part) =>
+    part?.type === "text" && typeof part.text === "string"
+  ).map((part) => part.text).join("\n");
+}
+function textComponent(text: string) {
+  return {
+    render(width: number) {
+      return text.split("\n").map((line) =>
+        line.length > width ? line.slice(0, Math.max(0, width - 1)) + "…" : line
+      );
+    },
+    invalidate() {},
+  };
+}
+function renderDelegateCall(args: Record<string, unknown>, theme: any) {
+  const role = roleLabel(args.role);
+  const task = summarizeTask(args.task);
+  return textComponent(
+    `${theme.fg("toolTitle", theme.bold("delegate"))} ${
+      theme.fg("accent", role)
+    } ${theme.fg("dim", task)}`,
+  );
+}
+function renderDelegateResult(
+  result: {
+    content?: unknown;
+    details?: Record<string, unknown>;
+    isError?: boolean;
+  },
+  options: { expanded?: boolean; isPartial?: boolean },
+  theme: any,
+  context: {
+    args?: Record<string, unknown>;
+    executionStarted?: unknown;
+    invalidate?: () => void;
+  },
+) {
+  const role = roleLabel(result.details?.role ?? context.args?.role);
+  const elapsed = elapsedLabel(
+    typeof result.details?.elapsedMs === "number"
+      ? result.details.elapsedMs
+      : Date.now() - executionStartedMs(context.executionStarted),
+  );
+  if (options.isPartial || result.details?.running === true) {
+    setTimeout(() => context.invalidate?.(), 1000);
+    const timeout = typeof result.details?.timeoutMs === "number"
+      ? ` / timeout ${elapsedLabel(result.details.timeoutMs)}`
+      : "";
+    const line = `${theme.fg("warning", "● running")} ${
+      theme.fg("accent", role)
+    } ${theme.fg("muted", elapsed + timeout)} ${
+      theme.fg("dim", "expand for details")
+    }`;
+    if (!options.expanded) return textComponent(line);
+    return textComponent(
+      `${line}\n${
+        theme.fg(
+          "toolOutput",
+          contentText(result) || "waiting for child output…",
+        )
+      }`,
+    );
+  }
+  const failed = result.isError || result.details?.failed === true;
+  const icon = failed
+    ? theme.fg("error", "✗ failed")
+    : theme.fg("success", "✓ complete");
+  const reason = typeof result.details?.reason === "string"
+    ? ` ${theme.fg("dim", result.details.reason)}`
+    : "";
+  const line = `${icon} ${theme.fg("accent", role)} ${
+    theme.fg("muted", elapsed)
+  }${reason} ${theme.fg("dim", "expand for details")}`;
+  if (!options.expanded) return textComponent(line);
+  return textComponent(
+    `${line}\n${
+      theme.fg("toolOutput", contentText(result) || "(no delegation output)")
+    }`,
+  );
+}
 function policyPrompt(home: string, role: Role) {
   const root = path.join(home, ".pi", "agent", "rotta-next");
   return `Read and obey these exact installed policies before acting: ${
     path.join(root, "rotta-core", "SKILL.md")
   } and ${
     path.join(root, roles[role].skill, "SKILL.md")
-  }. You are ${role}. Managed MCP tools, if discovered, are named rotta_ancora_*, rotta_vela_*, and rotta_context7_*; use only names permitted by your installed role policy. Do not use unavailable tools or delegate. Return one JSON object only: {"status":"success","output":"..."} or {"status":"error","message":"..."}.`;
+  }. You are ${role}. Managed MCP tools, if discovered, are named rotta_ancora_*, rotta_vela_*, and rotta_context7_*. TypeSafe/Jev judgments, if available, use typesafe_evaluate. Use only names permitted by your installed role policy. Do not use unavailable tools or delegate. Return one JSON object only: {"status":"success","output":"..."} or {"status":"error","message":"..."}.`;
 }
 function policyPaths(home: string, role: Role) {
   const root = path.join(home, ".pi", "agent", "rotta-next");
@@ -193,6 +319,19 @@ function childGuard(home: string) {
 }
 function mcpBridge(home: string) {
   return path.join(home, ".pi", "agent", "rotta-next", "rotta-mcp-bridge.ts");
+}
+function applyTypeSafeDefault(home: string) {
+  try {
+    const value = JSON.parse(fs.readFileSync(
+      path.join(home, ".pi", "agent", "rotta-next", "typesafe.json"),
+      "utf8",
+    ));
+    if (value?.version === 1 && value?.jev?.enabled === true) {
+      process.env.PI_TYPESAFE_ENABLED = "1";
+    }
+  } catch {
+    // Missing or malformed managed config fails closed to pi-typesafe defaults.
+  }
 }
 async function loadMCPBridge(
   pi: ExtensionAPI,
@@ -319,6 +458,7 @@ async function runChild(
   if (model) args.push("--model", model);
   args.push(task);
   try {
+    const startedAt = Date.now();
     return await new Promise<ReturnType<typeof toolResult>>((resolve) => {
       let done = false,
         closed = false,
@@ -328,13 +468,15 @@ async function runChild(
       let stdout = "", stderr = "";
       const outDecoder = new StringDecoder("utf8"),
         errDecoder = new StringDecoder("utf8");
+      const rolePrefix = `[${role}] `;
       const finish = (text: string, error = false, reason?: string) => {
         if (!done) {
           done = true;
           if (timer) clearTimeout(timer);
           signal.removeEventListener("abort", stop);
-          resolve(toolResult(trimUtf8(text), {
+          resolve(toolResult(trimUtf8(rolePrefix + text), {
             role,
+            elapsedMs: Date.now() - startedAt,
             cancelled: signal.aborted,
             ...(reason ? { reason } : {}),
             ...(error ? { failed: true } : {}),
@@ -389,15 +531,32 @@ async function runChild(
           timeoutMs && timeoutMs > 0 ? timeoutMs : limits.defaultTimeoutMs,
         ),
       );
+      onUpdate(toolResult(`${rolePrefix}child running`, {
+        role,
+        running: true,
+        timeoutMs: effectiveTimeout,
+        elapsedMs: Date.now() - startedAt,
+      }));
       {
         timer = setTimeout(() => {
           stop();
-          finish("child timed out", true, "timeout");
+          finish(
+            `child timed out after ${effectiveTimeout}ms`,
+            true,
+            "timeout",
+          );
         }, effectiveTimeout);
       }
       proc!.stdout!.on("data", (data) => {
         stdout = appendTailBounded(stdout, outDecoder.write(data));
-        onUpdate(toolResult(stdout || "(running...)", { role, running: true }));
+        onUpdate(
+          toolResult(rolePrefix + (stdout || "child running"), {
+            role,
+            running: true,
+            timeoutMs: effectiveTimeout,
+            elapsedMs: Date.now() - startedAt,
+          }),
+        );
       });
       proc!.stderr!.on("data", (data) => {
         stderr = appendBounded(stderr, errDecoder.write(data));
@@ -544,9 +703,11 @@ export function registerRotta(
   const bridgeHome = dependencies.home
     ? homeDir()
     : process.env.HOME ?? os.homedir();
+  applyTypeSafeDefault(bridgeHome);
   const bridge = loadMCPBridge(pi, bridgeHome, dependencies);
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
     const home = homeDir();
+    applyTypeSafeDefault(home);
     const root = path.join(home, ".pi", "agent", "rotta-next");
     const core = path.join(root, "rotta-core", "SKILL.md");
     const orchestrator = path.join(root, "rotta-orchestrator", "SKILL.md");
@@ -598,9 +759,11 @@ export function registerRotta(
   });
   pi.registerTool({
     name: "rotta_delegate",
-    label: "Rotta delegate",
+    label: "Rotta delegate (role-isolated child)",
     description: "Delegate only to a fixed isolated non-parent Rotta role.",
     parameters: Delegate,
+    renderCall: renderDelegateCall,
+    renderResult: renderDelegateResult,
     async execute(
       _id: string,
       params: DelegateParams,

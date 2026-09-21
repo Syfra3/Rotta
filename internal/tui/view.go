@@ -35,6 +35,8 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenAncora:               m.viewAncora,
 		ScreenVela:                 m.viewVela,
 		ScreenContext7:             m.viewContext7,
+		ScreenTypeSafe:             m.viewTypeSafe,
+		ScreenTypeSafeKey:          m.viewTypeSafeKey,
 		ScreenConfirm:              m.viewConfirm,
 		ScreenInstalling:           m.viewInstalling,
 		ScreenSuccess:              m.viewSuccess,
@@ -288,6 +290,35 @@ func (m Model) viewPiCustomModelRouting() string {
 		b.WriteString(helpStyle.Render("r to retry discovery · "))
 	}
 	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose · n to continue · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewTypeSafe() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("TypeSafe/Jev — Pi Session Judgments") + "\n\n")
+	b.WriteString(sectionStyle.Render("What this does") + "\n")
+	b.WriteString(menuItemStyle.Render("  Enables pi-typesafe's agent tool by default in future Pi sessions") + "\n")
+	b.WriteString(menuItemStyle.Render("  Avoids running /typesafe enable every session after Rotta installation") + "\n\n")
+	b.WriteString(warningStyle.Render("Note: ") + inputHintStyle.Render("Jev requests are billed to your TypeSafe account; no request is sent during installation.") + "\n\n")
+	options := []struct{ label, desc string }{{"Enable TypeSafe/Jev by default", "Rotta's Pi extension will set PI_TYPESAFE_ENABLED=1 when managed config is valid"}, {"Skip", "Leave TypeSafe/Jev disabled unless you enable it manually"}}
+	for i, opt := range options {
+		if m.TypeSafeCursor == i {
+			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
+			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
+		} else {
+			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
+		}
+	}
+	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewTypeSafeKey() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("TypeSafe/Jev API Key") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Optional. Paste a key to store in ~/.pi/agent/pi-typesafe/auth.json, or leave empty and press Enter to use /typesafe login later.") + "\n\n")
+	b.WriteString(m.TypeSafeKeyInput.View() + "\n\n")
+	b.WriteString(helpStyle.Render("Enter to continue · Esc to go back"))
 	return appStyle.Render(b.String())
 }
 

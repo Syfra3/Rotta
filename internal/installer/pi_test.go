@@ -25,7 +25,7 @@ func fakePiObservations(t *testing.T, graph bool) {
 func TestPiInstallIsManagedIdempotentAndPreservesConflicts(t *testing.T) {
 	home := t.TempDir()
 	files, err := installPi(Options{}, home)
-	if err != nil || len(files) != len(rottaAgents)+6 {
+	if err != nil || len(files) != len(rottaAgents)+7 {
 		t.Fatalf("first Pi install = %v, %v", files, err)
 	}
 	path := piExtensionPath(home)
@@ -113,6 +113,43 @@ func TestInstallPiWritesSelectedMCPConfigAndTruthfulStatusesWithoutOtherHosts(t 
 	guard, err := os.ReadFile(filepath.Join(home, ".pi", "agent", "extensions", "rotta-child-guard.ts"))
 	if err != nil || !strings.Contains(string(guard), "rotta_(ancora|vela|context7)") {
 		t.Fatalf("installed child guard lacks managed MCP routing: %v", err)
+	}
+}
+
+func TestPiInstallWritesTypeSafeConfigAndPrivateAuth(t *testing.T) {
+	home := t.TempDir()
+	files, err := installPi(Options{SetupTypeSafe: true, TypeSafeAPIKey: "  ts-test-key  "}, home)
+	if err != nil {
+		t.Fatalf("install Pi with TypeSafe: %v", err)
+	}
+	config, err := os.ReadFile(piTypeSafeConfigPath(home))
+	if err != nil || !strings.Contains(string(config), `"enabled":true`) {
+		t.Fatalf("TypeSafe config = %q, %v", config, err)
+	}
+	authPath := piTypeSafeAuthPath(home)
+	auth, err := os.ReadFile(authPath)
+	if err != nil || string(auth) != "{\"apiKey\":\"ts-test-key\"}\n" {
+		t.Fatalf("TypeSafe auth was not written correctly: %q %v", auth, err)
+	}
+	info, err := os.Stat(authPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("TypeSafe auth mode = %v, %v", info.Mode().Perm(), err)
+	}
+	joined := strings.Join(files, "\n")
+	if strings.Contains(joined, "ts-test-key") {
+		t.Fatalf("installed file list leaked TypeSafe key: %s", joined)
+	}
+
+	home = t.TempDir()
+	if _, err := installPi(Options{}, home); err != nil {
+		t.Fatalf("install Pi without TypeSafe: %v", err)
+	}
+	config, err = os.ReadFile(piTypeSafeConfigPath(home))
+	if err != nil || !strings.Contains(string(config), `"enabled":false`) {
+		t.Fatalf("disabled TypeSafe config = %q, %v", config, err)
+	}
+	if _, err := os.Stat(piTypeSafeAuthPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("empty TypeSafe key wrote auth file: %v", err)
 	}
 }
 

@@ -88,7 +88,7 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     () => {},
     mock.ctx,
   );
-  assert(!result.isError && result.content[0].text === "reviewed");
+  assert(!result.isError && result.content[0].text === "[reviewer] reviewed");
   const args = fixture.calls[0][1] as string[];
   assert(
     args.includes("--no-extensions") && args.includes("--no-skills") &&
@@ -97,9 +97,9 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
   assert(
     args.includes("--tools") &&
       args.includes(
-        "read,grep,find,ls,rotta_ancora_save,rotta_ancora_summarize,rotta_ancora_start,rotta_ancora_end,rotta_ancora_search,rotta_ancora_context,rotta_ancora_get,rotta_context7_resolve_library_id,rotta_context7_query_docs",
+        "read,grep,find,ls,rotta_ancora_save,rotta_ancora_summarize,rotta_ancora_start,rotta_ancora_end,rotta_ancora_search,rotta_ancora_context,rotta_ancora_get,rotta_context7_resolve_library_id,rotta_context7_query_docs,typesafe_evaluate",
       ),
-    "reviewer received a shell-capable tool",
+    "reviewer received the wrong allowlist",
   );
   assert(
     args.includes("--model") && args.includes("test/parent-model"),
@@ -136,6 +136,7 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
   assert(allowedTools.includes("rotta_vela_dependencies"));
   assert(allowedTools.includes("rotta_ancora_context"));
   assert(allowedTools.includes("rotta_context7_query_docs"));
+  assert(allowedTools.includes("typesafe_evaluate"));
   assert(!allowedTools.includes("bash"));
 });
 
@@ -213,6 +214,46 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
     );
     assert(!args.includes("--model"), "absent parent should leave model unset");
   } finally {
+    Deno.removeSync(home, { recursive: true });
+  }
+});
+
+Deno.test("managed TypeSafe config auto-enables pi-typesafe session opt-in", async () => {
+  const prior = Deno.env.get("PI_TYPESAFE_ENABLED");
+  const home = Deno.makeTempDirSync();
+  try {
+    Deno.env.delete("PI_TYPESAFE_ENABLED");
+    Deno.mkdirSync(`${home}/.pi/agent/rotta-next`, { recursive: true });
+    Deno.writeTextFileSync(
+      `${home}/.pi/agent/rotta-next/typesafe.json`,
+      JSON.stringify({ version: 1, jev: { enabled: true } }),
+    );
+    registerRotta(host().pi as any, { home: () => home });
+    assert(
+      Deno.env.get("PI_TYPESAFE_ENABLED") === "1",
+      "TypeSafe was not enabled from managed config",
+    );
+
+    Deno.env.delete("PI_TYPESAFE_ENABLED");
+    Deno.writeTextFileSync(
+      `${home}/.pi/agent/rotta-next/typesafe.json`,
+      JSON.stringify({ version: 1, jev: { enabled: false } }),
+    );
+    registerRotta(host().pi as any, { home: () => home });
+    assert(
+      !Deno.env.get("PI_TYPESAFE_ENABLED"),
+      "disabled TypeSafe config enabled the session",
+    );
+
+    Deno.writeTextFileSync(`${home}/.pi/agent/rotta-next/typesafe.json`, `{`);
+    registerRotta(host().pi as any, { home: () => home });
+    assert(
+      !Deno.env.get("PI_TYPESAFE_ENABLED"),
+      "malformed TypeSafe config enabled the session",
+    );
+  } finally {
+    if (prior === undefined) Deno.env.delete("PI_TYPESAFE_ENABLED");
+    else Deno.env.set("PI_TYPESAFE_ENABLED", prior);
     Deno.removeSync(home, { recursive: true });
   }
 });
@@ -491,6 +532,99 @@ Deno.test("child receives Context7 key only when trusted managed config enables 
   }
 });
 
+Deno.test("delegate renderer stays compact until expanded", () => {
+  const mock = host();
+  registerRotta(mock.pi as any, { home: () => "/test-home" });
+  const delegate = tool(mock.tools, "rotta_delegate") as any;
+  const theme = {
+    bold: (s: string) => s,
+    fg: (_name: string, s: string) => s,
+  };
+  const callLines = delegate.renderCall(
+    { role: "reviewer", task: "review the whole diff for blockers" },
+    theme,
+    {},
+  ).render(120);
+  assert(callLines.join("\n").includes("delegate reviewer"));
+  const collapsed = delegate.renderResult(
+    {
+      content: [{ type: "text", text: "full child transcript" }],
+      details: {
+        role: "reviewer",
+        running: true,
+        timeoutMs: 300_000,
+        elapsedMs: 12_000,
+      },
+    },
+    { expanded: false, isPartial: true },
+    theme,
+    { args: { role: "reviewer" }, invalidate: () => {} },
+  ).render(120).join("\n");
+  assert(collapsed.includes("● running reviewer 12s / timeout 5m 00s"));
+  assert(!collapsed.includes("full child transcript"));
+  const expanded = delegate.renderResult(
+    {
+      content: [{ type: "text", text: "full child transcript" }],
+      details: { role: "reviewer", elapsedMs: 15_000 },
+    },
+    { expanded: true, isPartial: false },
+    theme,
+    { args: { role: "reviewer" } },
+  ).render(120).join("\n");
+  assert(expanded.includes("✓ complete reviewer 15s"));
+  assert(expanded.includes("full child transcript"));
+});
+
+Deno.test("delegate timeout status names role and honors bounded explicit timeout", async () => {
+  const fixture = fakeSpawn({ wait: true });
+  const mock = host();
+  const updates: any[] = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  try {
+    (globalThis as any).setTimeout = (
+      fn: (...args: unknown[]) => void,
+      delay?: number,
+    ) => {
+      delays.push(Number(delay));
+      queueMicrotask(fn);
+      return 0 as any;
+    };
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => "/test-home",
+      defaultTimeoutMs: 1,
+      maxTimeoutMs: 600_000,
+    });
+    await tool(mock.tools, "rotta_delegate").execute(
+      "call",
+      { role: "reviewer", task: "slow review", timeoutMs: 300_000 },
+      signal().signal,
+      (update: unknown) => updates.push(update),
+      mock.ctx,
+    ).then(() => {
+      throw new Error("timeout unexpectedly succeeded");
+    }, (error: Error) => {
+      assert(
+        error.message.includes("[reviewer] child timed out after 300000ms"),
+      );
+    });
+    assert(
+      delays.includes(300_000),
+      `explicit timeout was not honored: ${delays}`,
+    );
+    assert(
+      updates.some((update) =>
+        update.content?.[0]?.text?.includes("[reviewer] child running") &&
+        update.details?.timeoutMs === 300_000
+      ),
+      "running update did not name role and effective timeout",
+    );
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
 Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminates cancellation or timeout", async () => {
   const huge = "é".repeat(70_000);
   const capped = fakeSpawn({
@@ -528,7 +662,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     verboseHost.ctx,
   );
-  assert(verboseResult.content[0].text === "tail result");
+  assert(verboseResult.content[0].text === "[exploration] tail result");
   const invalid = fakeSpawn({ stdout: "not-json\n" });
   registerRotta(mock.pi as any, {
     spawn: invalid.spawn,
@@ -559,7 +693,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     fencedHost.ctx,
   );
-  assert(fencedResult.content[0].text === "bounded report");
+  assert(fencedResult.content[0].text === "[operations] bounded report");
   const slow = fakeSpawn({ wait: true });
   const timeoutHost = host();
   registerRotta(timeoutHost.pi as any, {

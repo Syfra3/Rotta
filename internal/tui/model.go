@@ -36,6 +36,8 @@ const (
 	ScreenAncora
 	ScreenVela
 	ScreenContext7
+	ScreenTypeSafe
+	ScreenTypeSafeKey
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -146,6 +148,12 @@ type Model struct {
 	Context7Cursor int  // 0=Install+configure, 1=Skip
 	SetupContext7  bool // resolved choice
 
+	// TypeSafe/Jev for Pi
+	TypeSafeCursor   int  // 0=Enable, 1=Skip
+	SetupTypeSafe    bool // resolved choice
+	TypeSafeKeyInput textinput.Model
+	TypeSafeAPIKey   string
+
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
 
@@ -203,21 +211,30 @@ func New() Model {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorLavender)
 
+	keyInput := textinput.New()
+	keyInput.Placeholder = "Paste TypeSafe API key or leave empty to skip"
+	keyInput.CharLimit = 512
+	keyInput.Width = 60
+	keyInput.EchoMode = textinput.EchoPassword
+
 	return Model{
-		Screen:         ScreenWelcome,
-		TargetCursor:   0,
-		Target:         TargetClaudeCode,
-		ProjectInput:   ti,
-		SelectedModes:  [3]bool{true, true, true},
-		UseDefaults:    true,
-		AncoraCursor:   0, // default to "Install + configure"
-		SetupAncora:    true,
-		VelaCursor:     0, // default to "Install + configure"
-		SetupVela:      true,
-		Context7Cursor: 0, // default to "Install + configure"
-		SetupContext7:  true,
-		ConfirmCursor:  1, // default to "Install", not "Cancel"
-		InstallSpinner: sp,
+		Screen:           ScreenWelcome,
+		TargetCursor:     0,
+		Target:           TargetClaudeCode,
+		ProjectInput:     ti,
+		SelectedModes:    [3]bool{true, true, true},
+		UseDefaults:      true,
+		AncoraCursor:     0, // default to "Install + configure"
+		SetupAncora:      true,
+		VelaCursor:       0, // default to "Install + configure"
+		SetupVela:        true,
+		Context7Cursor:   0, // default to "Install + configure"
+		SetupContext7:    true,
+		TypeSafeCursor:   0, // default to "Enable"
+		SetupTypeSafe:    true,
+		TypeSafeKeyInput: keyInput,
+		ConfirmCursor:    1, // default to "Install", not "Cancel"
+		InstallSpinner:   sp,
 	}
 }
 

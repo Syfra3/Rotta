@@ -35,6 +35,12 @@ func installPi(opts Options, home string) ([]string, error) {
 	if err != nil {
 		return nil, rollbackPiInstallation(err, manifestPath, manifest, manifestExists, snapshots)
 	}
+	if opts.SetupTypeSafe && strings.TrimSpace(opts.TypeSafeAPIKey) != "" {
+		if err := writeTypeSafeAuth(home, opts.TypeSafeAPIKey); err != nil {
+			return nil, rollbackPiInstallation(err, manifestPath, manifest, manifestExists, snapshots)
+		}
+		files = append(files, piTypeSafeAuthPath(home))
+	}
 	if piInstallFailureHook != nil {
 		if err := piInstallFailureHook("after-assets"); err != nil {
 			return nil, rollbackPiInstallation(err, manifestPath, manifest, manifestExists, snapshots)
@@ -73,6 +79,14 @@ func piManagedFiles(opts Options, home string) (map[string][]byte, error) {
 		return nil, fmt.Errorf("serialize Pi MCP configuration: %w", err)
 	}
 	managed[piMCPConfigPath(home)] = config
+	typeSafeConfig, err := json.Marshal(struct {
+		Version int          `json:"version"`
+		Jev     piMCPService `json:"jev"`
+	}{Version: 1, Jev: piMCPService{Enabled: opts.SetupTypeSafe}})
+	if err != nil {
+		return nil, fmt.Errorf("serialize Pi TypeSafe configuration: %w", err)
+	}
+	managed[piTypeSafeConfigPath(home)] = typeSafeConfig
 	routing, err := resolvePiRouting(opts.PiModelRouting, opts.PiModelRoutingModels)
 	if err != nil {
 		return nil, err
@@ -94,6 +108,26 @@ type piMCPService struct {
 
 func piMCPConfigPath(home string) string {
 	return filepath.Join(home, ".pi", "agent", "rotta-next", "mcp.json")
+}
+
+func piTypeSafeConfigPath(home string) string {
+	return filepath.Join(home, ".pi", "agent", "rotta-next", "typesafe.json")
+}
+
+func piTypeSafeAuthPath(home string) string {
+	return filepath.Join(home, ".pi", "agent", "pi-typesafe", "auth.json")
+}
+
+func writeTypeSafeAuth(home, apiKey string) error {
+	path := piTypeSafeAuthPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create TypeSafe auth directory: %w", err)
+	}
+	data := []byte(fmt.Sprintf("{\"apiKey\":%q}\n", strings.TrimSpace(apiKey)))
+	if err := writePrivateFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write TypeSafe auth: %w", err)
+	}
+	return nil
 }
 
 func piModelRoutingPath(home string) string {

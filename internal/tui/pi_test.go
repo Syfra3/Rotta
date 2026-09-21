@@ -8,6 +8,27 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestTypeSafeKeyInputAcceptsTypedAndPastedText(t *testing.T) {
+	model := New()
+	model.Target = TargetPi
+	model.Screen = ScreenTypeSafeKey
+	model.TypeSafeKeyInput.Focus()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ts-key")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("-pasted")})
+	model = updated.(Model)
+	if got := model.TypeSafeKeyInput.Value(); got != "ts-key-pasted" {
+		t.Fatalf("TypeSafe key input value = %q, want typed and pasted text", got)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.TypeSafeAPIKey != "ts-key-pasted" || model.Screen != ScreenConfirm {
+		t.Fatalf("submitted TypeSafe key/screen = %q/%v", model.TypeSafeAPIKey, model.Screen)
+	}
+}
+
 func TestPiAndAllTargetsAreVisibleAndAllRoutesThroughOpenCodeSetup(t *testing.T) {
 	model := New()
 	model.Width, model.Height = 100, 40
