@@ -32,4 +32,12 @@ func TestPiAndAllTargetsAreVisibleAndAllRoutesThroughOpenCodeSetup(t *testing.T)
 	if !strings.Contains(confirm, "executable global Pi extension") {
 		t.Fatalf("Pi confirmation missing extension: %s", confirm)
 	}
+	piOnly := Model{Target: TargetPi}
+	piOnly.writeConfirmSummary(&summary)
+	if strings.Contains(summary.String(), "OpenCode model routing:") {
+		t.Fatalf("Pi-only confirmation leaked OpenCode routing: %s", summary.String())
+	}
+	if !targetIncludesOpenCode(TargetAll) || !targetIncludesPi(TargetAll) {
+		t.Fatal("all target did not retain both routing summaries")
+	}
 }

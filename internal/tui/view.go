@@ -21,24 +21,27 @@ func (m Model) View() string {
 
 func (m Model) screenViews() map[Screen]func() string {
 	return map[Screen]func() string{
-		ScreenWelcome:            m.viewWelcome,
-		ScreenTargetSelect:       m.viewTargetSelect,
-		ScreenProjectPath:        m.viewProjectPath,
-		ScreenModelRouting:       m.viewModelRouting,
-		ScreenCustomModelRouting: m.viewCustomModelRouting,
-		ScreenModelPicker:        m.viewModelPicker,
-		ScreenModeSelect:         m.viewModeSelect,
-		ScreenQualityGates:       m.viewQualityGates,
-		ScreenAncora:             m.viewAncora,
-		ScreenVela:               m.viewVela,
-		ScreenContext7:           m.viewContext7,
-		ScreenConfirm:            m.viewConfirm,
-		ScreenInstalling:         m.viewInstalling,
-		ScreenSuccess:            m.viewSuccess,
-		ScreenError:              m.viewError,
-		ScreenRecoveryList:       m.viewRecoveryList,
-		ScreenRecoveryPreview:    m.viewRecoveryPreview,
-		ScreenRecoveryConfirm:    m.viewRecoveryConfirm,
+		ScreenWelcome:              m.viewWelcome,
+		ScreenTargetSelect:         m.viewTargetSelect,
+		ScreenProjectPath:          m.viewProjectPath,
+		ScreenModelRouting:         m.viewModelRouting,
+		ScreenCustomModelRouting:   m.viewCustomModelRouting,
+		ScreenModelPicker:          m.viewModelPicker,
+		ScreenPiModelRouting:       m.viewPiModelRouting,
+		ScreenPiCustomModelRouting: m.viewPiCustomModelRouting,
+		ScreenPiModelPicker:        m.viewPiModelPicker,
+		ScreenModeSelect:           m.viewModeSelect,
+		ScreenQualityGates:         m.viewQualityGates,
+		ScreenAncora:               m.viewAncora,
+		ScreenVela:                 m.viewVela,
+		ScreenContext7:             m.viewContext7,
+		ScreenConfirm:              m.viewConfirm,
+		ScreenInstalling:           m.viewInstalling,
+		ScreenSuccess:              m.viewSuccess,
+		ScreenError:                m.viewError,
+		ScreenRecoveryList:         m.viewRecoveryList,
+		ScreenRecoveryPreview:      m.viewRecoveryPreview,
+		ScreenRecoveryConfirm:      m.viewRecoveryConfirm,
 	}
 }
 
@@ -227,6 +230,21 @@ func (m Model) viewModelRouting() string {
 	return appStyle.Render(b.String())
 }
 
+func (m Model) viewPiModelRouting() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Pi Model Routing") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Select the installer-managed four-role routing action.") + "\n\n")
+	for index, label := range []string{"Default", "Custom", "Disabled"} {
+		style, prefix := menuItemStyle, "  "
+		if m.PiModelRoutingCursor == index {
+			style, prefix = menuSelectedStyle, "▸ "
+		}
+		b.WriteString(style.Render(prefix+label) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
 func (m Model) viewCustomModelRouting() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Custom OpenCode Model Routing") + "\n\n")
@@ -244,6 +262,29 @@ func (m Model) viewCustomModelRouting() string {
 		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s", prefix, role.label, m.CustomRouting[role.key])) + "\n")
 	}
 	if m.ModelDiscoveryError != "" && !m.ModelDiscoveryInFlight {
+		b.WriteString(helpStyle.Render("r to retry discovery · "))
+	}
+	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose · n to continue · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewPiCustomModelRouting() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Custom Pi Model Routing") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Choose a model for each delegated role. Models come from pi --offline --list-models; credentials are not verified.") + "\n\n")
+	if !m.PiModelDiscoveryDone {
+		b.WriteString(menuItemStyle.Render("Discovering offline Pi models…") + "\n\n")
+	} else if m.PiModelDiscoveryError != "" {
+		b.WriteString(errorStyle.Render(m.PiModelDiscoveryError) + "\n\n")
+	}
+	for index, role := range piRoutingRoles {
+		style, prefix := menuItemStyle, "  "
+		if index == m.PiCustomRoutingCursor {
+			style, prefix = menuSelectedStyle, "▸ "
+		}
+		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s", prefix, role.label, m.PiCustomRouting[role.key])) + "\n")
+	}
+	if m.PiModelDiscoveryError != "" && !m.PiModelDiscoveryInFlight {
 		b.WriteString(helpStyle.Render("r to retry discovery · "))
 	}
 	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose · n to continue · Esc to go back"))
@@ -274,6 +315,28 @@ func (m Model) viewModelPicker() string {
 				style, prefix = menuSelectedStyle, "▸ "
 			}
 			b.WriteString(style.Render(prefix+models[index]) + "\n")
+		}
+	}
+	b.WriteString("\n" + helpStyle.Render("↑/↓ to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
+}
+
+func (m Model) viewPiModelPicker() string {
+	var b strings.Builder
+	role := piRoutingRoles[m.PiCustomRoutingCursor]
+	b.WriteString(headerStyle.Render("Choose model for "+role.label) + "\n\n")
+	b.WriteString(inputHintStyle.Render("Type to search · Backspace to clear · Enter to select") + "\n")
+	b.WriteString(valueStyle.Render("Search: "+m.ModelPickerQuery) + "\n\n")
+	models := m.filteredPiModels()
+	if len(models) == 0 {
+		b.WriteString(menuItemStyle.Render("  No matching models") + "\n")
+	} else {
+		for index, model := range models {
+			style, prefix := menuItemStyle, "  "
+			if index == m.PiModelPickerCursor {
+				style, prefix = menuSelectedStyle, "▸ "
+			}
+			b.WriteString(style.Render(prefix+model) + "\n")
 		}
 	}
 	b.WriteString("\n" + helpStyle.Render("↑/↓ to move · Enter to select · Esc to go back"))

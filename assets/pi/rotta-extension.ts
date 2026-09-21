@@ -453,6 +453,49 @@ function selectedContext7Key(
   }
 }
 
+const piRoutingRoles = [
+  "implementation",
+  "reviewer",
+  "exploration",
+  "operations",
+] as const;
+
+// A routing profile is all-or-nothing. A malformed, incomplete, or manually
+// edited file must not silently send one child to a managed model while the
+// others inherit a different parent model.
+function configuredRoleModel(home: string, role: Role): string | undefined {
+  try {
+    const value: unknown = JSON.parse(fs.readFileSync(
+      path.join(home, ".pi", "agent", "rotta-next", "model-routing.json"),
+      "utf8",
+    ));
+    if (
+      !value || typeof value !== "object" ||
+      (value as { version?: unknown }).version !== 1
+    ) return undefined;
+    const roles = (value as { roles?: unknown }).roles;
+    if (!roles || typeof roles !== "object" || Array.isArray(roles)) {
+      return undefined;
+    }
+    const entries = Object.entries(roles as Record<string, unknown>);
+    if (
+      entries.length !== piRoutingRoles.length ||
+      !piRoutingRoles.every((name) => Object.hasOwn(roles, name))
+    ) {
+      return undefined;
+    }
+    for (const [name, model] of entries) {
+      if (
+        !piRoutingRoles.includes(name as Role) || typeof model !== "string" ||
+        !/^[^\s/|\\]+\/[^\s/|\\]+$/.test(model)
+      ) return undefined;
+    }
+    return (roles as Record<Role, string>)[role];
+  } catch {
+    return undefined;
+  }
+}
+
 const Delegate = Type.Object({
   role: Type.Union([
     Type.Literal("implementation"),
@@ -574,7 +617,7 @@ export function registerRotta(
         homeDir(),
         selected,
         params.task,
-        params.model ?? inherited,
+        params.model ?? configuredRoleModel(homeDir(), selected) ?? inherited,
         params.timeoutMs,
         limits,
         signal,

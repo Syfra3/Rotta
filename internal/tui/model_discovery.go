@@ -21,6 +21,7 @@ type modelDiscoveryResultMsg struct {
 	models     []string
 	err        string
 	generation int
+	pi         bool
 }
 
 var discoverOpenCodeModels = discoverOpenCodeModelsDirect
@@ -36,6 +37,41 @@ func discoverOpenCodeModelsCmd(generation int) tea.Cmd {
 		}
 		return modelDiscoveryResultMsg{models: models, generation: generation}
 	}
+}
+
+var discoverPiModels = discoverPiModelsDirect
+var piModelLookPath = exec.LookPath
+
+func discoverPiModelsCmd(generation int) tea.Cmd {
+	return func() tea.Msg {
+		models, err := discoverPiModels()
+		if err != nil {
+			return modelDiscoveryResultMsg{err: err.Error(), generation: generation, pi: true}
+		}
+		if len(models) == 0 {
+			return modelDiscoveryResultMsg{err: "Pi returned no models. Configure a provider, then rerun the installer.", generation: generation, pi: true}
+		}
+		return modelDiscoveryResultMsg{models: models, generation: generation, pi: true}
+	}
+}
+
+func discoverPiModelsDirect() ([]string, error) {
+	path, err := piModelLookPath("pi")
+	if err != nil {
+		return nil, errors.New("Pi CLI is unavailable; install Pi or choose Default or Disabled")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), modelDiscoveryTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, path, "--offline", "--list-models")
+	var output limitedBuffer
+	command.Stdout, command.Stderr = &output, io.Discard
+	if err := command.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.New("Pi model discovery timed out; choose Default or Disabled, or try again")
+		}
+		return nil, errors.New("Pi could not list offline models; check its local configuration and try again")
+	}
+	return parsePiModels(output.Bytes()), nil
 }
 
 func discoverOpenCodeModelsDirect() ([]string, error) {
@@ -81,6 +117,26 @@ func parseOpenCodeModels(output []byte) []string {
 		}
 		id := fields[0]
 		if installer.IsValidOpenCodeModelID(id) {
+			unique[id] = true
+		}
+	}
+	models := make([]string, 0, len(unique))
+	for model := range unique {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	return models
+}
+
+func parsePiModels(output []byte) []string {
+	unique := map[string]bool{}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[0] == "provider" || strings.HasPrefix(fields[0], "-") {
+			continue
+		}
+		id := fields[0] + "/" + fields[1]
+		if installer.IsValidPiModelID(id) {
 			unique[id] = true
 		}
 	}
