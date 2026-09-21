@@ -26,6 +26,11 @@ const (
 	ScreenTargetSelect
 	ScreenProjectPath
 	ScreenModelRouting
+	ScreenCustomModelRouting
+	ScreenModelPicker
+	ScreenPiModelRouting
+	ScreenPiCustomModelRouting
+	ScreenPiModelPicker
 	ScreenModeSelect
 	ScreenQualityGates
 	ScreenAncora
@@ -46,7 +51,9 @@ const (
 	TargetClaudeCode = "claude-code"
 	TargetOpenCode   = "opencode"
 	TargetCodex      = "codex"
+	TargetPi         = "pi"
 	TargetBoth       = "both"
+	TargetAll        = "all"
 )
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -88,7 +95,7 @@ type Model struct {
 	Height     int
 
 	// Target selection
-	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Both
+	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Pi, 4=Both, 5=All
 	Target       string
 
 	// Project path
@@ -96,8 +103,28 @@ type Model struct {
 	ProjectPath  string
 
 	// OpenCode routing remains unset until the user makes an explicit choice.
-	ModelRoutingCursor int
-	ModelRouting       installer.ModelRoutingRequest
+	ModelRoutingCursor       int
+	ModelRouting             installer.ModelRoutingRequest
+	CustomRouting            map[string]string
+	CustomRoutingCursor      int
+	ModelPickerCursor        int
+	ModelPickerQuery         string
+	AvailableModels          []string
+	ModelDiscoveryError      string
+	ModelDiscoveryDone       bool
+	ModelDiscoveryInFlight   bool
+	ModelDiscoveryGeneration int
+
+	PiModelRouting             installer.ModelRoutingRequest
+	PiCustomRouting            map[string]string
+	PiModelRoutingCursor       int
+	PiCustomRoutingCursor      int
+	PiModelPickerCursor        int
+	PiAvailableModels          []string
+	PiModelDiscoveryError      string
+	PiModelDiscoveryDone       bool
+	PiModelDiscoveryInFlight   bool
+	PiModelDiscoveryGeneration int
 
 	// Mode selection: [0]=spec, [1]=implementation, [2]=review
 	ModeCursor    int
@@ -134,13 +161,36 @@ type Model struct {
 	RecoveryError   string
 }
 
-var targets = []string{"Claude Code", "OpenCode", "Codex", "Both"}
-var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetBoth}
+var targets = []string{"Claude Code", "OpenCode", "Codex", "Pi", "Both", "All"}
+var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetPi, TargetBoth, TargetAll}
 var modeNames = []string{"Spec Mode (Spec Partner + Gherkin Author)", "Implementation Mode (TDD Craftsman)", "Review Mode (Judge + Mutation Tester)"}
 var modeDescriptions = []string{
 	"Draft → Hard Spec → Gherkin → Human approval",
 	"Red → Green → Refactor per Gherkin scenario",
 	"Traceability → Coverage → Mutation → Quality gates",
+}
+
+var routingRoles = []struct {
+	key   string
+	label string
+}{
+	{"rotta-orchestrator", "Orchestration"},
+	{"rotta-architect", "Architecture"},
+	{"rotta-explore", "Exploration"},
+	{"rotta-impl", "Implementation"},
+	{"rotta-review", "Review"},
+	{"rotta-ops", "Operations"},
+	{"rotta-cleaner", "Cleanup"},
+}
+
+var piRoutingRoles = []struct {
+	key   string
+	label string
+}{
+	{"implementation", "Implementation"},
+	{"reviewer", "Reviewer"},
+	{"exploration", "Exploration"},
+	{"operations", "Operations"},
 }
 
 func New() Model {

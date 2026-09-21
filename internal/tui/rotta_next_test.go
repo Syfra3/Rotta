@@ -50,6 +50,7 @@ func TestSuccessShowsUnresolvedPolicyLoadingAndRecovery(t *testing.T) {
 
 func TestRottaNextTUIProjectSelectionSkipsRetiredModeScreens(t *testing.T) {
 	model := New()
+	model.Target = TargetOpenCode
 	model.Screen = ScreenProjectPath
 	model.ProjectInput.SetValue("/tmp/project")
 	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})

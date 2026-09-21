@@ -453,7 +453,21 @@ func targetBackupPaths(target, home string) []string {
 	if target == "codex" || target == "all" {
 		paths = append(paths, filepath.Join(home, ".codex", "AGENTS.md"), filepath.Join(home, ".codex", "config.toml"))
 	}
+	if target == "pi" || target == "all" {
+		paths = append(paths, piBackupPaths(home)...)
+	}
 	return paths
+}
+
+func piBackupPaths(home string) []string {
+	return []string{
+		piExtensionPath(home),
+		filepath.Join(home, ".pi", "agent", "extensions", "rotta-child-guard.ts"),
+		filepath.Join(home, ".pi", "agent", "rotta-next", "rotta-mcp-bridge.ts"),
+		piMCPConfigPath(home),
+		piModelRoutingPath(home),
+		filepath.Join(home, ".pi", "agent", "rotta-next"),
+	}
 }
 
 func openCodeBackupPaths(home string) []string {
