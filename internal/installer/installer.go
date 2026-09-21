@@ -16,20 +16,23 @@ import (
 
 // Options configures what and where to install.
 type Options struct {
-	Target              string // "claude-code" | "opencode" | "both"
-	ProjectPath         string // project root; config files land here under .rotta/
-	InstallSpec         bool
-	InstallImpl         bool
-	InstallReview       bool
-	UseDefaultGates     bool
-	SetupAncora         bool // whether to install/configure Ancora memory
-	SetupVela           bool // whether to install/configure Vela graph intelligence
-	SetupContext7       bool // whether to configure Context7 documentation MCP
-	ModelRouting        ModelRoutingRequest
-	CommandStdin        io.Reader
-	CommandStdout       io.Writer
-	CommandStderr       io.Writer
-	skipOpenCodeRouting bool
+	Target               string // "claude-code" | "opencode" | "both"
+	ProjectPath          string // project root; config files land here under .rotta/
+	InstallSpec          bool
+	InstallImpl          bool
+	InstallReview        bool
+	UseDefaultGates      bool
+	SetupAncora          bool // whether to install/configure Ancora memory
+	SetupVela            bool // whether to install/configure Vela graph intelligence
+	SetupContext7        bool // whether to configure Context7 documentation MCP
+	ModelRouting         ModelRoutingRequest
+	ModelRoutingModels   map[string]string
+	PiModelRouting       ModelRoutingRequest
+	PiModelRoutingModels map[string]string
+	CommandStdin         io.Reader
+	CommandStdout        io.Writer
+	CommandStderr        io.Writer
+	skipOpenCodeRouting  bool
 }
 
 // ModelRoutingRequest retains omission separately from an explicit selection.
@@ -38,6 +41,7 @@ type ModelRoutingRequest string
 const (
 	ModelRoutingUnset    ModelRoutingRequest = ""
 	ModelRoutingEnabled  ModelRoutingRequest = "enabled"
+	ModelRoutingCustom   ModelRoutingRequest = "custom"
 	ModelRoutingDisabled ModelRoutingRequest = "disabled"
 )
 
@@ -45,10 +49,12 @@ func (r ModelRoutingRequest) resolved() (ModelRoutingRequest, error) {
 	switch r {
 	case ModelRoutingUnset, ModelRoutingEnabled:
 		return ModelRoutingEnabled, nil
+	case ModelRoutingCustom:
+		return ModelRoutingCustom, nil
 	case ModelRoutingDisabled:
 		return ModelRoutingDisabled, nil
 	default:
-		return ModelRoutingUnset, fmt.Errorf("OpenCode model routing must be enabled or disabled")
+		return ModelRoutingUnset, fmt.Errorf("OpenCode model routing must be enabled, custom, or disabled")
 	}
 }
 
@@ -75,10 +81,14 @@ type Result struct {
 type MCPStatus string
 
 const (
-	MCPStatusConfigured MCPStatus = "configured"
-	MCPStatusSkipped    MCPStatus = "skipped"
-	MCPStatusDegraded   MCPStatus = "degraded"
-	MCPStatusFailed     MCPStatus = "failed"
+	MCPStatusConfigured              MCPStatus = "configured"
+	MCPStatusSkipped                 MCPStatus = "skipped"
+	MCPStatusDegraded                MCPStatus = "degraded"
+	MCPStatusFailed                  MCPStatus = "failed"
+	MCPStatusConfiguredPendingHealth MCPStatus = "configured-pending-health"
+	MCPStatusDisabled                MCPStatus = "disabled"
+	MCPStatusUnavailable             MCPStatus = "unavailable"
+	MCPStatusPreserved               MCPStatus = "preserved-unvalidated"
 )
 
 // MCPRuntimeFallbackState reports only runtime fallback observed during workflow use.
@@ -151,6 +161,7 @@ const (
 	HostCapabilityStatusSkipped       HostCapabilityStatus = "skipped"
 	HostCapabilityStatusFailed        HostCapabilityStatus = "failed"
 	HostCapabilityStatusNotApplicable HostCapabilityStatus = "not applicable"
+	HostCapabilityStatusPending       HostCapabilityStatus = "pending"
 )
 
 type HostCapability struct {
@@ -184,6 +195,9 @@ func install(opts Options) (*Result, error) {
 	if routingNoOp {
 		opts.skipOpenCodeRouting = true
 	}
+	// All later preflight/status consumers must observe the same canonical
+	// project path used by installation (including empty and ~/ input).
+	opts.ProjectPath = projectPath
 
 	if err := cleanPreviousInstallation(opts, home, projectPath); err != nil {
 		return failedCleanInstall(result, opts, projectPath, err)
@@ -337,7 +351,7 @@ func failedCleanInstall(result *Result, opts Options, projectPath string, err er
 }
 
 func setupAncora(opts Options, result *Result, home string) error {
-	if !opts.SetupAncora {
+	if !opts.SetupAncora || opts.Target == "pi" {
 		return nil
 	}
 	ar, err := setupAncoraWithBackups(opts, home, result.AgentBackupDirs)
@@ -355,7 +369,7 @@ func setupVela(opts Options, result *Result, home, projectPath string) error {
 }
 
 func setupVelaWithTransaction(opts Options, result *Result, home, projectPath string, transaction *openCodeVelaTransaction) error {
-	if !opts.SetupVela {
+	if !opts.SetupVela || opts.Target == "pi" {
 		return nil
 	}
 	vr, err := SetupVela(opts, home, projectPath)
@@ -428,9 +442,11 @@ func recordVelaMCPAvailability(result *Result, vela *VelaResult) {
 
 func finalizeInstall(result *Result, opts Options, projectPath string) error {
 	recordCommandHostCapabilities(result, opts)
+	// Observe Pi prerequisites once, then derive both status and capability
+	// from that same evidence so unavailable is never advertised as pending.
+	recordMCPStatuses(result, opts)
 	recordMCPHostCapabilities(result, opts)
 	recordHostCapabilityMatrix(result, opts)
-	recordMCPStatuses(result, opts)
 	if err := recordMCPStatusEvidence(result); err != nil {
 		return err
 	}
@@ -623,6 +639,14 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 		if hostResult.Capabilities == nil {
 			hostResult.Capabilities = map[string]HostCapability{}
 		}
+		if host == "pi" {
+			for name, enabled := range map[string]bool{"ancora": opts.SetupAncora, "vela": opts.SetupVela, "context7": opts.SetupContext7} {
+				status := result.MCPStatuses["pi"][name]
+				hostResult.Capabilities["mcp:"+name] = piMCPHostCapability(name, enabled, status)
+			}
+			result.Hosts[host] = hostResult
+			continue
+		}
 		if opts.SetupAncora {
 			hostResult.Capabilities["mcp:ancora"] = exactMCPCapability("mcp:ancora")
 		}
@@ -636,6 +660,16 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 		}
 		result.Hosts[host] = hostResult
 	}
+}
+
+func piMCPHostCapability(name string, enabled bool, status MCPStatusResult) HostCapability {
+	if !enabled {
+		return HostCapability{Name: "mcp:" + name, Status: HostCapabilityStatusSkipped, Reason: "Disabled in the managed Pi MCP configuration.", Remediation: "Select the service and rerun Rotta to update ~/.pi/agent/rotta-next/mcp.json."}
+	}
+	if status.Status == MCPStatusUnavailable || status.Status == MCPStatusPreserved {
+		return HostCapability{Name: "mcp:" + name, Status: HostCapabilityStatusFailed, Reason: status.Reason, Remediation: status.Remediation}
+	}
+	return HostCapability{Name: "mcp:" + name, Status: HostCapabilityStatusPending, Reason: "Managed Pi MCP configuration was written; runtime initialize and tools/list were not observed.", Remediation: "Restart Pi and inspect its extension errors; Rotta does not launch or probe MCP services during installation."}
 }
 
 func recordHostCapabilityMatrix(result *Result, opts Options) {
@@ -690,10 +724,16 @@ func mcpCapability(opts Options, host string) HostCapability {
 			Remediation: "Verify selected MCP servers from Codex after install.",
 		}
 	}
+	if host == "pi" {
+		return HostCapability{Name: "mcp", Status: HostCapabilityStatusPending, Reason: "Pi MCP services are configured only; runtime health is not observed during installation.", Remediation: "Restart Pi and inspect extension errors for runtime discovery status."}
+	}
 	return exactCapability("mcp")
 }
 
 func healthCheckCapability(opts Options, host string) HostCapability {
+	if host == "pi" {
+		return HostCapability{Name: "health_checks", Status: HostCapabilityStatusNotApplicable, Reason: "Pi installer does not start or probe MCP services.", Remediation: "Pi reports runtime discovery errors after activation."}
+	}
 	if !opts.SetupContext7 {
 		return HostCapability{Name: "health_checks", Status: HostCapabilityStatusSkipped, Reason: "No health-checked MCP integration was selected for this installation."}
 	}

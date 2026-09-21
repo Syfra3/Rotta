@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Syfra3/Rotta/internal/installer"
 	"github.com/Syfra3/Rotta/internal/tui"
@@ -121,30 +122,39 @@ func readBenchmarkInput(input string) ([]workflow.OutcomeRecord, []string, error
 func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	target := flags.String("target", "both", "install target: claude-code, opencode, or both")
+	target := flags.String("target", "both", "install target: claude-code, opencode, codex, pi, both, or all")
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
-	routing := flags.String("model-routing", "", "OpenCode model routing: enabled or disabled (default: enabled; disabled removes only Rotta-owned model fields)")
+	routing := flags.String("model-routing", "", "OpenCode model routing: enabled, custom, or disabled")
+	piRouting := flags.String("pi-model-routing", "", "Pi model routing: enabled, custom, or disabled")
+	var piModels repeatedFlag
+	flags.Var(&piModels, "pi-model", "Pi custom role=model assignment (repeat for all four roles)")
 	confirmRouting := flags.Bool("confirm-model-routing", false, "confirm OpenCode model-routing changes")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *routing != "" && *routing != string(installer.ModelRoutingEnabled) && *routing != string(installer.ModelRoutingDisabled) {
-		return fmt.Errorf("--model-routing must be enabled or disabled")
+	if !validRoutingFlag(*routing) || !validRoutingFlag(*piRouting) {
+		return fmt.Errorf("model routing must be enabled, custom, or disabled")
 	}
 	if (*target == "opencode" || *target == "both" || *target == "all") && !*confirmRouting {
 		return fmt.Errorf("OpenCode model routing requires --confirm-model-routing")
 	}
+	piCustom, err := parseRoleModels(piModels)
+	if err != nil {
+		return err
+	}
 	result, err := installer.Install(installer.Options{
-		Target:        *target,
-		ProjectPath:   *projectPath,
-		SetupAncora:   *setupAncora,
-		SetupVela:     *setupVela,
-		ModelRouting:  installer.ModelRoutingRequest(*routing),
-		CommandStdin:  os.Stdin,
-		CommandStdout: stdout,
-		CommandStderr: stderr,
+		Target:               *target,
+		ProjectPath:          *projectPath,
+		SetupAncora:          *setupAncora,
+		SetupVela:            *setupVela,
+		ModelRouting:         installer.ModelRoutingRequest(*routing),
+		PiModelRouting:       installer.ModelRoutingRequest(*piRouting),
+		PiModelRoutingModels: piCustom,
+		CommandStdin:         os.Stdin,
+		CommandStdout:        stdout,
+		CommandStderr:        stderr,
 	})
 	if result != nil {
 		for _, warning := range result.Warnings {
@@ -161,6 +171,31 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintln(stdout, "Restart the coding agent to load the installed policy bundle.")
 	return nil
+}
+
+type repeatedFlag []string
+
+func (f *repeatedFlag) String() string         { return strings.Join(*f, ",") }
+func (f *repeatedFlag) Set(value string) error { *f = append(*f, value); return nil }
+func validRoutingFlag(value string) bool {
+	return value == "" || value == string(installer.ModelRoutingEnabled) || value == string(installer.ModelRoutingCustom) || value == string(installer.ModelRoutingDisabled)
+}
+func parseRoleModels(values []string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	models := make(map[string]string, len(values))
+	for _, value := range values {
+		role, model, ok := strings.Cut(value, "=")
+		if !ok || role == "" || model == "" {
+			return nil, fmt.Errorf("--pi-model must use role=model")
+		}
+		if _, exists := models[role]; exists {
+			return nil, fmt.Errorf("--pi-model repeats role %s", role)
+		}
+		models[role] = model
+	}
+	return models, nil
 }
 
 func runBackupCommand(args []string, stdout, stderr io.Writer) error {

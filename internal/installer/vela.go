@@ -27,7 +27,7 @@ type VelaResult struct {
 func SetupVela(opts Options, home, _ string) (*VelaResult, error) {
 	result := &VelaResult{MCPAvailability: map[string]map[string]MCPStatusResult{}}
 	for _, host := range selectedHosts(opts.Target) {
-		if host == "codex" {
+		if host == "codex" || host == "pi" {
 			continue
 		}
 		result.MCPAvailability[host] = map[string]MCPStatusResult{"vela": {

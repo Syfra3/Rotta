@@ -24,7 +24,22 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
-	writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
+	if targetIncludesOpenCode(m.Target) {
+		writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
+		if m.ModelRouting == installer.ModelRoutingCustom {
+			for _, role := range routingRoles {
+				writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key])
+			}
+		}
+	}
+	if m.Target == TargetPi || m.Target == TargetAll {
+		writeConfirmValue(b, "Pi model routing:", confirmRoutingLabel(m.PiModelRouting))
+		if m.PiModelRouting == installer.ModelRoutingCustom {
+			for _, role := range piRoutingRoles {
+				writeConfirmValue(b, "  "+role.label+":", m.PiCustomRouting[role.key])
+			}
+		}
+	}
 	b.WriteString("\n")
 }
 
@@ -33,7 +48,9 @@ func confirmRoutingLabel(request installer.ModelRoutingRequest) string {
 	case installer.ModelRoutingDisabled:
 		return "explicitly disabled"
 	case installer.ModelRoutingEnabled:
-		return "explicitly enabled"
+		return "explicitly enabled (Default)"
+	case installer.ModelRoutingCustom:
+		return "Custom"
 	default:
 		return "omitted (defaults to enabled)"
 	}
@@ -71,17 +88,23 @@ func (m Model) writeConfirmFiles(b *strings.Builder) {
 }
 
 func (m Model) writeConfirmHostFiles(b *strings.Builder) {
-	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
+	if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/rotta-core/SKILL.md")
 		writeConfirmFile(b, "  ~/.claude/skills/rotta-next/<role>/SKILL.md")
 	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
+	if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (agent entries)")
 		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/rotta-core/SKILL.md")
 		writeConfirmFile(b, "  ~/.config/opencode/skills/rotta-next/<role>/SKILL.md")
 	}
-	if m.Target == TargetCodex {
+	if m.Target == TargetCodex || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.codex/AGENTS.md  (Codex instructions)")
+	}
+	if m.Target == TargetPi || m.Target == TargetAll {
+		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/rotta-mcp-bridge.ts  (managed MCP bridge)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models)")
 	}
 }
 
@@ -105,17 +128,21 @@ func (m Model) writeConfirmIntegrationFiles(b *strings.Builder) {
 		m.writeConfirmVelaFiles(b)
 	}
 	if m.SetupContext7 {
-		writeConfirmFile(b, "  ~/.claude/mcp/context7.json  (mcp.context7)")
-		writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (mcp.context7)")
+		if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
+			writeConfirmFile(b, "  ~/.claude/mcp/context7.json  (mcp.context7)")
+		}
+		if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
+			writeConfirmFile(b, "  ~/.config/opencode/opencode.json  (mcp.context7)")
+		}
 	}
 }
 
 func (m Model) writeConfirmAncoraFiles(b *strings.Builder) {
-	if m.Target == TargetClaudeCode || m.Target == TargetBoth {
+	if m.Target == TargetClaudeCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.claude/mcp/ancora.json")
 		writeConfirmFile(b, "  ~/.claude/settings.json  (permissions.allow)")
 	}
-	if m.Target == TargetOpenCode || m.Target == TargetBoth {
+	if m.Target == TargetOpenCode || m.Target == TargetBoth || m.Target == TargetAll {
 		writeConfirmFile(b, "  ~/.config/opencode/opencode.jsonc  (mcp.ancora)")
 	}
 }
