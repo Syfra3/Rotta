@@ -1,17 +1,39 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import registerRottaExtension, { registerRotta } from "./rotta-extension.ts";
+import registerRottaExtension, {
+  registerRotta,
+  renderRottaHeader,
+} from "./rotta-extension.ts";
 import { isAllowedChildMCP, isProtectedWorkPath } from "./rotta-child-guard.ts";
 
 function assert(value: unknown, message = "assertion failed"): asserts value {
   if (!value) throw new Error(message);
 }
 type Tool = { name: string; execute: (...args: any[]) => Promise<any> };
-function host() {
+type Exec = (
+  command: string,
+  args: string[],
+  options?: { timeout?: number },
+) => Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
+
+function host(
+  exec: Exec = async () => ({
+    stdout: "rotta 1.16.2\n",
+    stderr: "",
+    code: 0,
+    killed: false,
+  }),
+) {
   const tools: Tool[] = [];
   const selects: unknown[] = [];
+  const headers: unknown[] = [];
   const events: Record<string, unknown> = {};
+  const execCalls: unknown[][] = [];
   const pi = {
+    exec(command: string, args: string[], options?: { timeout?: number }) {
+      execCalls.push([command, args, options]);
+      return exec(command, args, options);
+    },
     registerTool(tool: Tool) {
       tools.push(tool);
     },
@@ -21,23 +43,34 @@ function host() {
   };
   const ctx = {
     cwd: "/workspace",
+    mode: "tui",
     hasUI: true,
     model: { provider: "test", id: "parent-model" },
     sessionManager: { getSessionId: () => "trusted-session" },
     ui: {
+      setHeader: (factory: unknown) => headers.push(factory),
       select: async (title: string, options: string[]) => {
         selects.push({ title, options, multiple: false, custom: false });
         return options[0];
       },
     },
   };
-  return { pi, tools, selects, events, ctx };
+  return { pi, tools, selects, headers, events, ctx, execCalls };
+}
+
+function visibleWidth(text: string) {
+  return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").length;
 }
 function signal() {
   return new AbortController();
 }
 function fakeSpawn(
-  events: { stdout?: string; stderr?: string; code?: number; wait?: boolean },
+  events: {
+    stdout?: string | Uint8Array[];
+    stderr?: string;
+    code?: number;
+    wait?: boolean;
+  },
 ) {
   const calls: unknown[][] = [];
   let killed: string[] = [];
@@ -53,7 +86,15 @@ function fakeSpawn(
       return true;
     };
     queueMicrotask(() => {
-      if (events.stdout) proc.stdout.emit("data", Buffer.from(events.stdout));
+      if (events.stdout) {
+        for (
+          const chunk of Array.isArray(events.stdout)
+            ? events.stdout
+            : [Buffer.from(events.stdout)]
+        ) {
+          proc.stdout.emit("data", chunk);
+        }
+      }
       if (events.stderr) proc.stderr.emit("data", Buffer.from(events.stderr));
       if (!events.wait) proc.emit("close", events.code ?? 0);
     });
@@ -66,6 +107,101 @@ function tool(tools: Tool[], name: string) {
   if (!found) throw new Error(`missing ${name}`);
   return found;
 }
+
+Deno.test(
+  "TUI session startup shows the installed Rotta version in a width-safe header",
+  async () => {
+    const mock = host();
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const start = mock.events.session_start as (
+      event: unknown,
+      ctx: unknown,
+    ) => Promise<void>;
+    await start({}, mock.ctx);
+    assert(mock.headers.length === 1, "TUI startup did not install a header");
+    assert(
+      JSON.stringify(mock.execCalls) ===
+        JSON.stringify([["rotta", ["--version"], { timeout: 5_000 }]]),
+      "TUI startup did not perform the bounded Rotta version lookup",
+    );
+
+    const theme = {
+      bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+      fg: (_name: string, text: string) => `\x1b[36m${text}\x1b[39m`,
+    };
+    const factory = mock.headers[0] as (_tui: unknown, theme: unknown) => {
+      render(width: number): string[];
+    };
+    const wide = factory({}, theme).render(80);
+    assert(wide.join("\n").includes("R O T T A"));
+    assert(wide.join("\n").includes("Welcome to Rotta"));
+    assert(wide.join("\n").includes("Pi v"));
+    assert(wide.join("\n").includes("Rotta v1.16.2"));
+    assert(wide.join("\n").includes("ctrl+o for full startup help"));
+    assert(wide.join("\n").includes("/hotkeys"));
+    for (const width of [0, 1, 8, 20, 80]) {
+      for (
+        const line of renderRottaHeader(theme as any, width, "Rotta v1.16.2")
+      ) {
+        assert(visibleWidth(line) <= width, `header overflowed width ${width}`);
+      }
+    }
+  },
+);
+
+Deno.test(
+  "failed or invalid Rotta version lookup keeps a truthful Rotta label",
+  async () => {
+    for (
+      const exec of [
+        async () => ({
+          stdout: "rotta 1.16.2\n",
+          stderr: "failed",
+          code: 1,
+          killed: false,
+        }),
+        async () => ({
+          stdout: "not a version",
+          stderr: "",
+          code: 0,
+          killed: false,
+        }),
+        async () => await Promise.reject(new Error("not found")),
+      ]
+    ) {
+      const mock = host(exec);
+      registerRotta(mock.pi as any, { home: () => "/test-home" });
+      await (mock.events.session_start as any)({}, mock.ctx);
+      const theme = {
+        bold: (text: string) => text,
+        fg: (_: string, text: string) => text,
+      };
+      const header = (mock.headers[0] as any)({}, theme).render(80).join("\n");
+      assert(header.includes("Rotta"), "fallback omitted the Rotta label");
+      assert(
+        !header.includes("Rotta v"),
+        "fallback fabricated a Rotta version",
+      );
+    }
+  },
+);
+
+Deno.test(
+  "non-TUI session startup does not install the Rotta header or look up Rotta",
+  async () => {
+    for (const mode of ["rpc", "json", "print"]) {
+      const mock = host();
+      mock.ctx.mode = mode;
+      registerRotta(mock.pi as any, { home: () => "/test-home" });
+      await (mock.events.session_start as any)({}, mock.ctx);
+      assert(mock.headers.length === 0, `${mode} installed a TUI header`);
+      assert(
+        mock.execCalls.length === 0,
+        `${mode} looked up the Rotta version`,
+      );
+    }
+  },
+);
 
 Deno.test("installed entrypoint registers real Pi tools and isolates the child invocation", async () => {
   const fixture = fakeSpawn({
@@ -88,7 +224,7 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     () => {},
     mock.ctx,
   );
-  assert(!result.isError && result.content[0].text === "reviewed");
+  assert(!result.isError && result.content[0].text === "[reviewer] reviewed");
   const args = fixture.calls[0][1] as string[];
   assert(
     args.includes("--no-extensions") && args.includes("--no-skills") &&
@@ -99,7 +235,7 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
       args.includes(
         "read,grep,find,ls,rotta_ancora_save,rotta_ancora_summarize,rotta_ancora_start,rotta_ancora_end,rotta_ancora_search,rotta_ancora_context,rotta_ancora_get,rotta_context7_resolve_library_id,rotta_context7_query_docs",
       ),
-    "reviewer received a shell-capable tool",
+    "reviewer received the wrong allowlist",
   );
   assert(
     args.includes("--model") && args.includes("test/parent-model"),
@@ -491,6 +627,257 @@ Deno.test("child receives Context7 key only when trusted managed config enables 
   }
 });
 
+Deno.test("delegate renderer stays compact until expanded", () => {
+  const mock = host();
+  registerRotta(mock.pi as any, { home: () => "/test-home" });
+  const delegate = tool(mock.tools, "rotta_delegate") as any;
+  const theme = {
+    bold: (s: string) => s,
+    fg: (_name: string, s: string) => s,
+  };
+  const callLines = delegate.renderCall(
+    { role: "reviewer", task: "review the whole diff for blockers" },
+    theme,
+    {},
+  ).render(120);
+  assert(callLines.join("\n").includes("delegate reviewer"));
+  const collapsed = delegate.renderResult(
+    {
+      content: [{ type: "text", text: "full child transcript" }],
+      details: {
+        role: "reviewer",
+        running: true,
+        timeoutMs: 300_000,
+        elapsedMs: 12_000,
+      },
+    },
+    { expanded: false, isPartial: true },
+    theme,
+    { args: { role: "reviewer" }, invalidate: () => {} },
+  ).render(120).join("\n");
+  assert(collapsed.includes("● running reviewer 12s / timeout 5m 00s"));
+  assert(!collapsed.includes("full child transcript"));
+  const expanded = delegate.renderResult(
+    {
+      content: [{ type: "text", text: "full child transcript" }],
+      details: { role: "reviewer", elapsedMs: 15_000 },
+    },
+    { expanded: true, isPartial: false },
+    theme,
+    { args: { role: "reviewer" } },
+  ).render(120).join("\n");
+  assert(expanded.includes("✓ complete reviewer 15s"));
+  assert(expanded.includes("full child transcript"));
+});
+
+Deno.test("delegate timeout status names role and honors bounded explicit timeout", async () => {
+  const fixture = fakeSpawn({ wait: true });
+  const mock = host();
+  const updates: any[] = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  try {
+    (globalThis as any).setTimeout = (
+      fn: (...args: unknown[]) => void,
+      delay?: number,
+    ) => {
+      delays.push(Number(delay));
+      queueMicrotask(fn);
+      return 0 as any;
+    };
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => "/test-home",
+      defaultTimeoutMs: 1,
+      maxTimeoutMs: 600_000,
+    });
+    await tool(mock.tools, "rotta_delegate").execute(
+      "call",
+      { role: "reviewer", task: "slow review", timeoutMs: 300_000 },
+      signal().signal,
+      (update: unknown) => updates.push(update),
+      mock.ctx,
+    ).then(() => {
+      throw new Error("timeout unexpectedly succeeded");
+    }, (error: Error) => {
+      assert(
+        error.message.includes("[reviewer] child timed out after 300000ms"),
+      );
+    });
+    assert(
+      delays.includes(300_000),
+      `explicit timeout was not honored: ${delays}`,
+    );
+    assert(
+      updates.some((update) =>
+        update.content?.[0]?.text?.includes("[reviewer] child running") &&
+        update.details?.timeoutMs === 300_000
+      ),
+      "running update did not name role and effective timeout",
+    );
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+Deno.test("delegate accepts ordinary final assistant text while preserving envelope validation", async () => {
+  const assistantOutput = (content: string) =>
+    JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content },
+    }) + "\n";
+  const delegate = async (content: string) => {
+    const fixture = fakeSpawn({ stdout: assistantOutput(content) });
+    const mock = host();
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => "/test-home",
+    });
+    return await tool(mock.tools, "rotta_delegate").execute(
+      "call",
+      { role: "reviewer", task: "review" },
+      signal().signal,
+      () => {},
+      mock.ctx,
+    );
+  };
+
+  const prose = await delegate("Review complete: no blockers found.");
+  assert(
+    prose.content[0].text === "[reviewer] Review complete: no blockers found.",
+    "ordinary final assistant text was not returned",
+  );
+  const bracketedProse = await delegate(
+    "Review [routing] found {no blockers}.",
+  );
+  assert(
+    bracketedProse.content[0].text ===
+      "[reviewer] Review [routing] found {no blockers}.",
+    "ordinary prose containing brackets or braces was rejected",
+  );
+  const json = await delegate('{"status":"success","output":"envelope"}');
+  assert(json.content[0].text === "[reviewer] envelope");
+  const fenced = await delegate(
+    '```json\n{"status":"success","output":"fenced envelope"}\n```',
+  );
+  assert(fenced.content[0].text === "[reviewer] fenced envelope");
+  await delegate('{"status":"error","message":"JSON child error"}').then(
+    () => {
+      throw new Error("JSON error envelope succeeded");
+    },
+    (error: Error) => assert(error.message.includes("JSON child error")),
+  );
+  await delegate(
+    '```json\n{"status":"error","message":"fenced child error"}\n```',
+  ).then(
+    () => {
+      throw new Error("fenced error envelope succeeded");
+    },
+    (error: Error) => assert(error.message.includes("fenced child error")),
+  );
+  await delegate('{"status":"success",}').then(() => {
+    throw new Error("malformed JSON-looking output succeeded");
+  }, (error: Error) => {
+    assert(error.message.includes("child returned invalid result protocol"));
+  });
+  await delegate(
+    '```json\n{"status":"success","output":"missing fence"}',
+  ).then(
+    () => {
+      throw new Error("malformed fenced output succeeded");
+    },
+    (error: Error) => {
+      assert(error.message.includes("child returned invalid result protocol"));
+    },
+  );
+});
+
+Deno.test("delegate invalidates stale results for oversized assistant records only", async () => {
+  const earlier = JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: '{"status":"success","output":"earlier result"}',
+    },
+  });
+  const oversizedMalformedAssistant = JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: '{"status":"success",' + "x".repeat(70_000),
+    },
+  });
+  const fixture = fakeSpawn({
+    stdout: `${earlier}\n${oversizedMalformedAssistant}\n`,
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+  });
+  await tool(mock.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    mock.ctx,
+  ).then(() => {
+    throw new Error("oversized authoritative record preserved stale result");
+  }, (error: Error) => {
+    assert(error.message.includes("child returned invalid result protocol"));
+  });
+});
+
+Deno.test("delegate parses fragmented JSONL and UTF-8 but rejects nonzero child exits", async () => {
+  const record = Buffer.from(
+    JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: "fragmented café result" },
+    }) + "\n",
+  );
+  const splitUtf8 = record.indexOf(Buffer.from("é")) + 1;
+  const fragmented = fakeSpawn({
+    stdout: [record.subarray(0, splitUtf8), record.subarray(splitUtf8)],
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fragmented.spawn,
+    home: () => "/test-home",
+  });
+  const result = await tool(mock.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    mock.ctx,
+  );
+  assert(result.content[0].text === "[reviewer] fragmented café result");
+
+  const nonzero = fakeSpawn({
+    stdout: JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: "valid but nonzero" },
+    }) + "\n",
+    code: 7,
+  });
+  const nonzeroHost = host();
+  registerRotta(nonzeroHost.pi as any, {
+    spawn: nonzero.spawn,
+    home: () => "/test-home",
+  });
+  await tool(nonzeroHost.tools, "rotta_delegate").execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    nonzeroHost.ctx,
+  ).then(() => {
+    throw new Error("nonzero child exit succeeded after valid result");
+  }, (error: Error) => {
+    assert(error.message.includes("child exited 7"));
+  });
+});
+
 Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminates cancellation or timeout", async () => {
   const huge = "é".repeat(70_000);
   const capped = fakeSpawn({
@@ -528,7 +915,74 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     verboseHost.ctx,
   );
-  assert(verboseResult.content[0].text === "tail result");
+  assert(verboseResult.content[0].text === "[exploration] tail result");
+  const finalAssistant = JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: '{"status":"success","output":"authoritative result"}',
+    },
+  });
+  const trailingAgentEnd = JSON.stringify({
+    type: "agent_end",
+    history: "x".repeat(70_000),
+  });
+  const oversizedTrailing = fakeSpawn({
+    stdout: `${finalAssistant}\n${trailingAgentEnd}`,
+  });
+  const oversizedHost = host();
+  const updates: any[] = [];
+  registerRotta(oversizedHost.pi as any, {
+    spawn: oversizedTrailing.spawn,
+    home: () => "/test-home",
+  });
+  const oversizedResult = await tool(
+    oversizedHost.tools,
+    "rotta_delegate",
+  ).execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    (update: unknown) => updates.push(update),
+    oversizedHost.ctx,
+  );
+  assert(
+    oversizedResult.content[0].text === "[reviewer] authoritative result",
+    "oversized trailing agent_end evicted the final assistant result",
+  );
+  assert(
+    updates.every((update) =>
+      Buffer.byteLength(update.content?.[0]?.text ?? "", "utf8") <= 65_536 +
+          "[reviewer] ".length
+    ),
+    "model-facing child output exceeded its 64 KiB bound",
+  );
+  const unterminated = fakeSpawn({
+    stdout: JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: "EOF final assistant result" },
+    }),
+  });
+  const unterminatedHost = host();
+  registerRotta(unterminatedHost.pi as any, {
+    spawn: unterminated.spawn,
+    home: () => "/test-home",
+  });
+  const unterminatedResult = await tool(
+    unterminatedHost.tools,
+    "rotta_delegate",
+  ).execute(
+    "call",
+    { role: "reviewer", task: "review" },
+    signal().signal,
+    () => {},
+    unterminatedHost.ctx,
+  );
+  assert(
+    unterminatedResult.content[0].text ===
+      "[reviewer] EOF final assistant result",
+    "unterminated final JSONL record was not processed at close",
+  );
   const invalid = fakeSpawn({ stdout: "not-json\n" });
   registerRotta(mock.pi as any, {
     spawn: invalid.spawn,
@@ -559,7 +1013,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     fencedHost.ctx,
   );
-  assert(fencedResult.content[0].text === "bounded report");
+  assert(fencedResult.content[0].text === "[operations] bounded report");
   const plain = fakeSpawn({
     stdout:
       '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Review complete: no blockers."}]}}\n',
@@ -576,7 +1030,9 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     plainHost.ctx,
   );
-  assert(plainResult.content[0].text === "Review complete: no blockers.");
+  assert(
+    plainResult.content[0].text === "[reviewer] Review complete: no blockers.",
+  );
   const malformedEnvelope = fakeSpawn({
     stdout:
       '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{not-json}"}]}}\n',
@@ -802,6 +1258,110 @@ Deno.test("child MCP guard permits required memory lifecycle but never Vela outs
   assert(!isAllowedChildMCP("implementation", "rotta_vela_explore"));
   assert(isAllowedChildMCP("exploration", "rotta_vela_module_summary"));
   assert(!isAllowedChildMCP("reviewer", "rotta_context7_delete"));
+});
+
+Deno.test("strict approval accepts one established contract revision identity", async () => {
+  const project = Deno.makeTempDirSync();
+  const contractPath = `${project}/.rotta/strict/contract.md`;
+  Deno.mkdirSync(`${project}/.rotta/strict`, { recursive: true });
+  try {
+    for (
+      const [name, contractBytes] of [
+        ["plain", "Revision: 1\n"],
+        ["plain spacing", "  Revision:   1  \n"],
+        ["bold", "**Revision:** `1`\n"],
+        ["bold spacing", "**Revision:**\t `1` \n"],
+      ]
+    ) {
+      Deno.writeTextFileSync(contractPath, contractBytes);
+      const mock = host();
+      mock.ctx.cwd = project;
+      registerRotta(mock.pi as any);
+      const answer = await tool(mock.tools, "rotta_question").execute(
+        name,
+        {
+          trigger: "strict-approval",
+          requestId: name,
+          workspace: project,
+          action: "approve",
+          decision: "Approve revision 1",
+          options: ["Approve", "Stop"],
+          safeOutcome: "Stop",
+          contractPath: ".rotta/strict/contract.md",
+          contractRevision: 1,
+          contractDigest: createHash("sha256").update(contractBytes).digest(
+            "hex",
+          ),
+        },
+        signal().signal,
+        () => {},
+        mock.ctx,
+      );
+      assert(answer.content[0].text === "Approve", `${name} was rejected`);
+    }
+  } finally {
+    Deno.removeSync(project, { recursive: true });
+  }
+});
+
+Deno.test("strict approval rejects malformed, ambiguous, and prose revision identity", async () => {
+  const project = Deno.makeTempDirSync();
+  const contractPath = `${project}/.rotta/strict/contract.md`;
+  Deno.mkdirSync(`${project}/.rotta/strict`, { recursive: true });
+  try {
+    for (
+      const [name, contractBytes] of [
+        ["missing", "# Contract\n"],
+        ["nonnumeric", "Revision: one\n"],
+        ["nonnumeric alongside valid", "Revision: one\nRevision: 1\n"],
+        ["unbalanced backticks", "Revision: `1\n"],
+        ["plain backticked", "Revision: `1`\n"],
+        ["bold unbackticked", "**Revision:** 1\n"],
+        ["conflicting", "Revision: 1\n**Revision:** `2`\n"],
+        ["duplicate", "Revision: 1\nRevision: 1\n"],
+        ["plain prose", "This sentence mentions Revision: 1.\n"],
+        ["bold prose", "This sentence mentions **Revision:** `1`.\n"],
+      ]
+    ) {
+      Deno.writeTextFileSync(contractPath, contractBytes);
+      const mock = host();
+      mock.ctx.cwd = project;
+      registerRotta(mock.pi as any);
+      await tool(mock.tools, "rotta_question").execute(
+        name,
+        {
+          trigger: "strict-approval",
+          requestId: name,
+          workspace: project,
+          action: "approve",
+          decision: "Approve revision 1",
+          options: ["Approve", "Stop"],
+          safeOutcome: "Stop",
+          contractPath: ".rotta/strict/contract.md",
+          contractRevision: 1,
+          contractDigest: createHash("sha256").update(contractBytes).digest(
+            "hex",
+          ),
+        },
+        signal().signal,
+        () => {},
+        mock.ctx,
+      ).then(
+        () => {
+          throw new Error(`${name} revision identity was accepted`);
+        },
+        (error: Error) => {
+          assert(
+            error.message.includes("safe stop: approval identity mismatch"),
+            `${name} failed for the wrong reason: ${error.message}`,
+          );
+        },
+      );
+      assert(mock.selects.length === 0, `${name} reached the approval UI`);
+    }
+  } finally {
+    Deno.removeSync(project, { recursive: true });
+  }
 });
 
 Deno.test("question adapter binds current session/cwd/action and fails closed", async () => {
