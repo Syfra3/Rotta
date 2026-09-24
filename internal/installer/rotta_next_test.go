@@ -26,6 +26,49 @@ func TestRottaNextCorePolicyUsesCoherentSlices(t *testing.T) {
 	}
 }
 
+func TestOrchestratorEfficiencyAndApprovalDiagnosticsAreInstalled(t *testing.T) {
+	assetsByPath := map[string][]string{
+		"core/rotta-core.md": {
+			"delegate one bounded discovery capsule before the orchestrator reads implementation files or computes domain totals",
+			"canonicalize the workspace and any contract path",
+			"corrected and retried once immediately",
+			"diagnostics may name mismatched identity fields but never reveal bound values",
+			"default user-facing report is compact",
+		},
+		"agents/rotta-orchestrator.md": {
+			"do not read implementation files or calculate domain totals when a child can do so",
+			"canonical absolute contract path",
+			"corrected and retried once immediately",
+			"Default user-facing output stays compact",
+		},
+	}
+	for assetPath, wants := range assetsByPath {
+		data, err := assets.FS.ReadFile(assetPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", assetPath, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s missing orchestration improvement %q", assetPath, want)
+			}
+		}
+	}
+
+	home := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if _, err := installOpenCode(Options{}, home); err != nil {
+		t.Fatalf("install orchestration improvements: %v", err)
+	}
+	for assetPath, wants := range assetsByPath {
+		role := strings.TrimSuffix(filepath.Base(assetPath), ".md")
+		installedPath := filepath.Join(home, ".config", "opencode", "skills", "rotta-next", role, "SKILL.md")
+		for _, want := range wants {
+			assertRottaNextFileContains(t, installedPath, want)
+		}
+	}
+}
+
 func TestHarnessReliabilityAdvisoryEvidencePolicyIsCompactAndInstalled(t *testing.T) {
 	assetsByPath := map[string][]string{
 		"core/rotta-core.md": {
