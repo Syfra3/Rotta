@@ -197,11 +197,21 @@ function currentContract(cwd: string, supplied: string | undefined) {
     const revisions = [...contractText.matchAll(
       /^(?:[ \t]{0,3})(?:Revision:[ \t]*r?(\d+)|\*\*Revision:\*\*[ \t]*`r?(\d+)`)[ \t]*\r?$/gm,
     )].map((match) => match[1] ?? match[2]);
+    // A title suffix is an alternative identity, not additional metadata.
+    // Count candidate suffixes even when malformed so they cannot be ignored
+    // in favor of a valid standalone line or another heading.
+    const headingLines = [...contractText.matchAll(/^#(?!#)[ \t]+[^\r\n]*\r?$/gm)]
+      .filter((match) => /\(revision\b/i.test(match[0]));
+    const headingRevisions = headingLines.map((match) =>
+      /^#[ \t]+[^\r\n]+[ \t]+\(revision[ \t]+r?(\d+)\)[ \t]*\r?$/i.exec(match[0])?.[1]
+    );
+    const identities = revisionLines.length + headingLines.length;
     return {
       path: candidate,
       digest: createHash("sha256").update(bytes).digest("hex"),
-      revision: revisionLines.length === 1 && revisions.length === 1
-        ? Number(revisions[0])
+      revision: identities === 1 &&
+          (revisionLines.length === 1 ? revisions.length === 1 : headingRevisions[0] !== undefined)
+        ? Number(revisionLines.length ? revisions[0] : headingRevisions[0])
         : undefined,
     };
   } catch {
