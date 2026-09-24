@@ -208,6 +208,11 @@ func resolvePiOrchestratorRouting(request ModelRoutingRequest, model, effort str
 	if resolved != ModelRoutingCustom {
 		return resolvedPiOrchestratorRouting{enabled: true, assignment: PiRoutingAssignment{Model: DefaultPiOrchestratorModel(), Effort: DefaultPiOrchestratorEffort()}}, nil
 	}
+	// The CLI's four-role custom routing has no separate orchestrator flag.
+	// Keep that existing entry point usable with the default parent selection.
+	if model == "" && effort == "" {
+		return resolvedPiOrchestratorRouting{enabled: true, assignment: PiRoutingAssignment{Model: DefaultPiOrchestratorModel(), Effort: DefaultPiOrchestratorEffort()}}, nil
+	}
 	if !IsValidPiModelID(model) {
 		return resolvedPiOrchestratorRouting{}, fmt.Errorf("custom Pi model routing must select an orchestrator model")
 	}

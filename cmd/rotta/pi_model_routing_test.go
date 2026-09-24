@@ -22,4 +22,12 @@ func TestCLIPiCustomRoutingAcceptsFourIndependentAssignments(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "rotta-next", "model-routing.json")); err != nil {
 		t.Fatal(err)
 	}
+	settings, err := os.ReadFile(filepath.Join(home, ".pi", "agent", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(settings, []byte(`"defaultModel": "gpt-6-sol"`)) ||
+		!bytes.Contains(settings, []byte(`"defaultThinkingLevel": "low"`)) {
+		t.Fatalf("CLI custom routing lost default orchestrator: %s", settings)
+	}
 }
