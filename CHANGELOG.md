@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.1](https://github.com/Syfra3/Rotta/compare/v1.19.0...v1.19.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **pi:** enable bounded execution for delegated roles ([f8fdbb6](https://github.com/Syfra3/Rotta/commit/f8fdbb61de8be7c310d025e886897b9867f20852))
+
 ## [1.19.0](https://github.com/Syfra3/Rotta/compare/v1.18.1...v1.19.0) (2026-09-24)
 
 
