@@ -271,23 +271,28 @@ func (m Model) viewCustomModelRouting() string {
 func (m Model) viewPiCustomModelRouting() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Custom Pi Model Routing") + "\n\n")
-	b.WriteString(inputHintStyle.Render("Choose a model for each delegated role. Models come from pi --offline --list-models; credentials are not verified.") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Choose a model and thinking effort for each delegated role. Models come from pi --offline --list-models; credentials are not verified.") + "\n\n")
 	if !m.PiModelDiscoveryDone {
 		b.WriteString(menuItemStyle.Render("Discovering offline Pi models…") + "\n\n")
 	} else if m.PiModelDiscoveryError != "" {
 		b.WriteString(errorStyle.Render(m.PiModelDiscoveryError) + "\n\n")
 	}
+	style, prefix := menuItemStyle, "  "
+	if m.PiCustomRoutingCursor == 0 {
+		style, prefix = menuSelectedStyle, "▸ "
+	}
+	b.WriteString(style.Render(fmt.Sprintf("%sOrchestrator: %s (%s)", prefix, m.PiOrchestratorModel, m.PiOrchestratorEffort)) + "\n")
 	for index, role := range piRoutingRoles {
 		style, prefix := menuItemStyle, "  "
-		if index == m.PiCustomRoutingCursor {
+		if index+1 == m.PiCustomRoutingCursor {
 			style, prefix = menuSelectedStyle, "▸ "
 		}
-		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s", prefix, role.label, m.PiCustomRouting[role.key])) + "\n")
+		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s (%s)", prefix, role.label, m.PiCustomRouting[role.key], m.PiCustomEfforts[role.key])) + "\n")
 	}
 	if m.PiModelDiscoveryError != "" && !m.PiModelDiscoveryInFlight {
 		b.WriteString(helpStyle.Render("r to retry discovery · "))
 	}
-	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose · n to continue · Esc to go back"))
+	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose model · e to cycle effort · n to continue · Esc to go back"))
 	return appStyle.Render(b.String())
 }
 
@@ -323,8 +328,11 @@ func (m Model) viewModelPicker() string {
 
 func (m Model) viewPiModelPicker() string {
 	var b strings.Builder
-	role := piRoutingRoles[m.PiCustomRoutingCursor]
-	b.WriteString(headerStyle.Render("Choose model for "+role.label) + "\n\n")
+	label := "Orchestrator"
+	if m.PiCustomRoutingCursor > 0 {
+		label = piRoutingRoles[m.PiCustomRoutingCursor-1].label
+	}
+	b.WriteString(headerStyle.Render("Choose model for "+label) + "\n\n")
 	b.WriteString(inputHintStyle.Render("Type to search · Backspace to clear · Enter to select") + "\n")
 	b.WriteString(valueStyle.Render("Search: "+m.ModelPickerQuery) + "\n\n")
 	models := m.filteredPiModels()

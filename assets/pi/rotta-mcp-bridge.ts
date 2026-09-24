@@ -189,6 +189,79 @@ function original(service: Service, name: string) {
 function exposed(service: Service, name: string) {
   return `rotta_${service}_${name.replace(/[^A-Za-z0-9_]/g, "_")}`;
 }
+function characterWidth(character: string) {
+  const code = character.codePointAt(0) ?? 0;
+  if (/\p{Mark}/u.test(character) || code === 0x200d || code === 0xfe0f) return 0;
+  return code >= 0x1100 && (
+      code <= 0x115f || code === 0x2329 || code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) || code >= 0x1f300
+    ) ? 2 : 1;
+}
+function truncateAnsiLine(line: string, width: number, suffix = "") {
+  if (width <= 0) return "";
+  const tokens = line.match(/\x1b\[[0-?]*[ -/]*[@-~]|[^\x1b]/gu) ?? [];
+  const visible = tokens.reduce((sum, token) =>
+    sum + (token.startsWith("\x1b[") ? 0 : characterWidth(token)), 0);
+  if (visible <= width) return line;
+  const suffixWidth = [...suffix].reduce((sum, char) => sum + characterWidth(char), 0);
+  let result = "", used = 0;
+  for (const token of tokens) {
+    if (token.startsWith("\x1b[")) {
+      result += token;
+      continue;
+    }
+    const tokenWidth = characterWidth(token);
+    if (used + tokenWidth > Math.max(0, width - suffixWidth)) break;
+    result += token;
+    used += tokenWidth;
+  }
+  return result + (suffixWidth <= width ? suffix : "");
+}
+function compactComponent(line: string) {
+  return {
+    render: (width: number) => [truncateAnsiLine(line, width, "…")],
+    handleMouse(event: { button?: string; type?: string }) {
+      if (event.button === "left" && event.type === "click") {
+        void (globalThis as any)[Symbol.for("rotta.pi.openLatestDetail")]?.();
+        return { handled: true };
+      }
+      return undefined;
+    },
+    invalidate() {},
+  };
+}
+export function renderManagedCall(service: string, action: string, theme: any) {
+  return compactComponent(`${theme.fg("toolTitle", service)} ${theme.fg("accent", action)} ${theme.fg("warning", "● running")}`);
+}
+export function renderManagedResult(
+  service: string,
+  action: string,
+  result: { content?: unknown; details?: Record<string, unknown> },
+  options: { isPartial?: boolean },
+  theme: any,
+  context: { isError?: boolean } = {},
+) {
+  const running = options.isPartial;
+  const failed = context.isError === true;
+  const state = running ? theme.fg("warning", "● running") : failed
+    ? theme.fg("error", "✗ failed")
+    : theme.fg("success", "✓ complete");
+  const content = Array.isArray(result.content)
+    ? result.content.filter((part: any) => part?.type === "text" && typeof part.text === "string").map((part: any) => part.text).join(" ")
+    : "";
+  const rawReason = typeof result.details?.reason === "string"
+    ? result.details.reason
+    : failed ? content : "";
+  const reason = rawReason
+    ? ` ${theme.fg("dim", truncateAnsiLine(clean(rawReason).replace(/\s+/g, " ").trim(), 120, "…"))}`
+    : "";
+  return compactComponent(`${theme.fg("toolTitle", service)} ${theme.fg("accent", action)} ${state}${reason} ${theme.fg("dim", "ctrl+shift+o details")}`);
+}
 function toolResult(value: any) {
   if (value?.isError === true) {
     throw err(JSON.stringify(value.content ?? value));
@@ -730,6 +803,10 @@ export function registerMCPBridge(
                 remote.inputSchema ??
                   { type: "object", additionalProperties: true },
               ),
+              renderCall: (_args: unknown, theme: any) =>
+                renderManagedCall(service, name, theme),
+              renderResult: (result: any, options: any, theme: any, context: any) =>
+                renderManagedResult(service, name, result, options, theme, context),
               async execute(
                 _id: string,
                 params: unknown,

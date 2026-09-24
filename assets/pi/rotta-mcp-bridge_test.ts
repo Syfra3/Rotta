@@ -107,6 +107,22 @@ Deno.test("bridge activates only initialize/list, pages tools, preserves remote 
     mocked.tools.length === 1 && mocked.tools[0].name === "rotta_ancora_search",
   );
   assert(mocked.tools[0].parameters.properties.query.type === "string");
+  const theme = { fg: (_: string, value: string) => value };
+  const callComponent = mocked.tools[0].renderCall({ query: "private payload" }, theme);
+  const callRow = callComponent.render(80).join("\n");
+  assert(callRow.includes("ancora search") && callRow.includes("running"));
+  assert(!callRow.includes("private payload"), "managed call rendered raw payload");
+  let opened = 0;
+  (globalThis as any)[Symbol.for("rotta.pi.openLatestDetail")] = () => opened++;
+  assert(
+    JSON.stringify(callComponent.handleMouse({ type: "click", button: "left" })) ===
+        JSON.stringify({ handled: true }) && opened === 1,
+    "normalized managed-tool click did not return Pi's handled result/open details",
+  );
+  assert(
+    callComponent.handleMouse({ type: "move", button: "left" }) === undefined,
+    "nonmatching managed-tool mouse event returned a handled result",
+  );
   const output = await mocked.tools[0].execute(
     "x",
     { query: "q" },
@@ -115,6 +131,20 @@ Deno.test("bridge activates only initialize/list, pages tools, preserves remote 
   assert(
     output.content[0].text === "ok" && output.details.structuredContent.yes,
   );
+  const resultRow = mocked.tools[0].renderResult(
+    output,
+    { expanded: true, isPartial: false },
+    theme,
+  ).render(80).join("\n");
+  assert(resultRow.includes("complete") && resultRow.includes("ctrl+shift+o"));
+  assert(!resultRow.includes("ok") && !resultRow.includes("yes"), "managed result rendered raw output");
+  const failedRow = mocked.tools[0].renderResult(
+    { content: [{ type: "text", text: "MCP request timed out after a very long bounded explanation" }] },
+    { expanded: false, isPartial: false },
+    theme,
+    { isError: true },
+  ).render(200).join("\n");
+  assert(failedRow.includes("✗ failed") && failedRow.includes("timed out"));
   assert(transport.calls.some((call) => call.params?.name === "ancora_search"));
 });
 

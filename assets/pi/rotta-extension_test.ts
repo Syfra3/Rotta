@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import registerRottaExtension, {
+  compactBuiltinDefinitions,
+  detailOverlayComponent,
   registerRotta,
   renderRottaHeader,
 } from "./rotta-extension.ts";
@@ -27,15 +29,34 @@ function host(
   const tools: Tool[] = [];
   const selects: unknown[] = [];
   const headers: unknown[] = [];
+  const shortcuts: any[] = [];
+  const overlays: any[] = [];
+  const notifications: Array<{ message: string; level: string }> = [];
   const events: Record<string, unknown> = {};
+  const emittedEvents: Array<{ event: string; data: unknown }> = [];
+  const extensionEventHandlers: Record<string, Array<(data: unknown) => void>> = {};
+  const activity: string[] = [];
   const execCalls: unknown[][] = [];
   const pi = {
+    events: {
+      on(event: string, handler: (data: unknown) => void) {
+        (extensionEventHandlers[event] ??= []).push(handler);
+      },
+      emit(event: string, data: unknown) {
+        emittedEvents.push({ event, data });
+        activity.push(`emit:${event}:${(data as { active?: unknown })?.active}`);
+        for (const handler of extensionEventHandlers[event] ?? []) handler(data);
+      },
+    },
     exec(command: string, args: string[], options?: { timeout?: number }) {
       execCalls.push([command, args, options]);
       return exec(command, args, options);
     },
     registerTool(tool: Tool) {
       tools.push(tool);
+    },
+    registerShortcut(shortcut: string, options: unknown) {
+      shortcuts.push({ shortcut, ...(options as object) });
     },
     on(event: string, handler: unknown) {
       events[event] = handler;
@@ -49,13 +70,43 @@ function host(
     sessionManager: { getSessionId: () => "trusted-session" },
     ui: {
       setHeader: (factory: unknown) => headers.push(factory),
-      select: async (title: string, options: string[]) => {
-        selects.push({ title, options, multiple: false, custom: false });
+      custom: async (factory: any) => {
+        let closed = false;
+        const component = factory(
+          { requestRender() {} },
+          { fg: (_: string, text: string) => text },
+          {},
+          () => (closed = true),
+        );
+        overlays.push({ component, get closed() { return closed; } });
+      },
+      notify: (message: string, level: string) => notifications.push({ message, level }),
+      select: async (
+        title: string,
+        options: string[],
+        selectOptions?: { signal: AbortSignal; timeout?: number },
+      ) => {
+        selects.push({ title, options, selectOptions, multiple: false, custom: false });
+        activity.push("select");
         return options[0];
       },
     },
   };
-  return { pi, tools, selects, headers, events, ctx, execCalls };
+  return {
+    pi,
+    tools,
+    selects,
+    headers,
+    shortcuts,
+    overlays,
+    notifications,
+    events,
+    emittedEvents,
+    extensionEventHandlers,
+    activity,
+    ctx,
+    execCalls,
+  };
 }
 
 function visibleWidth(text: string) {
@@ -107,6 +158,300 @@ function tool(tools: Tool[], name: string) {
   if (!found) throw new Error(`missing ${name}`);
   return found;
 }
+function controlledTimers() {
+  let nextId = 0;
+  const callbacks = new Map<number, () => void>();
+  const cleared: number[] = [];
+  const unrefed: number[] = [];
+  return {
+    callbacks,
+    cleared,
+    unrefed,
+    setTimeout: ((callback: () => void) => {
+      const id = ++nextId;
+      callbacks.set(id, callback);
+      return { id, unref: () => unrefed.push(id) } as any;
+    }) as typeof globalThis.setTimeout,
+    clearTimeout: ((timer: { id?: number }) => {
+      if (timer?.id !== undefined) {
+        cleared.push(timer.id);
+        callbacks.delete(timer.id);
+      }
+    }) as any,
+    expire(id: number) {
+      const callback = callbacks.get(id);
+      callbacks.delete(id);
+      callback?.();
+    },
+  };
+}
+async function stageDelegateFailure(
+  mock: ReturnType<typeof host>,
+  toolCallId: string,
+) {
+  await tool(mock.tools, "rotta_delegate").execute(
+    toolCallId,
+    { role: "reviewer", task: `fail ${toolCallId}` },
+    signal().signal,
+    () => {},
+    mock.ctx,
+  ).then(() => {
+    throw new Error("failed delegation unexpectedly succeeded");
+  }, () => {});
+}
+function delegateToolResult(
+  mock: ReturnType<typeof host>,
+  toolCallId: string,
+  isError = true,
+) {
+  return (mock.events.tool_result as any)({
+    toolCallId,
+    toolName: "rotta_delegate",
+    input: {},
+    content: [{ type: "text", text: "failed" }],
+    details: undefined,
+    isError,
+  }, mock.ctx);
+}
+async function recoveredDelegateFailure(
+  mock: ReturnType<typeof host>,
+  params: Record<string, unknown>,
+  controller = signal(),
+) {
+  const delegate = tool(mock.tools, "rotta_delegate") as any;
+  let error: Error | undefined;
+  try {
+    await delegate.execute(
+      "failed-call",
+      params,
+      controller.signal,
+      () => {},
+      mock.ctx,
+    );
+  } catch (caught) {
+    error = caught as Error;
+  }
+  assert(error, "failed delegation did not remain a genuine thrown Pi error");
+  const patch = await (mock.events.tool_result as any)({
+    toolCallId: "failed-call",
+    toolName: "rotta_delegate",
+    input: params,
+    content: [{ type: "text", text: error.message }],
+    details: undefined,
+    isError: true,
+  }, mock.ctx);
+  assert(patch?.details, "Pi tool_result path did not recover failure details");
+  const result = {
+    content: [{ type: "text", text: error.message }],
+    details: patch.details,
+  };
+  const rendered = delegate.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    { bold: (s: string) => s, fg: (_: string, s: string) => s },
+    { args: params, toolCallId: "failed-call", isError: true },
+  ).render(200).join("\n");
+  return { error, details: patch.details, rendered };
+}
+
+const plainTheme = {
+  bold: (text: string) => text,
+  fg: (_name: string, text: string) => text,
+};
+
+Deno.test("compact built-ins preserve factory execution contracts exactly", () => {
+  const { bash, edit, originals } = compactBuiltinDefinitions("/workspace");
+  for (const [wrapped, original] of [[bash, originals.bash], [edit, originals.edit]]) {
+    assert(wrapped.name === original.name);
+    assert(wrapped.description === original.description);
+    assert(wrapped.parameters === original.parameters, "schema identity changed");
+    assert(wrapped.execute === original.execute, "execute identity changed");
+    for (const key of Object.keys(original)) {
+      if (key !== "renderCall" && key !== "renderResult") {
+        assert((wrapped as any)[key] === (original as any)[key], `${key} changed`);
+      }
+    }
+  }
+});
+
+Deno.test("compact built-ins register only after a TUI session starts", async () => {
+  for (const mode of ["json", "print", "rpc", "tui"]) {
+    const mock = host();
+    mock.ctx.mode = mode;
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    assert(!mock.tools.some((entry) => ["bash", "edit"].includes(entry.name)));
+    await (mock.events.session_start as any)({}, mock.ctx);
+    const names = mock.tools.map((entry) => entry.name);
+    assert(names.includes("bash") === (mode === "tui"), `${mode} bash shadow mismatch`);
+    assert(names.includes("edit") === (mode === "tui"), `${mode} edit shadow mismatch`);
+  }
+});
+
+Deno.test("compact built-ins visibly disable shadows on Pi version or factory-shape mismatch", async () => {
+  const cases = [
+    { piVersion: "0.88.0" },
+    {
+      piVersion: "0.87.1",
+      builtinFactories: {
+        bash: (() => ({ name: "bash", parameters: {}, execute: async () => ({}) })) as any,
+        edit: (() => ({ name: "edit", parameters: {}, execute: async () => ({}) })) as any,
+      },
+    },
+  ];
+  for (const dependencies of cases) {
+    const mock = host();
+    registerRotta(mock.pi as any, { home: () => "/test-home", ...dependencies });
+    await (mock.events.session_start as any)({}, mock.ctx);
+    assert(!mock.tools.some((entry) => ["bash", "edit"].includes(entry.name)), "mismatched shadows activated");
+    assert(mock.notifications.length === 1 && mock.notifications[0].level === "error");
+    assert(mock.notifications[0].message.includes("compact built-ins disabled"));
+  }
+});
+
+Deno.test("compact bash covers running success failure expansion and truncation without mutation", () => {
+  const bash = compactBuiltinDefinitions("/workspace").bash as any;
+  const state: any = {};
+  const context: any = { args: { command: "printf 'hello world'" }, state, executionStarted: true, isPartial: true, isError: false };
+  const partial = { content: [{ type: "text", text: "partial output" }], details: undefined };
+  const partialSnapshot = JSON.stringify(partial);
+  const running = bash.renderResult(partial, { expanded: false, isPartial: true }, plainTheme, context).render(200);
+  assert(running.length === 1 && running[0].includes("running") && running[0].includes("printf 'hello world'") && running[0].includes("0s"));
+  assert(JSON.stringify(partial) === partialSnapshot, "partial result mutated");
+
+  const success: any = { content: [{ type: "text", text: "all output" }], details: undefined };
+  context.isPartial = false;
+  const successLine = bash.renderResult(success, { expanded: false, isPartial: false }, plainTheme, context).render(200);
+  assert(successLine.length === 1 && successLine[0].includes("exit 0"));
+  const expanded = bash.renderResult(success, { expanded: true, isPartial: false }, plainTheme, context).render(200).join("\n");
+  assert(expanded.split("all output").length === 2, "expanded output missing or duplicated");
+
+  const path = "/tmp/pi-bash-full";
+  const footer = `[Showing lines 6-10 of 10. Full output: ${path}]`;
+  const truncated: any = {
+    content: [{ type: "text", text: `tail output\n\n${footer}` }],
+    details: { truncation: { truncated: true, truncatedBy: "lines", outputLines: 5, totalLines: 10 }, fullOutputPath: path },
+  };
+  const snapshot = JSON.stringify(truncated);
+  const collapsed = bash.renderResult(truncated, { expanded: false, isPartial: false }, plainTheme, context).render(200);
+  assert(collapsed.length === 1 && collapsed[0].includes("truncated"));
+  const full = bash.renderResult(truncated, { expanded: true, isPartial: false }, plainTheme, context).render(300).join("\n");
+  assert(full.split(path).length === 2, "full-output path was missing or duplicated");
+  assert(full.split("tail output").length === 2);
+  assert(JSON.stringify(truncated) === snapshot, "truncated result/details mutated");
+
+  const failed: any = { content: [{ type: "text", text: "stderr\n\nCommand exited with code 7" }], details: undefined };
+  context.isError = true;
+  assert(bash.renderResult(failed, { expanded: false, isPartial: false }, plainTheme, context).render(200)[0].includes("exit 7"));
+  const timeout: any = { content: [{ type: "text", text: "Command timed out after 3 seconds" }], details: undefined };
+  assert(bash.renderResult(timeout, { expanded: false, isPartial: false }, plainTheme, context).render(200)[0].includes("timeout 3s"));
+});
+
+Deno.test("compact bash preserves transcript whitespace and removes only its recognized footer", () => {
+  const bash = compactBuiltinDefinitions("/workspace").bash as any;
+  const context: any = { args: { command: "printf" }, state: {}, isError: false };
+  const exact = "\n\n  leading  \nbody\ntrailing  \n\n";
+  const expanded = bash.renderResult(
+    { content: [{ type: "text", text: exact }], details: undefined },
+    { expanded: true, isPartial: false }, plainTheme, context,
+  ).render(300).join("\n");
+  assert(expanded.slice(expanded.indexOf("\n") + 1) === exact, "expanded transcript whitespace changed");
+
+  const path = "/tmp/full.out";
+  const footer = `[Showing lines 6-10 of 10. Full output: ${path}]`;
+  const result = {
+    content: [{ type: "text", text: `  output  \n\n${footer}` }],
+    details: { truncation: { truncated: true, truncatedBy: "lines", outputLines: 5, totalLines: 10 }, fullOutputPath: path },
+  };
+  const rendered = bash.renderResult(result, { expanded: true, isPartial: false }, plainTheme, context).render(300).join("\n");
+  assert(rendered.includes("  output  \n[truncated:"), "footer removal trimmed output spaces");
+  assert(rendered.split(path).length === 2, "recognized footer was not deduplicated");
+  const similar = { ...result, content: [{ type: "text", text: `keep\n\n[User note. Full output: ${path}]` }] };
+  const kept = bash.renderResult(similar, { expanded: true, isPartial: false }, plainTheme, context).render(300).join("\n");
+  assert(kept.includes("[User note."), "non-generated footer was removed");
+
+  const footerOnly = { content: [{ type: "text", text: `\n  output  \n\n${footer}` }], details: { truncation: result.details.truncation } };
+  const fromFooter = bash.renderResult(footerOnly, { expanded: true, isPartial: false }, plainTheme, context).render(300).join("\n");
+  assert(fromFooter.split(path).length === 2, "footer-only path missing or duplicated");
+  assert(fromFooter.includes("\n  output  \n[truncated:"), "footer-only removal changed transcript whitespace");
+  const otherPath = { ...result, details: { ...result.details, fullOutputPath: "/tmp/other.out" } };
+  const retained = bash.renderResult(otherPath, { expanded: true, isPartial: false }, plainTheme, context).render(300).join("\n");
+  assert(!retained.includes(footer), "recognized footer with conflicting details remained");
+  assert(retained.split(path).length === 2 && !retained.includes("/tmp/other.out"), "footer path did not win conflict");
+});
+
+Deno.test("Pi 0.87.1 byte-limit and partial-line footers preserve transcript and deduplicate paths", () => {
+  const bash = compactBuiltinDefinitions("/workspace").bash as any;
+  const prefix = "  first  \n\nlast  \n\n";
+  const footerPath = "/tmp/pi-footer";
+  const cases = [
+    { footer: `[Showing lines 4-5 of 5 (50.0KB limit). Full output: ${footerPath}]`, truncation: { truncated: true, truncatedBy: "bytes", outputLines: 2, maxBytes: 51200 } },
+    { footer: `[Showing last 49.9KB of line 5 (line is 80.0KB). Full output: ${footerPath}]`, truncation: { truncated: true, truncatedBy: "bytes", lastLinePartial: true, outputLines: 1, maxBytes: 51200 } },
+  ];
+  for (const { footer, truncation } of cases) {
+    for (const fullOutputPath of [undefined, footerPath, "/tmp/conflicting"]) {
+      const result = { content: [{ type: "text", text: prefix + footer }], details: { truncation, fullOutputPath } };
+      const context = { args: { command: "x" }, state: {}, isError: false };
+      const expanded = bash.renderResult(result, { expanded: true, isPartial: false }, plainTheme, context).render(500).join("\n");
+      assert(expanded.includes(`\n${prefix.slice(0, -2)}\n[truncated:`), "prefix whitespace was not preserved before warning");
+      assert(!expanded.includes(footer) && expanded.split(footerPath).length === 2, "footer was not replaced with one path");
+      assert(!expanded.includes("/tmp/conflicting"), "conflicting details path won");
+      const errorContext = { args: { command: "x" }, state: {}, isError: true };
+      const collapsed = bash.renderResult(result, { expanded: false, isPartial: false }, plainTheme, errorContext).render(500)[0];
+      assert(!collapsed.includes("Showing") && collapsed.split(footerPath).length === 2, "error diagnostic duplicated footer path");
+      assert(!collapsed.includes("/tmp/conflicting") && collapsed.includes("first last"), "error diagnostic or path lost");
+    }
+  }
+});
+
+Deno.test("compact bash and edit failures expose sanitized width-bounded diagnostics", () => {
+  const { bash, edit } = compactBuiltinDefinitions("/workspace") as any;
+  const bashContext: any = { args: { command: "x" }, state: {}, isError: true };
+  for (const [text, expected] of [
+    ["generic boom token=secret", "generic boom token=[redacted]"],
+    ["stderr detail\n\nCommand exited with code 9", "stderr detail"],
+    ["Command timed out after 4 seconds", "Command timed out after 4 seconds"],
+  ]) {
+    const lines = bash.renderResult({ content: [{ type: "text", text }], details: undefined }, { expanded: false, isPartial: false }, plainTheme, bashContext).render(70);
+    assert(lines.length === 1 && visibleWidth(lines[0]) <= 70 && lines[0].includes(expected), `missing diagnostic: ${text}`);
+    assert(!lines[0].includes("secret"), "diagnostic leaked secret");
+  }
+  const editContext: any = { args: { path: "a", edits: [{}] }, isError: true, isPartial: false };
+  const line = edit.renderResult({ content: [{ type: "text", text: "oldText mismatch password=hunter2" }] }, { expanded: false, isPartial: false }, plainTheme, editContext).render(70)[0];
+  assert(visibleWidth(line) <= 70 && line.includes("oldText mismatch") && !line.includes("hunter2"));
+});
+
+Deno.test("compact bash reports line and byte truncation counts and paths on one line", () => {
+  const bash = compactBuiltinDefinitions("/workspace").bash as any;
+  const context: any = { args: { command: "x" }, state: {}, isError: false };
+  for (const [truncation, expected] of [
+    [{ truncated: true, truncatedBy: "lines", outputLines: 8, totalLines: 20 }, "8/20 lines"],
+    [{ truncated: true, truncatedBy: "bytes", outputLines: 3, maxBytes: 2048 }, "3 lines, 2.0 KB"],
+  ] as const) {
+    const line = bash.renderResult({ content: [], details: { truncation, fullOutputPath: "/tmp/full" } }, { expanded: false, isPartial: false }, plainTheme, context).render(240);
+    assert(line.length === 1 && line[0].includes(expected) && line[0].includes("/tmp/full"));
+  }
+});
+
+Deno.test("compact edit covers counts, running/errors, expansion, and immutable details", () => {
+  const edit = compactBuiltinDefinitions("/workspace").edit as any;
+  const context: any = { args: { path: "src/a.ts", edits: [{}, {}] }, state: {}, isPartial: false, isError: false };
+  const result: any = { content: [{ type: "text", text: "Successfully replaced 2 block(s)" }], details: { diff: "@@ -1 +1,2 @@\n-old\n+new\n+more", patch: "patch" } };
+  const snapshot = JSON.stringify(result);
+  const collapsed = edit.renderResult(result, { expanded: false, isPartial: false }, plainTheme, context).render(200);
+  assert(collapsed.length === 1 && collapsed[0].includes("src/a.ts • success • 2 replacements +2 -1"));
+  const expanded = edit.renderResult(result, { expanded: true, isPartial: false }, plainTheme, context).render(200).join("\n");
+  assert(expanded.split("@@ -1 +1,2 @@").length === 2, "diff missing or duplicated");
+  assert(JSON.stringify(result) === snapshot, "edit result/details mutated");
+  context.isPartial = true;
+  assert(edit.renderResult(result, { expanded: false, isPartial: true }, plainTheme, context).render(200)[0].includes("running"));
+  const error: any = { content: [{ type: "text", text: "oldText was not unique\nfull diagnostic" }], details: undefined };
+  context.isPartial = false;
+  context.isError = true;
+  const failed = edit.renderResult(error, { expanded: false, isPartial: false }, plainTheme, context).render(200);
+  assert(failed.length === 1 && failed[0].includes("failed"));
+  const fullError = edit.renderResult(error, { expanded: true, isPartial: false }, plainTheme, context).render(200).join("\n");
+  assert(fullError.split("oldText was not unique").length === 2, "error missing or duplicated");
+});
 
 Deno.test(
   "TUI session startup shows the installed Rotta version in a width-safe header",
@@ -224,7 +569,11 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     () => {},
     mock.ctx,
   );
-  assert(!result.isError && result.content[0].text === "[reviewer] reviewed");
+  assert(!result.isError && result.content[0].text === "reviewed");
+  assert(
+    result.details.outcome === "success" && result.details.failed === undefined,
+    "successful delegate metadata was not authoritatively success-only",
+  );
   const args = fixture.calls[0][1] as string[];
   assert(
     args.includes("--no-extensions") && args.includes("--no-skills") &&
@@ -282,10 +631,10 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
   const profile: any = {
     version: 1,
     roles: {
-      implementation: "openai-codex/gpt-5.6-terra",
-      reviewer: "openai-codex/gpt-5.6-sol",
-      exploration: "openai-codex/gpt-5.6-luna",
-      operations: "openai-codex/gpt-5.6-luna",
+      implementation: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
+      reviewer: { model: "openai-codex/gpt-5.6-sol", effort: "medium" },
+      exploration: { model: "openai-codex/gpt-5.6-sol", effort: "high" },
+      operations: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
     },
   };
   try {
@@ -314,16 +663,29 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
     for (
       const [role, expected] of Object.entries(profile.roles) as [
         string,
-        string,
+        { model: string; effort: string },
       ][]
     ) {
       const args = await invoke({ role, task: "delegate" });
       assert(
-        args.includes("--model") && args.includes(expected),
+        args.includes("--model") && args.includes(expected.model) &&
+          args.includes("--thinking") && args.includes(expected.effort),
         `${role} routing was not applied`,
       );
     }
     let args: string[];
+    profile.roles = {
+      implementation: "legacy/impl",
+      reviewer: "legacy/reviewer",
+      exploration: "legacy/explore",
+      operations: "legacy/ops",
+    };
+    Deno.writeTextFileSync(
+      `${root}/model-routing.json`,
+      JSON.stringify(profile),
+    );
+    args = await invoke({ role: "reviewer", task: "review" });
+    assert(args.includes("legacy/reviewer") && !args.includes("--thinking"));
     args = await invoke({
       role: "reviewer",
       task: "review",
@@ -331,7 +693,7 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
     });
     assert(
       args.includes("custom/once") &&
-        !args.includes("openai-codex/gpt-5.6-sol"),
+        !args.includes("--thinking"),
     );
     profile.roles = { implementation: "only/one" } as any;
     Deno.writeTextFileSync(
@@ -351,6 +713,311 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
   } finally {
     Deno.removeSync(home, { recursive: true });
   }
+});
+
+Deno.test("delegate preserves requested routing and prefers authoritative child model and effort", async () => {
+  const fixture = fakeSpawn({
+    stdout: JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        model: "provider/base-model",
+        responseModel: "provider/actual-model",
+        providerThinkingLevel: "medium",
+        content: "done",
+      },
+    }) + "\n",
+  });
+  const mock = host();
+  const updates: any[] = [];
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+  });
+  const delegate = tool(mock.tools, "rotta_delegate") as any;
+  const result = await delegate.execute(
+    "call",
+    { role: "reviewer", task: "review", model: "requested/model" },
+    signal().signal,
+    (update: unknown) => updates.push(update),
+    mock.ctx,
+  );
+  assert(
+    updates[0].details.requestedModel === "requested/model" &&
+      updates[0].details.requestedEffort === "default" &&
+      updates[0].details.source === "explicit",
+    "running details lost requested CLI routing",
+  );
+  assert(
+    updates[0].details.responseModel === undefined &&
+      updates[0].details.providerThinkingLevel === undefined,
+    "running details fabricated actual routing",
+  );
+  assert(
+    result.details.responseModel === "provider/actual-model" &&
+      result.details.providerThinkingLevel === "medium" &&
+      result.details.requestedModel === "requested/model",
+    "final assistant metadata was not authoritative or retained",
+  );
+  const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
+  const rendered = delegate.renderResult(
+    result,
+    { expanded: false, isPartial: false },
+    theme,
+    { args: { role: "reviewer" }, isError: false },
+  ).render(160).join("\n");
+  assert(
+    rendered.includes(
+      "✓ complete reviewer model=provider/actual-model effort=medium",
+    ),
+    "completed row omitted authoritative routing metadata",
+  );
+  const explicitCall = delegate.renderCall(
+    { role: "reviewer", task: "review", model: "requested/model" },
+    theme,
+    {},
+  ).render(160).join("\n");
+  assert(explicitCall.includes("model=requested/model effort=default"));
+  const defaultCall = delegate.renderCall(
+    { role: "reviewer", task: "review" },
+    theme,
+    {},
+  ).render(160).join("\n");
+  assert(
+    defaultCall.includes("model=resolved at run effort=resolved at run"),
+    "call row inferred omitted routing",
+  );
+});
+
+Deno.test("delegate uses message model fallback and leaves unreported actual values unknown", async () => {
+  for (
+    const [message, expectedModel, expectedEffort] of [
+      [{ model: "provider/fallback", providerThinkingLevel: "low" }, "provider/fallback", "low"],
+      [{}, undefined, undefined],
+    ] as const
+  ) {
+    const fixture = fakeSpawn({
+      stdout: JSON.stringify({
+        type: "message_end",
+        message: { role: "assistant", content: "done", ...message },
+      }) + "\n",
+    });
+    const mock = host();
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => "/test-home",
+    });
+    const delegate = tool(mock.tools, "rotta_delegate") as any;
+    const result = await delegate.execute(
+      "call",
+      { role: "reviewer", task: "review" },
+      signal().signal,
+      () => {},
+      { ...mock.ctx, model: undefined },
+    );
+    assert(result.details.responseModel === expectedModel);
+    assert(result.details.providerThinkingLevel === expectedEffort);
+    assert(
+      result.details.requestedModel === "default" &&
+        result.details.requestedEffort === "default" &&
+        result.details.source === "child default",
+    );
+    const rendered = delegate.renderResult(
+      result,
+      { expanded: false, isPartial: false },
+      { bold: (s: string) => s, fg: (_: string, s: string) => s },
+      { args: { role: "reviewer" }, isError: false },
+    ).render(160).join("\n");
+    assert(
+      rendered.includes(
+        `model=${expectedModel ?? "?"} effort=${expectedEffort ?? "?"}`,
+      ),
+      "unknown/default actual values were inferred",
+    );
+  }
+});
+
+Deno.test("timeout remains a Pi error and recovers requested routing without fabricating actual routing", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  try {
+    (globalThis as any).setTimeout = (fn: () => void) => {
+      queueMicrotask(fn);
+      return 0 as any;
+    };
+    const fixture = fakeSpawn({ wait: true });
+    const mock = host();
+    const pendingDetailTimers = controlledTimers();
+    registerRotta(mock.pi as any, {
+      spawn: fixture.spawn,
+      home: () => "/test-home",
+      defaultTimeoutMs: 5,
+      setTimeout: pendingDetailTimers.setTimeout,
+      clearTimeout: pendingDetailTimers.clearTimeout,
+    });
+    const failure = await recoveredDelegateFailure(mock, {
+      role: "reviewer",
+      task: "slow review",
+      model: "requested/model",
+    });
+    assert(failure.details.reason === "timeout");
+    assert(
+      pendingDetailTimers.cleared.length === 1,
+      "tool_result did not consume and clear the independent detail TTL",
+    );
+    assert(failure.details.role === "reviewer" && typeof failure.details.elapsedMs === "number");
+    assert(failure.details.requestedModel === "requested/model" && failure.details.requestedEffort === "default");
+    assert(failure.details.responseModel === undefined && failure.details.providerThinkingLevel === undefined);
+    assert(failure.rendered.includes("✗ failed reviewer model=? effort=?") && failure.rendered.includes("timeout"));
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+Deno.test("cancellation remains a Pi error with structured requested context and unknown actual routing", async () => {
+  const fixture = fakeSpawn({ wait: true });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home" });
+  const controller = signal();
+  controller.abort();
+  const failure = await recoveredDelegateFailure(mock, {
+    role: "implementation",
+    task: "cancel me",
+    model: "requested/cancel-model",
+  }, controller);
+  assert(failure.details.reason === "cancelled" && failure.details.cancelled === true);
+  assert(failure.details.requestedModel === "requested/cancel-model" && failure.details.requestedEffort === "default");
+  assert(failure.rendered.includes("✗ failed implementation model=? effort=?") && failure.rendered.includes("cancelled"));
+});
+
+Deno.test("child start failure remains a Pi error with timing and requested context only", async () => {
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: (() => { throw new Error("pi unavailable"); }) as any,
+    home: () => "/test-home",
+  });
+  const failure = await recoveredDelegateFailure(mock, {
+    role: "operations",
+    task: "report",
+    model: "requested/start-model",
+  });
+  assert(failure.details.reason === "start_failed");
+  assert(failure.details.role === "operations" && typeof failure.details.elapsedMs === "number");
+  assert(failure.details.requestedModel === "requested/start-model" && failure.details.requestedEffort === "default");
+  assert(failure.rendered.includes("✗ failed operations model=? effort=?") && failure.rendered.includes("start_failed"));
+});
+
+Deno.test("child error remains a Pi error and renders authoritative reported model and effort", async () => {
+  const fixture = fakeSpawn({
+    stdout: JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        responseModel: "provider/actual-error-model",
+        providerThinkingLevel: "high",
+        content: '{"status":"error","message":"review failed"}',
+      },
+    }) + "\n",
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home" });
+  const failure = await recoveredDelegateFailure(mock, {
+    role: "reviewer",
+    task: "review",
+    model: "requested/error-model",
+  });
+  assert(failure.details.reason === "child_error");
+  assert(failure.details.requestedModel === "requested/error-model" && failure.details.requestedEffort === "default");
+  assert(failure.details.responseModel === "provider/actual-error-model" && failure.details.providerThinkingLevel === "high");
+  assert(failure.rendered.includes("✗ failed reviewer model=provider/actual-error-model effort=high"));
+});
+
+Deno.test("pending delegate failure details are consumed once and clear their unrefed timer", async () => {
+  const timers = controlledTimers();
+  const fixture = fakeSpawn({
+    stdout: '{"status":"error","message":"failed"}\n',
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  });
+  await stageDelegateFailure(mock, "consume");
+  assert(timers.unrefed.length === 1, "pending timer was not unrefed");
+  const recovered = await delegateToolResult(mock, "consume");
+  assert(recovered?.details?.reason === "child_error");
+  assert(timers.cleared.length === 1, "consumption did not clear its timer");
+  assert(
+    await delegateToolResult(mock, "consume") === undefined,
+    "consumed details were returned twice",
+  );
+});
+
+Deno.test("unmatched and non-error delegate results receive no details or retained state", async () => {
+  const timers = controlledTimers();
+  const clearedTimerCount = () => timers.cleared.length;
+  const fixture = fakeSpawn({
+    stdout: '{"status":"error","message":"failed"}\n',
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  });
+  await stageDelegateFailure(mock, "non-error");
+  assert(await delegateToolResult(mock, "missing") === undefined);
+  assert(clearedTimerCount() === 0, "unmatched ID altered pending state");
+  assert(await delegateToolResult(mock, "non-error", false) === undefined);
+  assert(clearedTimerCount() === 1, "non-error result leaked pending state");
+  assert(await delegateToolResult(mock, "non-error") === undefined);
+});
+
+Deno.test("pending delegate failure details expire after their finite TTL", async () => {
+  const timers = controlledTimers();
+  const fixture = fakeSpawn({
+    stdout: '{"status":"error","message":"failed"}\n',
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+    pendingFailureTtlMs: 25,
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  });
+  await stageDelegateFailure(mock, "expired");
+  const timerId = [...timers.callbacks.keys()][0];
+  assert(timerId !== undefined, "expiry timer was not scheduled");
+  timers.expire(timerId);
+  assert(
+    await delegateToolResult(mock, "expired") === undefined,
+    "expired details were retained",
+  );
+});
+
+Deno.test("pending delegate failure capacity evicts the deterministic oldest entry", async () => {
+  const timers = controlledTimers();
+  const fixture = fakeSpawn({
+    stdout: '{"status":"error","message":"failed"}\n',
+  });
+  const mock = host();
+  registerRotta(mock.pi as any, {
+    spawn: fixture.spawn,
+    home: () => "/test-home",
+    pendingFailureCapacity: 2,
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  });
+  await stageDelegateFailure(mock, "oldest");
+  await stageDelegateFailure(mock, "middle");
+  await stageDelegateFailure(mock, "newest");
+  assert(timers.cleared.includes(1), "oldest entry timer was not cleared");
+  assert(await delegateToolResult(mock, "oldest") === undefined);
+  assert((await delegateToolResult(mock, "middle"))?.details);
+  assert((await delegateToolResult(mock, "newest"))?.details);
 });
 
 Deno.test("parent activation injects only exact installed core and orchestrator policies", async () => {
@@ -391,6 +1058,7 @@ Deno.test("default parent entrypoint loads the installed bridge once and reports
   let spawns = 0;
   const pi = {
     registerTool: (entry: any) => tools.push(entry),
+    registerShortcut: () => {},
     on: (name: string, handler: any) => (events[name] ??= []).push(handler),
   };
   const spawn = (() => {
@@ -655,19 +1323,97 @@ Deno.test("delegate renderer stays compact until expanded", () => {
     theme,
     { args: { role: "reviewer" }, invalidate: () => {} },
   ).render(120).join("\n");
-  assert(collapsed.includes("● running reviewer 12s / timeout 5m 00s"));
+  assert(
+    collapsed.includes("● running reviewer model=? effort=? 12s / timeout 5m 00s"),
+  );
+  assert(collapsed.includes("requested unavailable/unavailable"));
   assert(!collapsed.includes("full child transcript"));
   const expanded = delegate.renderResult(
     {
       content: [{ type: "text", text: "full child transcript" }],
-      details: { role: "reviewer", elapsedMs: 15_000 },
+      details: {
+        role: "reviewer",
+        elapsedMs: 15_000,
+        outcome: "success",
+        failed: true,
+      },
     },
     { expanded: true, isPartial: false },
     theme,
-    { args: { role: "reviewer" } },
+    { args: { role: "reviewer" }, isError: false },
   ).render(120).join("\n");
-  assert(expanded.includes("✓ complete reviewer 15s"));
-  assert(expanded.includes("full child transcript"));
+  assert(expanded.includes("✓ complete reviewer model=? effort=? 15s"));
+  assert(expanded.endsWith("full child transcript"));
+  assert(
+    expanded.split("\n").filter((line: string) => line.includes("full child transcript")).length === 1,
+    "successful result duplicated or wrapped the child response",
+  );
+  const failed = delegate.renderResult(
+    {
+      content: [{ type: "text", text: "child timed out after 300000ms" }],
+      details: { outcome: "error", reason: "timed out" },
+    },
+    { expanded: false, isPartial: false },
+    theme,
+    { args: { role: "reviewer" }, isError: true },
+  ).render(120).join("\n");
+  assert(
+    failed.includes("✗ failed reviewer model=? effort=?") &&
+      failed.includes("timed out"),
+  );
+});
+
+Deno.test("latest Rotta action detail shortcut opens a bounded Escape-close overlay", async () => {
+  const mock = host();
+  registerRotta(mock.pi as any, { home: () => "/test-home" });
+  assert(mock.shortcuts[0]?.shortcut === "ctrl+shift+o");
+  (mock.events.tool_execution_start as any)(
+    { toolName: "rotta_delegate", args: { role: "reviewer", task: "secret-free task" } },
+    mock.ctx,
+  );
+  const delegate = tool(mock.tools, "rotta_delegate") as any;
+  const clickable = delegate.renderCall(
+    { role: "reviewer", task: "open details" },
+    { bold: (s: string) => s, fg: (_: string, s: string) => s },
+    {},
+  );
+  assert(
+    JSON.stringify(clickable.handleMouse({ type: "click", button: "left" })) ===
+      JSON.stringify({ handled: true }),
+    "normalized left click did not return Pi's handled result",
+  );
+  assert(
+    clickable.handleMouse({ type: "move", button: "left" }) === undefined,
+    "nonmatching mouse event returned a handled result",
+  );
+  await Promise.resolve();
+  assert(mock.overlays.length === 1, "normalized click did not open details");
+  await mock.shortcuts[0].handler(mock.ctx);
+  const shown = mock.overlays[1];
+  const lines = shown.component.render(24);
+  assert(lines.every((line: string) => visibleWidth(line) <= 24));
+  shown.component.handleInput("\x1b");
+  assert(shown.closed, "Escape did not close detail overlay");
+});
+
+Deno.test("detail overlay clamps repeated scrolling to non-empty content bounds", () => {
+  const component = detailOverlayComponent(
+    { requestRender() {} },
+    { fg: (_: string, text: string) => text } as any,
+    {
+      service: "delegate",
+      action: "reviewer",
+      state: "complete",
+      request: "request ".repeat(80),
+      response: "response ".repeat(80),
+    },
+    () => {},
+  );
+  component.render(20);
+  for (let index = 0; index < 100; index++) component.handleInput("\x1b[6~");
+  const lines = component.render(20);
+  assert(lines.length > 3, "overscroll emptied the detail viewport");
+  assert(lines.some((line: string) => line.includes("response")));
 });
 
 Deno.test("delegate timeout status names role and honors bounded explicit timeout", async () => {
@@ -710,11 +1456,55 @@ Deno.test("delegate timeout status names role and honors bounded explicit timeou
     );
     assert(
       updates.some((update) =>
-        update.content?.[0]?.text?.includes("[reviewer] child running") &&
+        update.content?.[0]?.text === "child running" &&
+        update.details?.role === "reviewer" &&
         update.details?.timeoutMs === 300_000
-      ),
-      "running update did not name role and effective timeout",
+      ) && updates.every((update) => !update.content?.[0]?.text?.includes("[reviewer]")),
+      "running update exposed child output or omitted role/timeout metadata",
     );
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+Deno.test("delegate defaults to ten minutes and clamps explicit timeout at thirty minutes", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  try {
+    (globalThis as any).setTimeout = (
+      fn: (...args: unknown[]) => void,
+      delay?: number,
+    ) => {
+      delays.push(Number(delay));
+      queueMicrotask(fn);
+      return 0 as any;
+    };
+    for (const [timeoutMs, expected] of [
+      [undefined, 600_000],
+      [9_999_999, 1_800_000],
+    ] as const) {
+      const fixture = fakeSpawn({ wait: true });
+      const mock = host();
+      const updates: any[] = [];
+      registerRotta(mock.pi as any, {
+        spawn: fixture.spawn,
+        home: () => "/test-home",
+      });
+      await tool(mock.tools, "rotta_delegate").execute(
+        "call",
+        { role: "reviewer", task: "hard review", ...(timeoutMs ? { timeoutMs } : {}) },
+        signal().signal,
+        (update: unknown) => updates.push(update),
+        mock.ctx,
+      ).then(() => {
+        throw new Error("timeout unexpectedly succeeded");
+      }, (error: Error) => {
+        assert(error.message.includes(`timed out after ${expected}ms`));
+      });
+      assert(delays.includes(expected), `missing wall-clock timeout ${expected}`);
+      assert(updates[0]?.details?.timeoutMs === expected);
+      assert(fixture.killed.includes("SIGTERM"));
+    }
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }
@@ -744,7 +1534,7 @@ Deno.test("delegate accepts ordinary final assistant text while preserving envel
 
   const prose = await delegate("Review complete: no blockers found.");
   assert(
-    prose.content[0].text === "[reviewer] Review complete: no blockers found.",
+    prose.content[0].text === "Review complete: no blockers found.",
     "ordinary final assistant text was not returned",
   );
   const bracketedProse = await delegate(
@@ -752,15 +1542,15 @@ Deno.test("delegate accepts ordinary final assistant text while preserving envel
   );
   assert(
     bracketedProse.content[0].text ===
-      "[reviewer] Review [routing] found {no blockers}.",
+      "Review [routing] found {no blockers}.",
     "ordinary prose containing brackets or braces was rejected",
   );
   const json = await delegate('{"status":"success","output":"envelope"}');
-  assert(json.content[0].text === "[reviewer] envelope");
+  assert(json.content[0].text === "envelope");
   const fenced = await delegate(
     '```json\n{"status":"success","output":"fenced envelope"}\n```',
   );
-  assert(fenced.content[0].text === "[reviewer] fenced envelope");
+  assert(fenced.content[0].text === "fenced envelope");
   await delegate('{"status":"error","message":"JSON child error"}').then(
     () => {
       throw new Error("JSON error envelope succeeded");
@@ -851,7 +1641,7 @@ Deno.test("delegate parses fragmented JSONL and UTF-8 but rejects nonzero child 
     () => {},
     mock.ctx,
   );
-  assert(result.content[0].text === "[reviewer] fragmented café result");
+  assert(result.content[0].text === "fragmented café result");
 
   const nonzero = fakeSpawn({
     stdout: JSON.stringify({
@@ -915,7 +1705,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     verboseHost.ctx,
   );
-  assert(verboseResult.content[0].text === "[exploration] tail result");
+  assert(verboseResult.content[0].text === "tail result");
   const finalAssistant = JSON.stringify({
     type: "message_end",
     message: {
@@ -947,7 +1737,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     oversizedHost.ctx,
   );
   assert(
-    oversizedResult.content[0].text === "[reviewer] authoritative result",
+    oversizedResult.content[0].text === "authoritative result",
     "oversized trailing agent_end evicted the final assistant result",
   );
   assert(
@@ -980,7 +1770,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
   );
   assert(
     unterminatedResult.content[0].text ===
-      "[reviewer] EOF final assistant result",
+      "EOF final assistant result",
     "unterminated final JSONL record was not processed at close",
   );
   const invalid = fakeSpawn({ stdout: "not-json\n" });
@@ -1013,7 +1803,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     () => {},
     fencedHost.ctx,
   );
-  assert(fencedResult.content[0].text === "[operations] bounded report");
+  assert(fencedResult.content[0].text === "bounded report");
   const plain = fakeSpawn({
     stdout:
       '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Review complete: no blockers."}]}}\n',
@@ -1031,7 +1821,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     plainHost.ctx,
   );
   assert(
-    plainResult.content[0].text === "[reviewer] Review complete: no blockers.",
+    plainResult.content[0].text === "Review complete: no blockers.",
   );
   const malformedEnvelope = fakeSpawn({
     stdout:
@@ -1269,7 +2059,9 @@ Deno.test("strict approval accepts one established contract revision identity", 
       const [name, contractBytes] of [
         ["plain", "Revision: 1\n"],
         ["plain spacing", "  Revision:   1  \n"],
+        ["plain release prefix", "Revision: r1\n"],
         ["bold", "**Revision:** `1`\n"],
+        ["bold release prefix", "**Revision:** `r1`\n"],
         ["bold spacing", "**Revision:**\t `1` \n"],
       ]
     ) {
@@ -1313,6 +2105,7 @@ Deno.test("strict approval rejects malformed, ambiguous, and prose revision iden
       const [name, contractBytes] of [
         ["missing", "# Contract\n"],
         ["nonnumeric", "Revision: one\n"],
+        ["invalid release prefix", "Revision: release1\n"],
         ["nonnumeric alongside valid", "Revision: one\nRevision: 1\n"],
         ["unbalanced backticks", "Revision: `1\n"],
         ["plain backticked", "Revision: `1`\n"],
@@ -1358,6 +2151,113 @@ Deno.test("strict approval rejects malformed, ambiguous, and prose revision iden
         },
       );
       assert(mock.selects.length === 0, `${name} reached the approval UI`);
+    }
+  } finally {
+    Deno.removeSync(project, { recursive: true });
+  }
+});
+
+Deno.test("validated questions bracket every UI outcome with Herdr blocked events", async () => {
+  const project = Deno.makeTempDirSync();
+  const request = {
+    trigger: "policy-decision",
+    requestId: "attention",
+    workspace: project,
+    action: "choose",
+    decision: "Choose the safe policy",
+    options: ["Apply", "Stop"],
+    safeOutcome: "Stop",
+  };
+  const blockedEvents = (mock: ReturnType<typeof host>) =>
+    mock.emittedEvents.filter((entry) => entry.event === "herdr:blocked");
+  const assertLifecycle = (mock: ReturnType<typeof host>, label: string) => {
+    const events = blockedEvents(mock);
+    assert(events.length === 2, `${label} emitted ${events.length} blocked events`);
+    assert(
+      JSON.stringify(events.map((entry) => entry.data)) === JSON.stringify([
+        { active: true, label: request.decision },
+        { active: false, label: request.decision },
+      ]),
+      `${label} emitted the wrong blocked lifecycle`,
+    );
+  };
+  try {
+    const success = host();
+    success.ctx.cwd = project;
+    registerRotta(success.pi as any);
+    const answer = await tool(success.tools, "rotta_question").execute(
+      "success",
+      request,
+      signal().signal,
+      () => {},
+      success.ctx,
+    );
+    assert(answer.content[0].text === "Apply");
+    assertLifecycle(success, "success");
+    assert(
+      success.activity.indexOf("emit:herdr:blocked:true") <
+        success.activity.indexOf("select"),
+      "active event was not emitted immediately before selection",
+    );
+
+    const racedAbort = new AbortController();
+    const abortedChoice = host();
+    abortedChoice.ctx.cwd = project;
+    abortedChoice.ctx.ui.select = async () => {
+      racedAbort.abort();
+      return "Apply";
+    };
+    registerRotta(abortedChoice.pi as any);
+    await tool(abortedChoice.tools, "rotta_question").execute(
+      "aborted-choice",
+      request,
+      racedAbort.signal,
+      () => {},
+      abortedChoice.ctx,
+    ).then(() => {
+      throw new Error("choice returned after abort unexpectedly succeeded");
+    }, () => {});
+    assertLifecycle(abortedChoice, "choice returned after abort");
+
+    for (const [label, select] of [
+      ["invalid answer", async () => "invalid"],
+      ["cancellation", async () => null],
+      ["UI throw", async () => { throw new Error("renderer exploded"); }],
+    ] as const) {
+      const mock = host();
+      mock.ctx.cwd = project;
+      mock.ctx.ui.select = select as any;
+      registerRotta(mock.pi as any);
+      await tool(mock.tools, "rotta_question").execute(
+        label,
+        request,
+        signal().signal,
+        () => {},
+        mock.ctx,
+      ).then(() => {
+        throw new Error(`${label} unexpectedly succeeded`);
+      }, () => {});
+      assertLifecycle(mock, label);
+    }
+
+    for (const [label, params, ctx] of [
+      ["bad workspace", { ...request, workspace: `${project}/missing` }, undefined],
+      ["headless", request, { hasUI: false }],
+      ["invalid binding", { ...request, options: ["Stop", "Stop"] }, undefined],
+    ] as const) {
+      const mock = host();
+      mock.ctx.cwd = project;
+      registerRotta(mock.pi as any);
+      await tool(mock.tools, "rotta_question").execute(
+        label,
+        params,
+        signal().signal,
+        () => {},
+        ctx ? { ...mock.ctx, ...ctx } : mock.ctx,
+      ).then(() => {
+        throw new Error(`${label} unexpectedly succeeded`);
+      }, () => {});
+      assert(blockedEvents(mock).length === 0, `${label} emitted a Herdr event`);
     }
   } finally {
     Deno.removeSync(project, { recursive: true });
@@ -1427,7 +2327,10 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
     mock.ctx,
   ).then(() => {
     throw new Error("mismatched workspace was accepted");
-  }, () => {});
+  }, (error: Error) => {
+    assert(error.message.includes("(workspace)"));
+    assert(!error.message.includes(project));
+  });
   await question.execute(
     "call",
     request,
@@ -1439,37 +2342,52 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   }, () => {});
   await question.execute(
     "call",
-    { ...request, contractDigest: "wrong" },
+    { ...request, contractDigest: "wrong", contractRevision: 99 },
     signal().signal,
     () => {},
     mock.ctx,
   ).then(() => {
     throw new Error("bad approval succeeded");
-  }, () => {});
+  }, (error: Error) => {
+    assert(error.message.includes("(digest, revision)"));
+    assert(!error.message.includes(request.contractDigest));
+    assert(!error.message.includes("wrong"));
+  });
 
   const waiting = host();
+  waiting.ctx.cwd = project;
+  let releaseWaiting!: (answer: string) => void;
+  let waitingOptions: { signal: AbortSignal; timeout?: number } | undefined;
   waiting.ctx.ui.select = (async (
     _title: string,
     _options: string[],
-    options?: { signal: AbortSignal; timeout: number },
-  ) =>
-    await new Promise<string | null>((resolve) => {
-      options?.signal.addEventListener("abort", () => resolve(null), {
-        once: true,
-      });
-      setTimeout(() => resolve(null), options?.timeout);
-    })) as any;
-  registerRotta(waiting.pi as any, { questionTimeoutMs: 2 });
-  const timedController = signal();
-  await tool(waiting.tools, "rotta_question").execute(
-    "timeout",
+    options?: { signal: AbortSignal; timeout?: number },
+  ) => {
+    waitingOptions = options;
+    return await new Promise<string>((resolve) => {
+      releaseWaiting = resolve;
+    });
+  }) as any;
+  registerRotta(waiting.pi as any);
+  let settled = false;
+  const waitingController = signal();
+  const stillWaiting = tool(waiting.tools, "rotta_question").execute(
+    "waiting",
     request,
-    timedController.signal,
+    waitingController.signal,
     () => {},
     waiting.ctx,
-  ).then(() => {
-    throw new Error("question timeout succeeded");
-  }, () => {});
+  ).finally(() => (settled = true));
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert(!settled, "question retained the old short timeout seam");
+  assert(
+    waitingOptions?.signal === waitingController.signal &&
+      waitingOptions.timeout === undefined,
+    "question select did not omit the UI timeout while forwarding cancellation",
+  );
+  releaseWaiting("Approve");
+  assert((await stillWaiting).content[0].text === "Approve");
+
   const abortController = signal();
   const aborted = tool(waiting.tools, "rotta_question").execute(
     "abort",
@@ -1481,7 +2399,43 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   abortController.abort();
   await aborted.then(() => {
     throw new Error("question abort succeeded");
-  }, () => {});
+  }, (error: Error) => {
+    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(!error.message.includes("question UI failed"));
+  });
+  const invalidHost = host();
+  invalidHost.ctx.cwd = project;
+  invalidHost.ctx.ui.select = (async () => "not an option") as any;
+  registerRotta(invalidHost.pi as any);
+  await tool(invalidHost.tools, "rotta_question").execute(
+    "invalid",
+    request,
+    signal().signal,
+    () => {},
+    invalidHost.ctx,
+  ).then(() => {
+    throw new Error("invalid selection succeeded");
+  }, (error: Error) => {
+    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(!error.message.includes("question UI failed"));
+  });
+  const brokenHost = host();
+  brokenHost.ctx.cwd = project;
+  brokenHost.ctx.ui.select = (async () => {
+    throw new Error("renderer exploded");
+  }) as any;
+  registerRotta(brokenHost.pi as any);
+  await tool(brokenHost.tools, "rotta_question").execute(
+    "broken",
+    request,
+    signal().signal,
+    () => {},
+    brokenHost.ctx,
+  ).then(() => {
+    throw new Error("broken UI succeeded");
+  }, (error: Error) => {
+    assert(error.message.includes("question UI failed"));
+  });
   let release!: (answer: string) => void;
   const staleHost = host();
   staleHost.ctx.cwd = project;
@@ -1503,7 +2457,10 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   release("Approve");
   await pendingApproval.then(() => {
     throw new Error("changed contract was approved");
-  }, () => {});
+  }, (error: Error) => {
+    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(!error.message.includes("question UI failed"));
+  });
   await staleQuestion.execute(
     "escape",
     { ...request, contractPath: "../outside.md" },

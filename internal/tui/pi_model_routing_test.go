@@ -25,8 +25,8 @@ func TestPiCustomRoutingUsesOfflineDiscoveryAndRetainsDefaultsOnFailure(t *testi
 	next, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated, _ := next.(Model).Update(command())
 	got := updated.(Model)
-	if !reflect.DeepEqual(got.PiCustomRouting, installer.DefaultPiRouting()) {
-		t.Fatalf("defaults lost: %#v", got.PiCustomRouting)
+	if !reflect.DeepEqual(got.PiCustomRouting, installer.DefaultPiRouting()) || !reflect.DeepEqual(got.PiCustomEfforts, installer.DefaultPiRoutingEfforts()) || got.PiOrchestratorModel != installer.DefaultPiOrchestratorModel() || got.PiOrchestratorEffort != installer.DefaultPiOrchestratorEffort() {
+		t.Fatalf("defaults lost: orchestrator=%s/%s models=%#v efforts=%#v", got.PiOrchestratorModel, got.PiOrchestratorEffort, got.PiCustomRouting, got.PiCustomEfforts)
 	}
 	if !strings.Contains(got.View(), "Pi CLI is unavailable") {
 		t.Fatalf("discovery limitation absent: %s", got.View())
@@ -122,7 +122,48 @@ func TestPiRoutingSelectionReachesConfirmationIndependently(t *testing.T) {
 		t.Fatalf("Pi default = %#v", got)
 	}
 	got.Screen = ScreenConfirm
-	if view := got.View(); !strings.Contains(view, "Pi model routing:") || !strings.Contains(view, "model-routing.json") {
+	if view := got.View(); !strings.Contains(view, "Pi model routing:") || !strings.Contains(view, "model-routing.json") || !strings.Contains(view, "models.json") || !strings.Contains(view, "gpt-6-sol and gpt-6-luna context windows: 1000000") {
 		t.Fatalf("Pi confirmation missing: %s", view)
+	}
+}
+
+func TestPiDisabledRoutingConfirmationOmitsOrchestratorSettings(t *testing.T) {
+	model := New()
+	model.Target = TargetPi
+	model.Screen = ScreenConfirm
+	model.PiModelRouting = installer.ModelRoutingDisabled
+	view := model.View()
+	if strings.Contains(view, "~/.pi/agent/settings.json") || strings.Contains(view, "~/.pi/agent/models.json") {
+		t.Fatalf("disabled Pi routing should not claim settings or models write: %s", view)
+	}
+}
+
+func TestPiCustomRoutingCyclesEffortAndConfirmsSelection(t *testing.T) {
+	model := New()
+	model.Target = TargetPi
+	model.Screen = ScreenPiModelRouting
+	model.PiModelRoutingCursor = 1
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+	got.PiModelDiscoveryDone = true
+	got.PiAvailableModels = []string{"openai-codex/gpt-5.6-sol"}
+	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	got = next.(Model)
+	if got.PiOrchestratorEffort != "medium" {
+		t.Fatalf("orchestrator effort did not cycle from low to medium: %#v", got.PiOrchestratorEffort)
+	}
+	if view := got.View(); !strings.Contains(view, "Orchestrator: openai-codex/gpt-6-sol (medium)") || !strings.Contains(view, "Implementation: openai-codex/gpt-6-sol (low)") {
+		t.Fatalf("custom view missing effort: %s", view)
+	}
+	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got = next.(Model)
+	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	got = next.(Model)
+	if got.PiCustomEfforts["implementation"] != "medium" {
+		t.Fatalf("implementation effort did not cycle from low to medium: %#v", got.PiCustomEfforts)
+	}
+	got.Screen = ScreenConfirm
+	if view := got.View(); !strings.Contains(view, "Orchestrator:") || !strings.Contains(view, "Implementation:") || !strings.Contains(view, "(medium)") {
+		t.Fatalf("confirm view missing effort: %s", view)
 	}
 }
