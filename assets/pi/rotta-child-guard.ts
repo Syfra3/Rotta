@@ -8,10 +8,10 @@ const root = canonical(
   path.resolve(process.env.ROTTA_WORK_ROOT || process.cwd()),
 );
 const allowed: Record<string, string[]> = {
-  implementation: ["read", "write", "edit"],
+  implementation: ["read", "write", "edit", "bash"],
   reviewer: ["read", "grep", "find", "ls"],
   exploration: ["read", "grep", "find", "ls"],
-  operations: ["read"],
+  operations: ["read", "bash"],
 };
 const mcpAllowed: Record<string, Record<string, string[]>> = {
   implementation: {
@@ -80,16 +80,30 @@ export function isProtectedWorkPath(input: string, workspace = root) {
   return candidate === work || candidate.startsWith(work + path.sep);
 }
 
+export function operationGate(command: string | undefined) {
+  let used = false;
+  return (input: unknown) => {
+    if (used || !command || typeof input !== "object" || input === null ||
+      (input as { command?: unknown }).command !== command) return false;
+    used = true;
+    return true;
+  };
+}
+
 export default function guard(pi: ExtensionAPI) {
   // The extension directory is auto-loaded by top-level Pi sessions.
   // Enforce child restrictions only when delegation assigned a child role.
   if (!role) return;
+  const acceptOperation = operationGate(process.env.ROTTA_OPERATION_COMMAND);
 
   pi.on("tool_call", async (event: { toolName: string; input: unknown }) => {
     if (
       !allowed[role]?.includes(event.toolName) && !allowedMCP(event.toolName)
     ) {
       return { block: true, reason: "Rotta child guard denied tool" };
+    }
+    if (role === "operations" && event.toolName === "bash" && !acceptOperation(event.input)) {
+      return { block: true, reason: "Rotta operation command missing, altered, or already used" };
     }
     if (
       ["write", "edit"].includes(event.toolName) &&

@@ -6,7 +6,7 @@ import registerRottaExtension, {
   registerRotta,
   renderRottaHeader,
 } from "./rotta-extension.ts";
-import { isAllowedChildMCP, isProtectedWorkPath } from "./rotta-child-guard.ts";
+import { isAllowedChildMCP, isProtectedWorkPath, operationGate } from "./rotta-child-guard.ts";
 
 function assert(value: unknown, message = "assertion failed"): asserts value {
   if (!value) throw new Error(message);
@@ -661,7 +661,7 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
       return fixture.calls[0][1] as string[];
     };
     for (
-      const [role, expected] of Object.entries(profile.roles) as [
+      const [role, expected] of Object.entries(profile.roles).filter(([role]) => role !== "operations") as [
         string,
         { model: string; effort: string },
       ][]
@@ -896,14 +896,14 @@ Deno.test("child start failure remains a Pi error with timing and requested cont
     home: () => "/test-home",
   });
   const failure = await recoveredDelegateFailure(mock, {
-    role: "operations",
+    role: "reviewer",
     task: "report",
     model: "requested/start-model",
   });
   assert(failure.details.reason === "start_failed");
-  assert(failure.details.role === "operations" && typeof failure.details.elapsedMs === "number");
+  assert(failure.details.role === "reviewer" && typeof failure.details.elapsedMs === "number");
   assert(failure.details.requestedModel === "requested/start-model" && failure.details.requestedEffort === "default");
-  assert(failure.rendered.includes("✗ failed operations model=? effort=?") && failure.rendered.includes("start_failed"));
+  assert(failure.rendered.includes("✗ failed reviewer model=? effort=?") && failure.rendered.includes("start_failed"));
 });
 
 Deno.test("child error remains a Pi error and renders authoritative reported model and effort", async () => {
@@ -1180,10 +1180,10 @@ Deno.test("default parent entrypoint reports missing installed bridge separately
 Deno.test("every child role gets its own isolated process allowlist", async () => {
   for (
     const [role, tools] of Object.entries({
-      implementation: "read,write,edit",
+      implementation: "read,write,edit,bash",
       reviewer: "read,grep,find,ls",
       exploration: "read,grep,find,ls",
-      operations: "read",
+      operations: "read,bash",
     })
   ) {
     const fixture = fakeSpawn({
@@ -1195,6 +1195,12 @@ Deno.test("every child role gets its own isolated process allowlist", async () =
       spawn: fixture.spawn,
       home: () => "/test-home",
     });
+    if (role === "operations") {
+      await tool(mock.tools, "rotta_delegate").execute("call", { role, task: "task" }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error("unbound operations spawned"); }, () => {});
+      assert(fixture.calls.length === 0);
+      continue;
+    }
     await tool(mock.tools, "rotta_delegate").execute(
       "call",
       { role, task: "task" },
@@ -1214,8 +1220,16 @@ Deno.test("every child role gets its own isolated process allowlist", async () =
       allowed.includes("rotta_vela_explore") === (role === "exploration"),
       `${role} received the wrong Vela permission`,
     );
-    assert(!allowed.includes("bash"), `${role} received shell access`);
+    assert(allowed.includes("bash") === ["implementation", "operations"].includes(role), `${role} received wrong shell access`);
   }
+});
+
+Deno.test("operations gate denies missing, modified and replayed commands", () => {
+  assert(!operationGate(undefined)({ command: "git status" }));
+  const gate = operationGate("git status");
+  assert(!gate({ command: "git status --short" }));
+  assert(gate({ command: "git status" }));
+  assert(!gate({ command: "git status" }));
 });
 
 Deno.test("child receives Context7 key only when trusted managed config enables docs", async () => {
@@ -1798,7 +1812,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
   });
   const fencedResult = await tool(fencedHost.tools, "rotta_delegate").execute(
     "call",
-    { role: "operations", task: "report status" },
+    { role: "reviewer", task: "report status" },
     signal().signal,
     () => {},
     fencedHost.ctx,
@@ -2036,11 +2050,113 @@ Deno.test("child guard blocks all canonical and symlinked work-record write targ
       toolName: "bash",
       input: { command: "true" },
     });
-    assert((shell as { block?: boolean }).block, "shell route was not blocked");
+    assert(shell === undefined, "implementation development shell was blocked");
+    for (const role of ["reviewer", "exploration", "operations"]) {
+      const other = await loadGuard(role);
+      const guarded = host();
+      other(guarded.pi as any);
+      const decision = await (guarded.events.tool_call as any)({
+        toolName: "bash", input: { command: "true" },
+      });
+      assert(decision?.block, `${role} received unbound shell`);
+    }
+    const gate = operationGate("printf safe");
+    assert(!gate({ command: "printf changed" }), "altered command accepted");
+    assert(gate({ command: "printf safe" }), "matching command rejected");
+    assert(!gate({ command: "printf safe" }), "operation replay accepted");
   } finally {
     Deno.removeSync(fixture, { recursive: true });
     Deno.removeSync(external, { recursive: true });
   }
+});
+
+Deno.test("exact operation consent binds dispatch once without executing on consent", async () => {
+  const project = Deno.makeTempDirSync();
+  const target = `${project}/target`;
+  Deno.mkdirSync(target);
+  try {
+    const fake = fakeSpawn({ stdout: JSON.stringify({ status: "success", output: "safe result" }) + "\n" });
+    const mock = host();
+    mock.ctx.cwd = project;
+    registerRotta(mock.pi as any, { spawn: fake.spawn });
+    const question = tool(mock.tools, "rotta_question");
+    const delegate = tool(mock.tools, "rotta_delegate");
+    const command = "printf safe";
+    Deno.mkdirSync(`${project}/.rotta/ops`, { recursive: true });
+    const artifactPath = `${project}/.rotta/ops/exact.md`;
+    const action = "external command";
+    const effect = "harmless output";
+    const bytes = `Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nRevision: 1\n`;
+    Deno.writeTextFileSync(artifactPath, bytes);
+    const revision = 1;
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const operation = { requestId: "exact", command, target, action, effect, artifactPath, revision, digest };
+    const request = {
+      trigger: "external-consent", requestId: operation.requestId, workspace: project,
+      action, effect, decision: `Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nWorkspace: ${project}\nArtifact: ${artifactPath}\nDigest: ${digest}\nRevision: ${revision}\nScope: one execution`,
+      options: ["Approve the exact rendered operation once", "Stop"], safeOutcome: "Stop",
+      command, target, operationPath: artifactPath, operationRevision: revision, operationDigest: digest,
+    };
+    const dispatch = (binding: typeof operation, ctx = mock.ctx) => delegate.execute(
+      "dispatch", { role: "operations", task: "run exact harmless command", operation: binding },
+      signal().signal, () => {}, ctx,
+    );
+    const callCount = () => fake.calls.length;
+    const denied = async (binding: typeof operation, ctx = mock.ctx) => {
+      const before = callCount();
+      await dispatch(binding, ctx).then(() => { throw new Error("invalid operation dispatched"); }, () => {});
+      assert(fake.calls.length === before, "invalid operation spawned a child");
+    };
+    await denied(operation);
+    await denied({ ...operation, artifactPath: `${project}/.rotta/ops/missing.md` });
+    const answer = await question.execute("consent", request, signal().signal, () => {}, mock.ctx);
+    assert(answer.content[0].text === request.options[0]);
+    assert(callCount() === 0, "consent executed an operation");
+    await denied({ ...operation, command: "printf changed" });
+    await denied(operation); // mismatch consumes authorization before dispatch
+    await question.execute("consent-again", request, signal().signal, () => {}, mock.ctx);
+    await denied({ ...operation, target: project });
+    await question.execute("consent-third", request, signal().signal, () => {}, mock.ctx);
+    await denied(operation, { ...mock.ctx, sessionManager: { getSessionId: () => "other-session" } });
+    await question.execute("consent-final", request, signal().signal, () => {}, mock.ctx);
+    const result = await dispatch(operation);
+    assert(result.content[0].text === "safe result", "matching child result missing");
+    assert(callCount() === 1, "matching operation did not dispatch once");
+    const childEnv = (fake.calls[0][2] as { env: Record<string, string> }).env;
+    assert(childEnv.ROTTA_OPERATION_COMMAND === command, "child lacks exact command binding");
+    await denied(operation);
+    for (const field of ["command", "action", "target", "effect"] as const) {
+      const alternate = field === "target" ? project : `changed ${field}`;
+      await question.execute(`mismatch-${field}`, { ...request, [field]: alternate }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error(`modified ${field} was approved`); }, () => {});
+      assert(callCount() === 1, `modified ${field} spawned child`);
+      await question.execute(`dispatch-${field}`, request, signal().signal, () => {}, mock.ctx);
+      await denied({ ...operation, [field]: alternate });
+    }
+    for (const invalid of [
+      bytes + "Command: printf safe\n", bytes.replace(`Effect: ${effect}\n`, ""),
+      bytes.replace("Revision: 1", "Revision: 2"),
+    ]) {
+      Deno.writeTextFileSync(artifactPath, invalid);
+      await question.execute("invalid-artifact", { ...request, operationDigest: createHash("sha256").update(invalid).digest("hex") }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error("invalid artifact approved"); }, () => {});
+      assert(callCount() === 1);
+    }
+    Deno.writeTextFileSync(artifactPath, bytes);
+    await question.execute("consent-revision", request, signal().signal, () => {}, mock.ctx);
+    await denied({ ...operation, revision: 2 });
+    await question.execute("consent-artifact", request, signal().signal, () => {}, mock.ctx);
+    Deno.writeTextFileSync(artifactPath, bytes + "changed\n");
+    await denied(operation);
+    await question.execute("changed-artifact", request, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("changed artifact approved"); }, () => {});
+    const outside = Deno.makeTempDirSync();
+    try {
+      await question.execute("external-target", { ...request, target: outside }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw new Error("external target approved"); }, () => {});
+      assert(callCount() === 1, "invalid target caused execution");
+    } finally { Deno.removeSync(outside, { recursive: true }); }
+  } finally { Deno.removeSync(project, { recursive: true }); }
 });
 
 Deno.test("child MCP guard permits required memory lifecycle but never Vela outside exploration", () => {
@@ -2297,13 +2413,20 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   ) {
     const answer = await question.execute(
       "call-" + trigger,
-      { ...request, trigger },
+      { ...request, trigger: trigger === "external-consent" ? "policy-decision" : trigger },
       signal().signal,
       () => {},
       mock.ctx,
     );
     assert(answer.content[0].text === "Approve", `${trigger} was not accepted`);
   }
+  const legacy = await question.execute("legacy-consent", { ...request, trigger: "external-consent" },
+    signal().signal, () => {}, mock.ctx);
+  assert(legacy.content[0].text === "Approve");
+  await question.execute("partial-consent", { ...request, trigger: "external-consent", command: "printf x" },
+    signal().signal, () => {}, mock.ctx).then(() => {
+    throw new Error("partial consent was accepted");
+  }, (error: Error) => assert(error.message.includes("incomplete exact operation binding")));
   const accepted = await question.execute(
     "call",
     request,

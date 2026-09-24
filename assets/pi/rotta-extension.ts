@@ -59,6 +59,7 @@ const roles = {
       "read",
       "write",
       "edit",
+      "bash",
       ...memoryTools,
       ...docsTools,
     ],
@@ -86,7 +87,7 @@ const roles = {
       ...docsTools,
     ],
   },
-  operations: { skill: "rotta-ops", tools: ["read", ...memoryTools] },
+  operations: { skill: "rotta-ops", tools: ["read", "bash", ...memoryTools] },
 } as const;
 type Role = keyof typeof roles;
 type Spawn = typeof nodeSpawn;
@@ -122,6 +123,7 @@ type DelegateParams = {
   task: string;
   model?: string;
   timeoutMs?: number;
+  operation?: { requestId: string; command: string; target: string; action: string; effect: string; artifactPath: string; revision: number; digest: string };
 };
 type RoleSelection = { model: string; effort?: string };
 type QuestionParams = {
@@ -135,6 +137,12 @@ type QuestionParams = {
   contractPath?: string;
   contractRevision?: number;
   contractDigest?: string;
+  command?: string;
+  target?: string;
+  operationRevision?: number;
+  operationDigest?: string;
+  operationPath?: string;
+  effect?: string;
 };
 type ToolContext = {
   cwd: string;
@@ -199,6 +207,36 @@ function currentContract(cwd: string, supplied: string | undefined) {
   } catch {
     return null;
   }
+}
+function currentOperation(workspace: string, supplied: string | undefined) {
+  if (!supplied || !workspace) return null;
+  const ops = existingCanonical(path.join(workspace, ".rotta", "ops"));
+  const candidate = existingCanonical(path.resolve(workspace, supplied));
+  if (!ops || !candidate || !candidate.startsWith(ops + path.sep) ||
+    !candidate.endsWith(".md")) return null;
+  try {
+    const bytes = fs.readFileSync(candidate);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    // Exactly five single-line fields, no markdown, CR, duplicate, or hidden data.
+    const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
+    if (lines.length !== 5) return null;
+    const fields = new Map<string, string>();
+    for (const line of lines) {
+      const match = /^(Action|Command|Target|Effect|Revision): (.+)$/.exec(line);
+      if (!match || fields.has(match[1]) || /[\x00-\x1f\x7f]/.test(match[2])) return null;
+      fields.set(match[1], match[2]);
+    }
+    const revisionText = fields.get("Revision");
+    if (!revisionText || !/^[1-9][0-9]*$/.test(revisionText)) return null;
+    const revision = Number(revisionText);
+    if (!Number.isSafeInteger(revision)) return null;
+    const target = existingCanonical(fields.get("Target")!);
+    if (!target || target !== fields.get("Target") ||
+      !(target === workspace || target.startsWith(workspace + path.sep))) return null;
+    return { path: candidate, digest: createHash("sha256").update(bytes).digest("hex"),
+      revision, action: fields.get("Action")!, command: fields.get("Command")!,
+      target, effect: fields.get("Effect")! };
+  } catch { return null; }
 }
 function trimUtf8(text: string, limit = MAX_OUTPUT_BYTES) {
   let result = "";
@@ -867,6 +905,7 @@ async function runChild(
   spawn: Spawn,
   context7Key?: string,
   routing?: { source: string; requestedModel: string; requestedEffort: string },
+  operationCommand?: string,
 ) {
   const promptDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "rotta-pi-"),
@@ -964,6 +1003,7 @@ async function runChild(
             XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? "",
             ROTTA_CHILD_ROLE: role,
             ROTTA_WORK_ROOT: cwd,
+            ...(operationCommand ? { ROTTA_OPERATION_COMMAND: operationCommand } : {}),
             ...(context7Key ? { CONTEXT7_API_KEY: context7Key } : {}),
           },
         });
@@ -1185,6 +1225,7 @@ const Delegate = Type.Object({
   task: Type.String(),
   model: Type.Optional(Type.String()),
   timeoutMs: Type.Optional(Type.Number()),
+  operation: Type.Optional(Type.Object({ requestId: Type.String(), command: Type.String(), target: Type.String(), action: Type.String(), effect: Type.String(), artifactPath: Type.String(), revision: Type.Number(), digest: Type.String() })),
 });
 const Question = Type.Object({
   trigger: Type.Union([
@@ -1203,6 +1244,12 @@ const Question = Type.Object({
   contractPath: Type.Optional(Type.String()),
   contractRevision: Type.Optional(Type.Number()),
   contractDigest: Type.Optional(Type.String()),
+  command: Type.Optional(Type.String()),
+  target: Type.Optional(Type.String()),
+  operationRevision: Type.Optional(Type.Number()),
+  operationDigest: Type.Optional(Type.String()),
+  operationPath: Type.Optional(Type.String()),
+  effect: Type.Optional(Type.String()),
 });
 
 export function registerRotta(
@@ -1210,6 +1257,7 @@ export function registerRotta(
   dependencies: RottaDependencies = {},
 ) {
   const active = new Map<string, object>();
+  const pendingOperations = new Map<string, { session: string; workspace: string; command: string; target: string; artifactPath: string; action: string; effect: string; revision: number; digest: string }>();
   let compactBuiltinsRegistered = false;
   type PendingFailure = {
     details: Record<string, unknown>;
@@ -1420,6 +1468,26 @@ export function registerRotta(
       ctx: ToolContext,
     ) {
       const selected = params.role as Role;
+      if (!roles[selected]) fail("unknown child role");
+      let operationCommand: string | undefined;
+      if (selected === "operations") {
+        if (!params.operation) fail("safe stop: operation authorization missing or stale");
+        const session = ctx.sessionManager.getSessionId();
+        const workspace = existingCanonical(ctx.cwd);
+        const pending = pendingOperations.get(params.operation.requestId);
+        // Consume before dispatch, including failed starts and cancellations.
+        pendingOperations.delete(params.operation.requestId);
+        const requestedTarget = existingCanonical(params.operation.target);
+        const artifact = currentOperation(workspace, params.operation.artifactPath);
+        if (!pending || !session || !workspace || pending.session !== session || pending.workspace !== workspace ||
+          existingCanonical(pending.target) !== pending.target || requestedTarget !== pending.target || params.operation.command !== pending.command || params.operation.action !== pending.action || params.operation.effect !== pending.effect ||
+          !artifact || artifact.path !== pending.artifactPath || artifact.digest !== pending.digest || artifact.revision !== pending.revision ||
+          params.operation.revision !== pending.revision || params.operation.digest !== pending.digest ||
+          artifact.command !== pending.command || artifact.action !== pending.action || artifact.target !== pending.target || artifact.effect !== pending.effect) {
+          fail("safe stop: operation authorization missing or stale");
+        }
+        operationCommand = pending.command;
+      } else if (params.operation) fail("operation binding only valid for operations");
       const inherited = ctx.model
         ? `${ctx.model.provider}/${ctx.model.id}`
         : undefined;
@@ -1452,6 +1520,7 @@ export function registerRotta(
           requestedEffort: resolvedEffort ??
             (routingSource === "parent model" ? "unavailable" : "default"),
         },
+        operationCommand,
       );
       if (result.details.failed) {
         rememberDelegatedFailure(_id, result.details);
@@ -1485,6 +1554,29 @@ export function registerRotta(
       if (!workspace || suppliedWorkspace !== workspace) {
         return fail("safe stop: approval identity mismatch (workspace)");
       }
+      const executionFields = [params.command, params.target, params.operationPath,
+        params.operationRevision, params.operationDigest, params.effect];
+      const executable = params.trigger === "external-consent" &&
+        executionFields.some((field) => field !== undefined);
+      if (params.trigger === "external-consent" && executable) {
+        // A replaced, rejected, or cancelled request cannot leave an earlier
+        // authorization under the same identity available for later dispatch.
+        pendingOperations.delete(params.requestId);
+        const target = params.target && existingCanonical(params.target);
+        const artifact = currentOperation(workspace, params.operationPath);
+        if (!artifact || artifact.path !== path.resolve(workspace, params.operationPath!) ||
+          artifact.digest !== params.operationDigest || artifact.revision !== params.operationRevision ||
+          artifact.action !== params.action || artifact.command !== params.command ||
+          artifact.target !== target || artifact.effect !== params.effect ||
+          !target || !(target === workspace || target.startsWith(workspace + path.sep)) ||
+          !params.command?.trim() || !Number.isSafeInteger(params.operationRevision) ||
+          !/^[a-f0-9]{64}$/.test(params.operationDigest ?? "") ||
+          params.options.length !== 2 || params.options[0] !== "Approve the exact rendered operation once" ||
+          params.options[1] !== params.safeOutcome ||
+          !params.decision.includes(`Action: ${artifact.action}\nCommand: ${artifact.command}\nTarget: ${artifact.target}\nEffect: ${artifact.effect}\nWorkspace: ${workspace}\nArtifact: ${artifact.path}\nDigest: ${artifact.digest}\nRevision: ${artifact.revision}\nScope: one execution`)) {
+          return fail("safe stop: incomplete exact operation binding");
+        }
+      }
       const contract = params.trigger === "strict-approval"
         ? currentContract(workspace, params.contractPath)
         : undefined;
@@ -1505,6 +1597,8 @@ export function registerRotta(
           );
         }
       }
+      const bindingTarget = executable ? existingCanonical(params.target!) : undefined;
+      const bindingDigest = params.operationDigest;
       const session = ctx.sessionManager.getSessionId();
       if (!session) return fail("safe stop: active session unavailable");
       const key = `${session}\0${workspace}\0${params.action}`;
@@ -1520,6 +1614,8 @@ export function registerRotta(
         contractPath: contract?.path,
         contractRevision: contract?.revision,
         contractDigest: contract?.digest,
+        operationTarget: bindingTarget,
+        operationDigest: bindingDigest,
       });
       active.set(key, binding);
       const aborted = new Promise<null>((resolve) =>
@@ -1547,6 +1643,17 @@ export function registerRotta(
         }
         if (
           signal.aborted || active.get(key) !== binding || !choice ||
+          ctx.sessionManager.getSessionId() !== session ||
+          existingCanonical(ctx.cwd) !== workspace ||
+          (executable &&
+            (existingCanonical(params.target!) !== bindingTarget ||
+              params.operationDigest !== bindingDigest ||
+              (() => { const latest = currentOperation(workspace, params.operationPath);
+                return !latest || latest.path !== path.resolve(workspace, params.operationPath!) ||
+                  latest.digest !== bindingDigest || latest.revision !== params.operationRevision ||
+                  latest.action !== params.action || latest.command !== params.command ||
+                  latest.target !== bindingTarget || latest.effect !== params.effect;
+              })())) ||
           !params.options.includes(choice) ||
           (contract && (() => {
             const latest = currentContract(workspace, params.contractPath);
@@ -1556,6 +1663,13 @@ export function registerRotta(
           })())
         ) {
           return fail("safe stop: cancelled, stale, or invalid decision");
+        }
+        if (executable && choice === "Approve the exact rendered operation once") {
+          pendingOperations.set(params.requestId, {
+            session, workspace, command: params.command!, target: existingCanonical(params.target!),
+            revision: params.operationRevision!, digest: params.operationDigest!,
+            artifactPath: path.resolve(workspace, params.operationPath!), action: params.action, effect: params.effect!,
+          });
         }
         return toolResult(choice, {
           toolCallId,
