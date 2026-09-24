@@ -105,6 +105,7 @@ type DelegateParams = {
   model?: string;
   timeoutMs?: number;
 };
+type RoleSelection = { model: string; effort?: string };
 type QuestionParams = {
   trigger: string;
   requestId: string;
@@ -512,6 +513,7 @@ async function runChild(
   onUpdate: (result: ReturnType<typeof toolResult>) => void,
   spawn: Spawn,
   context7Key?: string,
+  effort?: string,
 ) {
   const promptDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "rotta-pi-"),
@@ -544,6 +546,7 @@ async function runChild(
     prompt,
   ];
   if (model) args.push("--model", model);
+  if (model && effort) args.push("--thinking", effort);
   args.push(task);
   try {
     const startedAt = Date.now();
@@ -750,7 +753,19 @@ const piRoutingRoles = [
 // A routing profile is all-or-nothing. A malformed, incomplete, or manually
 // edited file must not silently send one child to a managed model while the
 // others inherit a different parent model.
-function configuredRoleModel(home: string, role: Role): string | undefined {
+function validPiModel(model: unknown): model is string {
+  return typeof model === "string" && /^[^\s/|\\]+\/[^\s/|\\]+$/.test(model);
+}
+function validPiEffort(effort: unknown): effort is string {
+  return typeof effort === "string" &&
+    ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
+      effort,
+    );
+}
+function configuredRoleSelection(
+  home: string,
+  role: Role,
+): RoleSelection | undefined {
   try {
     const value: unknown = JSON.parse(fs.readFileSync(
       path.join(home, ".pi", "agent", "rotta-next", "model-routing.json"),
@@ -765,19 +780,31 @@ function configuredRoleModel(home: string, role: Role): string | undefined {
       return undefined;
     }
     const entries = Object.entries(roles as Record<string, unknown>);
+    if (entries.length === 0) return undefined;
     if (
       entries.length !== piRoutingRoles.length ||
       !piRoutingRoles.every((name) => Object.hasOwn(roles, name))
     ) {
       return undefined;
     }
-    for (const [name, model] of entries) {
+    const selections: Partial<Record<Role, RoleSelection>> = {};
+    for (const [name, assignment] of entries) {
+      if (!piRoutingRoles.includes(name as Role)) return undefined;
+      if (validPiModel(assignment)) {
+        selections[name as Role] = { model: assignment };
+        continue;
+      }
+      if (!assignment || typeof assignment !== "object") return undefined;
+      const model = (assignment as { model?: unknown }).model;
+      const effort = (assignment as { effort?: unknown }).effort;
       if (
-        !piRoutingRoles.includes(name as Role) || typeof model !== "string" ||
-        !/^[^\s/|\\]+\/[^\s/|\\]+$/.test(model)
-      ) return undefined;
+        !validPiModel(model) || (effort !== undefined && !validPiEffort(effort))
+      ) {
+        return undefined;
+      }
+      selections[name as Role] = { model, ...(effort ? { effort } : {}) };
     }
-    return (roles as Record<Role, string>)[role];
+    return selections[role];
   } catch {
     return undefined;
   }
@@ -909,18 +936,22 @@ export function registerRotta(
       const inherited = ctx.model
         ? `${ctx.model.provider}/${ctx.model.id}`
         : undefined;
+      const configured = configuredRoleSelection(homeDir(), selected);
+      const resolvedModel = params.model ?? configured?.model ?? inherited;
+      const resolvedEffort = params.model ? undefined : configured?.effort;
       const result = await runChild(
         ctx.cwd,
         homeDir(),
         selected,
         params.task,
-        params.model ?? configuredRoleModel(homeDir(), selected) ?? inherited,
+        resolvedModel,
         params.timeoutMs,
         limits,
         signal,
         onUpdate,
         spawn,
         selectedContext7Key(homeDir(), selected, env),
+        resolvedEffort,
       );
       if (result.details.failed) fail(result.content[0].text);
       return result;

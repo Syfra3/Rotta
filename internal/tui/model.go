@@ -116,7 +116,10 @@ type Model struct {
 	ModelDiscoveryGeneration int
 
 	PiModelRouting             installer.ModelRoutingRequest
+	PiOrchestratorModel        string
+	PiOrchestratorEffort       string
 	PiCustomRouting            map[string]string
+	PiCustomEfforts            map[string]string
 	PiModelRoutingCursor       int
 	PiCustomRoutingCursor      int
 	PiModelPickerCursor        int
@@ -192,6 +195,8 @@ var piRoutingRoles = []struct {
 	{"exploration", "Exploration"},
 	{"operations", "Operations"},
 }
+
+var piEffortLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
 func New() Model {
 	ti := textinput.New()

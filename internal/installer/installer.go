@@ -16,23 +16,26 @@ import (
 
 // Options configures what and where to install.
 type Options struct {
-	Target               string // "claude-code" | "opencode" | "both"
-	ProjectPath          string // project root; config files land here under .rotta/
-	InstallSpec          bool
-	InstallImpl          bool
-	InstallReview        bool
-	UseDefaultGates      bool
-	SetupAncora          bool // whether to install/configure Ancora memory
-	SetupVela            bool // whether to install/configure Vela graph intelligence
-	SetupContext7        bool // whether to configure Context7 documentation MCP
-	ModelRouting         ModelRoutingRequest
-	ModelRoutingModels   map[string]string
-	PiModelRouting       ModelRoutingRequest
-	PiModelRoutingModels map[string]string
-	CommandStdin         io.Reader
-	CommandStdout        io.Writer
-	CommandStderr        io.Writer
-	skipOpenCodeRouting  bool
+	Target                string // "claude-code" | "opencode" | "both"
+	ProjectPath           string // project root; config files land here under .rotta/
+	InstallSpec           bool
+	InstallImpl           bool
+	InstallReview         bool
+	UseDefaultGates       bool
+	SetupAncora           bool // whether to install/configure Ancora memory
+	SetupVela             bool // whether to install/configure Vela graph intelligence
+	SetupContext7         bool // whether to configure Context7 documentation MCP
+	ModelRouting          ModelRoutingRequest
+	ModelRoutingModels    map[string]string
+	PiModelRouting        ModelRoutingRequest
+	PiModelRoutingModels  map[string]string
+	PiModelRoutingEfforts map[string]string
+	PiOrchestratorModel   string
+	PiOrchestratorEffort  string
+	CommandStdin          io.Reader
+	CommandStdout         io.Writer
+	CommandStderr         io.Writer
+	skipOpenCodeRouting   bool
 }
 
 // ModelRoutingRequest retains omission separately from an explicit selection.

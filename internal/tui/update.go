@@ -293,8 +293,17 @@ func (m Model) updatePiModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.Screen = ScreenAncora
 		case 1:
 			m.PiModelRouting = installer.ModelRoutingCustom
+			if m.PiOrchestratorModel == "" {
+				m.PiOrchestratorModel = installer.DefaultPiOrchestratorModel()
+			}
+			if m.PiOrchestratorEffort == "" {
+				m.PiOrchestratorEffort = installer.DefaultPiOrchestratorEffort()
+			}
 			if m.PiCustomRouting == nil {
 				m.PiCustomRouting = installer.DefaultPiRouting()
+			}
+			if m.PiCustomEfforts == nil {
+				m.PiCustomEfforts = installer.DefaultPiRoutingEfforts()
 			}
 			m.Screen = ScreenPiCustomModelRouting
 			if !m.PiModelDiscoveryDone && !m.PiModelDiscoveryInFlight {
@@ -317,7 +326,7 @@ func (m Model) updatePiModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePiCustomModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
-		if m.PiCustomRoutingCursor < len(piRoutingRoles)-1 {
+		if m.PiCustomRoutingCursor < len(piRoutingRoles) {
 			m.PiCustomRoutingCursor++
 		}
 	case "k", "up":
@@ -330,6 +339,13 @@ func (m Model) updatePiCustomModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ModelPickerQuery = ""
 			m.Screen = ScreenPiModelPicker
 		}
+	case "e":
+		if m.PiCustomRoutingCursor == 0 {
+			m.PiOrchestratorEffort = nextPiEffort(m.PiOrchestratorEffort)
+		} else {
+			role := piRoutingRoles[m.PiCustomRoutingCursor-1]
+			m.PiCustomEfforts[role.key] = nextPiEffort(m.PiCustomEfforts[role.key])
+		}
 	case "n":
 		m.Screen = ScreenAncora
 	case "r":
@@ -340,6 +356,15 @@ func (m Model) updatePiCustomModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenPiModelRouting
 	}
 	return m, nil
+}
+
+func nextPiEffort(current string) string {
+	for index, effort := range piEffortLevels {
+		if effort == current {
+			return piEffortLevels[(index+1)%len(piEffortLevels)]
+		}
+	}
+	return "low"
 }
 
 func (m Model) updatePiModelPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -355,7 +380,11 @@ func (m Model) updatePiModelPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(models) > 0 {
-			m.PiCustomRouting[piRoutingRoles[m.PiCustomRoutingCursor].key] = models[m.PiModelPickerCursor]
+			if m.PiCustomRoutingCursor == 0 {
+				m.PiOrchestratorModel = models[m.PiModelPickerCursor]
+			} else {
+				m.PiCustomRouting[piRoutingRoles[m.PiCustomRoutingCursor-1].key] = models[m.PiModelPickerCursor]
+			}
 			m.Screen = ScreenPiCustomModelRouting
 		}
 	case "backspace":
@@ -597,22 +626,25 @@ func (m Model) updateDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func runInstall(m Model) tea.Cmd {
 	return func() tea.Msg {
 		opts := installer.Options{
-			Target:               m.Target,
-			ProjectPath:          m.ProjectPath,
-			InstallSpec:          m.SelectedModes[0],
-			InstallImpl:          m.SelectedModes[1],
-			InstallReview:        m.SelectedModes[2],
-			UseDefaultGates:      m.UseDefaults,
-			SetupAncora:          m.SetupAncora,
-			SetupVela:            m.SetupVela,
-			SetupContext7:        m.SetupContext7,
-			ModelRouting:         m.ModelRouting,
-			ModelRoutingModels:   m.CustomRouting,
-			PiModelRouting:       m.PiModelRouting,
-			PiModelRoutingModels: m.PiCustomRouting,
-			CommandStdin:         bytes.NewReader(nil),
-			CommandStdout:        io.Discard,
-			CommandStderr:        io.Discard,
+			Target:                m.Target,
+			ProjectPath:           m.ProjectPath,
+			InstallSpec:           m.SelectedModes[0],
+			InstallImpl:           m.SelectedModes[1],
+			InstallReview:         m.SelectedModes[2],
+			UseDefaultGates:       m.UseDefaults,
+			SetupAncora:           m.SetupAncora,
+			SetupVela:             m.SetupVela,
+			SetupContext7:         m.SetupContext7,
+			ModelRouting:          m.ModelRouting,
+			ModelRoutingModels:    m.CustomRouting,
+			PiModelRouting:        m.PiModelRouting,
+			PiModelRoutingModels:  m.PiCustomRouting,
+			PiModelRoutingEfforts: m.PiCustomEfforts,
+			PiOrchestratorModel:   m.PiOrchestratorModel,
+			PiOrchestratorEffort:  m.PiOrchestratorEffort,
+			CommandStdin:          bytes.NewReader(nil),
+			CommandStdout:         io.Discard,
+			CommandStderr:         io.Discard,
 		}
 		result, err := installer.Install(opts)
 		return installDoneMsg{result: result, err: err}

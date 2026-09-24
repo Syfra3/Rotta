@@ -35,8 +35,9 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	if m.Target == TargetPi || m.Target == TargetAll {
 		writeConfirmValue(b, "Pi model routing:", confirmRoutingLabel(m.PiModelRouting))
 		if m.PiModelRouting == installer.ModelRoutingCustom {
+			writeConfirmValue(b, "  Orchestrator:", m.PiOrchestratorModel+" ("+m.PiOrchestratorEffort+")")
 			for _, role := range piRoutingRoles {
-				writeConfirmValue(b, "  "+role.label+":", m.PiCustomRouting[role.key])
+				writeConfirmValue(b, "  "+role.label+":", m.PiCustomRouting[role.key]+" ("+m.PiCustomEfforts[role.key]+")")
 			}
 		}
 	}
@@ -104,7 +105,11 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 		writeConfirmFile(b, "  ~/.pi/agent/extensions/rotta.ts  (executable global Pi extension)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/rotta-mcp-bridge.ts  (managed MCP bridge)")
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
-		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models)")
+		if m.PiModelRouting != installer.ModelRoutingDisabled {
+			writeConfirmFile(b, "  ~/.pi/agent/settings.json  (orchestrator default model and effort)")
+			writeConfirmFile(b, "  ~/.pi/agent/models.json  (openai-codex/gpt-6-sol and gpt-6-luna context windows: 1000000)")
+		}
+		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models and efforts)")
 	}
 }
 

@@ -282,10 +282,10 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
   const profile: any = {
     version: 1,
     roles: {
-      implementation: "openai-codex/gpt-5.6-terra",
-      reviewer: "openai-codex/gpt-5.6-sol",
-      exploration: "openai-codex/gpt-5.6-luna",
-      operations: "openai-codex/gpt-5.6-luna",
+      implementation: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
+      reviewer: { model: "openai-codex/gpt-5.6-sol", effort: "medium" },
+      exploration: { model: "openai-codex/gpt-5.6-sol", effort: "high" },
+      operations: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
     },
   };
   try {
@@ -314,16 +314,29 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
     for (
       const [role, expected] of Object.entries(profile.roles) as [
         string,
-        string,
+        { model: string; effort: string },
       ][]
     ) {
       const args = await invoke({ role, task: "delegate" });
       assert(
-        args.includes("--model") && args.includes(expected),
+        args.includes("--model") && args.includes(expected.model) &&
+          args.includes("--thinking") && args.includes(expected.effort),
         `${role} routing was not applied`,
       );
     }
     let args: string[];
+    profile.roles = {
+      implementation: "legacy/impl",
+      reviewer: "legacy/reviewer",
+      exploration: "legacy/explore",
+      operations: "legacy/ops",
+    };
+    Deno.writeTextFileSync(
+      `${root}/model-routing.json`,
+      JSON.stringify(profile),
+    );
+    args = await invoke({ role: "reviewer", task: "review" });
+    assert(args.includes("legacy/reviewer") && !args.includes("--thinking"));
     args = await invoke({
       role: "reviewer",
       task: "review",
@@ -331,7 +344,7 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
     });
     assert(
       args.includes("custom/once") &&
-        !args.includes("openai-codex/gpt-5.6-sol"),
+        !args.includes("--thinking"),
     );
     profile.roles = { implementation: "only/one" } as any;
     Deno.writeTextFileSync(
