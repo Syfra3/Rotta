@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.19.0](https://github.com/Syfra3/Rotta/compare/v1.18.1...v1.19.0) (2026-09-24)
+
+
+### Features
+
+* **pi:** align installer routing defaults and model contexts ([cd62700](https://github.com/Syfra3/Rotta/commit/cd62700f4a477b28c50e4cbf5553a7a209e6ee04))
+* **pi:** include pending workflow and compact UI updates ([38e9f50](https://github.com/Syfra3/Rotta/commit/38e9f50ca5ffa0f4eb46e0a1d10be3af5417d9f8))
+
+
+### Bug Fixes
+
+* **pi:** retain CLI custom routing without orchestrator flags ([d2c2b5d](https://github.com/Syfra3/Rotta/commit/d2c2b5d8b0d05f56473e644cdf7396c3522d1032))
+
 ## [1.18.1](https://github.com/Syfra3/Rotta/compare/v1.18.0...v1.18.1) (2026-09-24)
 
 
