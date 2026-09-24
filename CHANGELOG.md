@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.1](https://github.com/Syfra3/Rotta/compare/v1.18.0...v1.18.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **pi:** harden delegation and native questions ([a548962](https://github.com/Syfra3/Rotta/commit/a54896200c2212645e2aeff80d722ceb3ba14266))
+* **pi:** isolate delegation and native question fixes ([53e4556](https://github.com/Syfra3/Rotta/commit/53e455689b409276fa97430428dc25468904eb59))
+
 ## [1.18.0](https://github.com/Syfra3/Rotta/compare/v1.17.0...v1.18.0) (2026-09-21)
 
 
