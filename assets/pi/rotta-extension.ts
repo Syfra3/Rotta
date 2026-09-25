@@ -197,11 +197,21 @@ function currentContract(cwd: string, supplied: string | undefined) {
     const revisions = [...contractText.matchAll(
       /^(?:[ \t]{0,3})(?:Revision:[ \t]*r?(\d+)|\*\*Revision:\*\*[ \t]*`r?(\d+)`)[ \t]*\r?$/gm,
     )].map((match) => match[1] ?? match[2]);
+    // A title suffix is an alternative identity, not additional metadata.
+    // Count candidate suffixes even when malformed so they cannot be ignored
+    // in favor of a valid standalone line or another heading.
+    const headingLines = [...contractText.matchAll(/^#(?!#)[ \t]+[^\r\n]*\r?$/gm)]
+      .filter((match) => /\(revision\b/i.test(match[0]));
+    const headingRevisions = headingLines.map((match) =>
+      /^#[ \t]+[^\r\n]+[ \t]+\(revision[ \t]+r?(\d+)\)[ \t]*\r?$/i.exec(match[0])?.[1]
+    );
+    const identities = revisionLines.length + headingLines.length;
     return {
       path: candidate,
       digest: createHash("sha256").update(bytes).digest("hex"),
-      revision: revisionLines.length === 1 && revisions.length === 1
-        ? Number(revisions[0])
+      revision: identities === 1 &&
+          (revisionLines.length === 1 ? revisions.length === 1 : headingRevisions[0] !== undefined)
+        ? Number(revisionLines.length ? revisions[0] : headingRevisions[0])
         : undefined,
     };
   } catch {
@@ -746,6 +756,8 @@ function renderDelegateResult(
   if (!failed) {
     return textComponent(`${line}\n${theme.fg("toolOutput", response)}`, () => void openLatestRottaDetail?.());
   }
+  // Child text is arbitrary output, not a safe one-line status for the TUI.
+  // Keep the model-facing failure in the tool result and the detail overlay.
   return textComponent(line, () => void openLatestRottaDetail?.());
 }
 function policyPrompt(home: string, role: Role) {
@@ -1112,11 +1124,11 @@ async function runChild(
         else if (code === 0 && result?.status === "success") {
           finish(result.output);
         } else if (result?.status === "error") {
-          finish(result.message, true, "child_error");
+          finish(result.message || "child reported an error without a message", true, "child_error");
         } else {finish(
             code === 0
               ? "child returned invalid result protocol"
-              : stderr || `child exited ${code}`,
+              : `child exited ${code}; inspect bounded child diagnostic and local Pi logs`,
             true,
             code === 0 ? "invalid_result" : "child_error",
           );}
@@ -1532,7 +1544,7 @@ export function registerRotta(
   pi.registerTool({
     name: "rotta_question",
     label: "Rotta decision",
-    description: "Ask one bound governance decision.",
+    description: "Ask one bound governance decision. For strict-approval supply contractDigest as SHA-256 of the exact file bytes. Pi reads the contract revision from those bytes; contractRevision is optional but, when supplied, must match. The contract needs one `Revision: 1` line or `(revision 1)` H1 suffix. A changed digest or conflicting revision fails safely.",
     parameters: Question,
     async execute(
       toolCallId: string,
@@ -1587,7 +1599,9 @@ export function registerRotta(
           if (contract.digest !== params.contractDigest) {
             mismatches.push("digest");
           }
-          if (contract.revision !== params.contractRevision) {
+          if (contract.revision === undefined) {
+            mismatches.push("revision metadata missing or ambiguous");
+          } else if (params.contractRevision !== undefined && contract.revision !== params.contractRevision) {
             mismatches.push("revision");
           }
         }
@@ -1597,6 +1611,11 @@ export function registerRotta(
           );
         }
       }
+      // The verified file, not a duplicated model-supplied number, defines the
+      // revision shown to the user and bound to their answer.
+      const decision = contract
+        ? `${params.decision}\n\nExact contract: ${contract.path}\nSHA-256: ${contract.digest}\nRevision: ${contract.revision}`
+        : params.decision;
       const bindingTarget = executable ? existingCanonical(params.target!) : undefined;
       const bindingDigest = params.operationDigest;
       const session = ctx.sessionManager.getSessionId();
@@ -1608,7 +1627,7 @@ export function registerRotta(
         session,
         workspace,
         action: params.action,
-        decision: params.decision,
+        decision,
         options: [...params.options],
         safeOutcome: params.safeOutcome,
         contractPath: contract?.path,
@@ -1625,12 +1644,12 @@ export function registerRotta(
       let uiFailed = false;
       pi.events.emit("herdr:blocked", {
         active: true,
-        label: params.decision,
+        label: decision,
       });
       try {
         try {
           choice = await Promise.race([
-            ctx.ui.select(params.decision, params.options, { signal }),
+            ctx.ui.select(decision, params.options, { signal }),
             aborted,
           ]);
         } catch {
@@ -1677,12 +1696,12 @@ export function registerRotta(
           session,
           workspace,
           action: params.action,
-          decision: params.decision,
+          decision,
         });
       } finally {
         pi.events.emit("herdr:blocked", {
           active: false,
-          label: params.decision,
+          label: decision,
         });
         if (active.get(key) === binding) active.delete(key);
       }

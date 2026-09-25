@@ -2179,6 +2179,8 @@ Deno.test("strict approval accepts one established contract revision identity", 
         ["bold", "**Revision:** `1`\n"],
         ["bold release prefix", "**Revision:** `r1`\n"],
         ["bold spacing", "**Revision:**\t `1` \n"],
+        ["heading observed", "# Recurring payment sources — execution contract (revision 1)\n"],
+        ["heading release prefix", "# Contract (revision r1)\n"],
       ]
     ) {
       Deno.writeTextFileSync(contractPath, contractBytes);
@@ -2196,7 +2198,7 @@ Deno.test("strict approval accepts one established contract revision identity", 
           options: ["Approve", "Stop"],
           safeOutcome: "Stop",
           contractPath: ".rotta/strict/contract.md",
-          contractRevision: 1,
+          ...(name === "heading observed" ? {} : { contractRevision: 1 }),
           contractDigest: createHash("sha256").update(contractBytes).digest(
             "hex",
           ),
@@ -2206,6 +2208,25 @@ Deno.test("strict approval accepts one established contract revision identity", 
         mock.ctx,
       );
       assert(answer.content[0].text === "Approve", `${name} was rejected`);
+      if (name === "heading observed") {
+        const title = (mock.selects[0] as { title: string }).title;
+        assert(title.includes(`Exact contract: ${contractPath}`), "canonical contract path not rendered");
+        assert(title.includes(`SHA-256: ${createHash("sha256").update(contractBytes).digest("hex")}`), "digest not rendered");
+        assert(title.includes("Revision: 1"), "verified revision not rendered");
+        for (const override of [{ contractRevision: 2 }, { contractDigest: "0".repeat(64) }]) {
+          await tool(mock.tools, "rotta_question").execute(
+            `mismatch-${Object.keys(override)[0]}`,
+            {
+              trigger: "strict-approval", requestId: "heading mismatch", workspace: project,
+              action: "approve", decision: "Approve revision 1", options: ["Approve", "Stop"],
+              safeOutcome: "Stop", contractPath: ".rotta/strict/contract.md",
+              contractRevision: 1, contractDigest: createHash("sha256").update(contractBytes).digest("hex"),
+              ...override,
+            }, signal().signal, () => {}, mock.ctx,
+          ).then(() => { throw Error("mismatched heading identity accepted"); },
+            (error: Error) => assert(error.message.includes("safe stop: approval identity mismatch")));
+        }
+      }
     }
   } finally {
     Deno.removeSync(project, { recursive: true });
@@ -2230,6 +2251,12 @@ Deno.test("strict approval rejects malformed, ambiguous, and prose revision iden
         ["duplicate", "Revision: 1\nRevision: 1\n"],
         ["plain prose", "This sentence mentions Revision: 1.\n"],
         ["bold prose", "This sentence mentions **Revision:** `1`.\n"],
+        ["heading malformed", "# Contract (revision one)\n"],
+        ["heading trailing prose", "# Contract (revision 1) extra\n"],
+        ["heading duplicate", "# Contract (revision 1)\n# Other (revision 1)\n"],
+        ["heading conflicting", "# Contract (revision 1)\n# Other (revision 2)\n"],
+        ["heading plus standalone", "# Contract (revision 1)\nRevision: 1\n"],
+        ["malformed heading plus standalone", "# Contract (revision one)\nRevision: 1\n"],
       ]
     ) {
       Deno.writeTextFileSync(contractPath, contractBytes);
