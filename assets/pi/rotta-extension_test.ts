@@ -2198,7 +2198,7 @@ Deno.test("strict approval accepts one established contract revision identity", 
           options: ["Approve", "Stop"],
           safeOutcome: "Stop",
           contractPath: ".rotta/strict/contract.md",
-          contractRevision: 1,
+          ...(name === "heading observed" ? {} : { contractRevision: 1 }),
           contractDigest: createHash("sha256").update(contractBytes).digest(
             "hex",
           ),
@@ -2209,6 +2209,10 @@ Deno.test("strict approval accepts one established contract revision identity", 
       );
       assert(answer.content[0].text === "Approve", `${name} was rejected`);
       if (name === "heading observed") {
+        const title = (mock.selects[0] as { title: string }).title;
+        assert(title.includes(`Exact contract: ${contractPath}`), "canonical contract path not rendered");
+        assert(title.includes(`SHA-256: ${createHash("sha256").update(contractBytes).digest("hex")}`), "digest not rendered");
+        assert(title.includes("Revision: 1"), "verified revision not rendered");
         for (const override of [{ contractRevision: 2 }, { contractDigest: "0".repeat(64) }]) {
           await tool(mock.tools, "rotta_question").execute(
             `mismatch-${Object.keys(override)[0]}`,
