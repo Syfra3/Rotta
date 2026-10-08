@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.2](https://github.com/Syfra3/Rotta/compare/v1.19.1...v1.19.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **pi:** accept unambiguous contract heading revisions ([80f10ef](https://github.com/Syfra3/Rotta/commit/80f10ef4c7f8a324d5787756d61af8d4aedcff77))
+* rotta strict mode and approval flow ([675a763](https://github.com/Syfra3/Rotta/commit/675a763cf6f716d6bbe26e36892c7a8ff491387c))
+
 ## [1.19.1](https://github.com/Syfra3/Rotta/compare/v1.19.0...v1.19.1) (2026-09-24)
 
 
