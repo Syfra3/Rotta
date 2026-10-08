@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.20.0](https://github.com/Syfra3/Rotta/compare/v1.19.2...v1.20.0) (2026-10-08)
+
+
+### Features
+
+* add Copilot CLI integration and configurable model efforts ([a034091](https://github.com/Syfra3/Rotta/commit/a03409100813121a18dfcac3928eedad7beb463c))
+
+
+### Bug Fixes
+
+* pi extensions memory leak ([e8229ce](https://github.com/Syfra3/Rotta/commit/e8229cee3821c4f83cd045049e090eff02b53813))
+
 ## [1.19.2](https://github.com/Syfra3/Rotta/compare/v1.19.1...v1.19.2) (2026-09-25)
 
 
