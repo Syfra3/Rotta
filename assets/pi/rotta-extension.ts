@@ -21,11 +21,10 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 5_000;
 const DEFAULT_TIMEOUT_MS = 600_000;
 const MAX_TIMEOUT_MS = 1_800_000;
-const DETAIL_LIMIT_BYTES = 64 * 1024;
+const DETAIL_LIMIT_BYTES = 2048;
 const PENDING_FAILURE_TTL_MS = 60_000;
 const PENDING_FAILURE_CAPACITY = 64;
 const DETAIL_SHORTCUT = "ctrl+shift+o";
-const SUPPORTED_BUILTIN_PI_VERSION = "0.87.1";
 const memoryTools = [
   "rotta_ancora_save",
   "rotta_ancora_summarize",
@@ -123,6 +122,7 @@ type DelegateParams = {
   task: string;
   model?: string;
   timeoutMs?: number;
+  requiredTools?: string[];
   operation?: { requestId: string; command: string; target: string; action: string; effect: string; artifactPath: string; revision: number; digest: string };
 };
 type RoleSelection = { model: string; effort?: string };
@@ -131,8 +131,8 @@ type QuestionParams = {
   requestId: string;
   workspace: string;
   action: string;
-  decision: string;
-  options: string[];
+  decision?: string;
+  options?: string[];
   safeOutcome: string;
   contractPath?: string;
   contractRevision?: number;
@@ -504,7 +504,7 @@ function bashWarnings(result: any, pathOverride?: string) {
 
 function generatedBashFooter(output: string, result: any) {
   if (!result.details?.truncation?.truncated) return null;
-  // Pi 0.87.1 formatOutput appends exactly one of these three terminal forms.
+  // Recognized Pi formatOutput variants append exactly one of these three terminal forms.
   const match = /\n\n\[(?:Showing lines \d+-\d+ of \d+(?: \(50\.0KB limit\))?|Showing last (?:\d+B|\d+\.\dKB|\d+\.\dMB) of line \d+ \(line is (?:\d+B|\d+\.\dKB|\d+\.\dMB)\))\. Full output: ([^\]\r\n]+)\]$/.exec(output);
   if (!match) return null;
   return { content: output.slice(0, match.index), path: match[1] };
@@ -565,10 +565,6 @@ export function compactBuiltinDefinitions(cwd: string, source: BuiltinContractSo
   edit: PiToolDefinition;
   originals: { bash: PiToolDefinition; edit: PiToolDefinition };
 } {
-  const version = source.version ?? VERSION;
-  if (version !== SUPPORTED_BUILTIN_PI_VERSION) {
-    throw new Error(`unsupported Pi version ${version}; expected ${SUPPORTED_BUILTIN_PI_VERSION}`);
-  }
   const factories = source.factories ?? { bash: createBashToolDefinition, edit: createEditToolDefinition };
   const originalBash = factories.bash(cwd);
   const originalEdit = factories.edit(cwd);
@@ -624,56 +620,33 @@ type ActionDetail = {
 function safeDetail(value: unknown) {
   const raw = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   const redacted = (raw ?? "")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]")
+    .replace(/\b(Bearer|Basic)\s+[^\s"']+/gi, "$1 [redacted]")
     .replace(/(["']?(?:api[_-]?key|token|authorization|password)["']?\s*[:=]\s*)["']?[^\s,"'}]+["']?/gi, "$1[redacted]");
-  return trimUtf8(redacted, DETAIL_LIMIT_BYTES);
+  return trimUtf8(redacted.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), DETAIL_LIMIT_BYTES);
 }
 
 export function detailOverlayComponent(
   tui: { requestRender(): void },
   theme: Theme,
-  detail: ActionDetail,
-  done: () => void,
+  getDetail: () => ActionDetail,
+  expanded: () => boolean,
 ) {
-  let offset = 0;
-  let maxOffset = 0;
-  const body = [
-    `${detail.service} / ${detail.action} / ${detail.state}`,
-    "",
-    "Request:",
-    safeDetail(detail.request),
-    ...(detail.response === undefined ? [] : ["", "Response:", safeDetail(detail.response)]),
-    ...(detail.diagnostic === undefined ? [] : ["", "Diagnostic:", safeDetail(detail.diagnostic)]),
-  ].join("\n");
   return {
-    handleInput(data: string) {
-      if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) done();
-      else if (matchesKey(data, "up") || matchesKey(data, "pageUp")) {
-        offset = Math.max(0, offset - (matchesKey(data, "pageUp") ? 10 : 1));
-        tui.requestRender();
-      } else if (matchesKey(data, "down") || matchesKey(data, "pageDown")) {
-        offset = Math.min(maxOffset, offset + (matchesKey(data, "pageDown") ? 10 : 1));
-        tui.requestRender();
-      }
-    },
     render(width: number) {
-      const inner = Math.max(1, width - 2);
-      const wrapped = body.split("\n").flatMap((line) =>
-        wrapTextWithAnsi(line, inner)
+      const detail = getDetail();
+      const lines = [`Rotta ${safeDetail(detail.service).slice(0, 40)} / ${safeDetail(detail.action).slice(0, 60)} • ${detail.state}`];
+      if (expanded()) {
+        lines.push(`Diagnostic: ${safeDetail(detail.diagnostic ?? "none")}`);
+      } else {
+        const summary = detail.state === "running" ? "Action in progress" :
+          detail.state === "failed" ? "Action failed" : "Action completed";
+        lines.push(`${summary} • ${DETAIL_SHORTCUT} hide • ctrl+shift+d diagnostic`);
+      }
+      return lines.slice(0, expanded() ? 8 : 2).flatMap((line) =>
+        wrapTextWithAnsi(line, Math.max(1, width)).slice(0, expanded() ? 4 : 1).map((part) => truncateToWidth(theme.fg("dim", part), width))
       );
-      maxOffset = Math.max(0, wrapped.length - 20);
-      offset = Math.min(offset, maxOffset);
-      const page = wrapped.slice(offset, offset + 20);
-      const border = theme.fg("border", "│");
-      const lines = [
-        theme.fg("border", `╭${"─".repeat(inner)}╮`),
-        ...page.map((line) => `${border}${truncateToWidth(line, inner)}${border}`),
-        `${border}${truncateToWidth(theme.fg("dim", " ↑↓/PgUp/PgDn scroll • Esc close"), inner)}${border}`,
-        theme.fg("border", `╰${"─".repeat(inner)}╯`),
-      ];
-      return lines;
     },
-    invalidate() {},
+    invalidate() { tui.requestRender(); },
   };
 }
 function renderDelegateCall(args: Record<string, unknown>, theme: any) {
@@ -951,7 +924,9 @@ async function runChild(
   ];
   if (model) args.push("--model", model);
   if (model && effort) args.push("--thinking", effort);
-  args.push(task);
+  args.push(operationCommand
+    ? `${task}\n\nParent-validated one-time operation binding: execute exactly this command once with the bash tool (as the entire command argument):\n${operationCommand}\nThe child guard independently enforces this exact command and rejects any other bash invocation. Do not run a preparatory bash check or alter the command.`
+    : task);
   try {
     const startedAt = Date.now();
     return await new Promise<ReturnType<typeof toolResult>>((resolve) => {
@@ -1092,16 +1067,10 @@ async function runChild(
       };
       proc!.stdout!.on("data", (data) => {
         consumeStdout(outDecoder.write(data));
-        onUpdate(
-          toolResult("child running", {
-            role,
-            ...(routing ?? {}),
-            running: true,
-            timeoutMs: effectiveTimeout,
-            elapsedMs: Date.now() - startedAt,
-            diagnostic: stdout,
-          }),
-        );
+        // Pi replaces the visible partial result on every update. Publishing
+        // the growing diagnostic tail for every JSONL chunk repeatedly copies
+        // up to 64 KiB through the event bus and TUI; the collapsed running
+        // view does not consume it. Keep the bounded tail for the final result.
       });
       proc!.stderr!.on("data", (data) => {
         stderr = appendBounded(stderr, errDecoder.write(data));
@@ -1237,6 +1206,7 @@ const Delegate = Type.Object({
   task: Type.String(),
   model: Type.Optional(Type.String()),
   timeoutMs: Type.Optional(Type.Number()),
+  requiredTools: Type.Optional(Type.Array(Type.String())),
   operation: Type.Optional(Type.Object({ requestId: Type.String(), command: Type.String(), target: Type.String(), action: Type.String(), effect: Type.String(), artifactPath: Type.String(), revision: Type.Number(), digest: Type.String() })),
 });
 const Question = Type.Object({
@@ -1250,8 +1220,8 @@ const Question = Type.Object({
   requestId: Type.String(),
   workspace: Type.String(),
   action: Type.String(),
-  decision: Type.String(),
-  options: Type.Array(Type.String()),
+  decision: Type.Optional(Type.String()),
+  options: Type.Optional(Type.Array(Type.String())),
   safeOutcome: Type.String(),
   contractPath: Type.Optional(Type.String()),
   contractRevision: Type.Optional(Type.Number()),
@@ -1316,18 +1286,35 @@ export function registerRotta(
     const match = /^rotta_(ancora|vela|context7)_(.+)$/.exec(name);
     return match ? { service: match[1], action: match[2] } : undefined;
   };
+  let detailOpen = false;
+  let diagnosticOpen = false;
+  let detailCtx: any;
+  const refreshDetail = () => {
+    if (detailOpen && latestDetail && detailCtx?.mode === "tui") {
+      detailCtx.ui.setWidget("rotta-action-detail", (tui: any, theme: Theme) =>
+        detailOverlayComponent(tui, theme, () => latestDetail!, () => diagnosticOpen));
+    }
+  };
   const showLatest = async (ctx: any) => {
     if (ctx.mode !== "tui") return;
-    if (!latestDetail) {
+    if (!latestDetail && !detailOpen) {
       ctx.ui.notify("No Rotta action details are available yet", "info");
       return;
     }
-    await ctx.ui.custom(
-      (tui: any, theme: Theme, _keys: unknown, done: () => void) =>
-        detailOverlayComponent(tui, theme, latestDetail!, done),
-      { overlay: true, overlayOptions: { width: "80%", maxHeight: 24, anchor: "center", margin: 1 } },
-    );
+    detailOpen = !detailOpen;
+    detailCtx = ctx;
+    if (!detailOpen) diagnosticOpen = false;
+    ctx.ui.setWidget("rotta-action-detail", undefined);
+    refreshDetail();
   };
+  pi.registerShortcut("ctrl+shift+d" as any, {
+    description: "Toggle bounded Rotta diagnostic detail",
+    handler: (ctx: any) => {
+      if (!detailOpen || ctx.mode !== "tui") return;
+      diagnosticOpen = !diagnosticOpen;
+      refreshDetail();
+    },
+  });
   pi.registerShortcut(DETAIL_SHORTCUT as any, {
     description: "Open latest Rotta action details",
     handler: showLatest,
@@ -1342,6 +1329,7 @@ export function registerRotta(
       state: "running",
       request: event.args,
     };
+    refreshDetail();
     if (ctx.mode === "tui") {
       openLatestRottaDetail = () => showLatest(ctx);
       (globalThis as any)[DETAIL_OPENER] = openLatestRottaDetail;
@@ -1354,6 +1342,7 @@ export function registerRotta(
       state: "running",
       diagnostic: event.partialResult?.details,
     };
+    refreshDetail();
   });
   pi.on("tool_execution_end", (event: any) => {
     const managed = managedAction(event.toolName);
@@ -1366,6 +1355,7 @@ export function registerRotta(
       diagnostic: event.result?.details?.diagnostic ??
         event.result?.details ?? latestDetail?.diagnostic,
     };
+    refreshDetail();
   });
   // Pi correctly turns thrown tool errors into red error results, but that
   // synthesis cannot retain custom details from the value that caused the
@@ -1468,7 +1458,7 @@ export function registerRotta(
   pi.registerTool({
     name: "rotta_delegate",
     label: "Rotta delegate (role-isolated child)",
-    description: "Delegate only to a fixed isolated non-parent Rotta role.",
+    description: "Delegate to an isolated role. The operations role requires a fresh one-time operation binding and executes its exact command; never use operations for diagnostic-only inspection. Use read or a non-operations role for local diagnostics.",
     parameters: Delegate,
     renderCall: renderDelegateCall,
     renderResult: renderDelegateResult,
@@ -1481,9 +1471,13 @@ export function registerRotta(
     ) {
       const selected = params.role as Role;
       if (!roles[selected]) fail("unknown child role");
+      const missing = [...new Set(params.requiredTools ?? [])].filter((name) =>
+        !roles[selected].tools.some((tool) => tool === name)
+      );
+      if (missing.length) fail(`safe stop: ${selected} child lacks required tool(s): ${missing.slice(0, 8).join(", ")}; use an authorized parent/source fallback or stop. No child started`);
       let operationCommand: string | undefined;
       if (selected === "operations") {
-        if (!params.operation) fail("safe stop: operation authorization missing or stale");
+        if (!params.operation) fail("safe stop: operations delegation requires a fresh one-time operation binding; diagnostic-only inspection must use read or a non-operations role. No child started and no operation ran");
         const session = ctx.sessionManager.getSessionId();
         const workspace = existingCanonical(ctx.cwd);
         const pending = pendingOperations.get(params.operation.requestId);
@@ -1496,7 +1490,7 @@ export function registerRotta(
           !artifact || artifact.path !== pending.artifactPath || artifact.digest !== pending.digest || artifact.revision !== pending.revision ||
           params.operation.revision !== pending.revision || params.operation.digest !== pending.digest ||
           artifact.command !== pending.command || artifact.action !== pending.action || artifact.target !== pending.target || artifact.effect !== pending.effect) {
-          fail("safe stop: operation authorization missing or stale");
+          fail("safe stop: operation binding missing or stale at dispatch (session, request, target, or artifact identity); authorization consumed; no child started and no operation ran");
         }
         operationCommand = pending.command;
       } else if (params.operation) fail("operation binding only valid for operations");
@@ -1554,8 +1548,7 @@ export function registerRotta(
       ctx: ToolContext,
     ) {
       if (
-        !ctx.hasUI || signal.aborted || params.options.length === 0 ||
-        new Set(params.options).size !== params.options.length
+        !ctx.hasUI || signal.aborted
       ) {
         return fail(
           "safe stop: interactive UI or decision binding unavailable",
@@ -1576,19 +1569,38 @@ export function registerRotta(
         pendingOperations.delete(params.requestId);
         const target = params.target && existingCanonical(params.target);
         const artifact = currentOperation(workspace, params.operationPath);
-        if (!artifact || artifact.path !== path.resolve(workspace, params.operationPath!) ||
-          artifact.digest !== params.operationDigest || artifact.revision !== params.operationRevision ||
-          artifact.action !== params.action || artifact.command !== params.command ||
-          artifact.target !== target || artifact.effect !== params.effect ||
-          !target || !(target === workspace || target.startsWith(workspace + path.sep)) ||
-          !params.command?.trim() || !Number.isSafeInteger(params.operationRevision) ||
-          !/^[a-f0-9]{64}$/.test(params.operationDigest ?? "") ||
-          params.options.length !== 2 || params.options[0] !== "Approve the exact rendered operation once" ||
-          params.options[1] !== params.safeOutcome ||
-          !params.decision.includes(`Action: ${artifact.action}\nCommand: ${artifact.command}\nTarget: ${artifact.target}\nEffect: ${artifact.effect}\nWorkspace: ${workspace}\nArtifact: ${artifact.path}\nDigest: ${artifact.digest}\nRevision: ${artifact.revision}\nScope: one execution`)) {
-          return fail("safe stop: incomplete exact operation binding");
-        }
+        const mismatches: string[] = [];
+        // A malformed packet has no trusted fields to compare. Name only its
+        // structural source, never echo any portion of the rejected bytes.
+        if (!params.operationPath || !artifact) mismatches.push("operationPath");
+        if (!/^[a-f0-9]{64}$/.test(params.operationDigest ?? "") ||
+          (artifact && artifact.digest !== params.operationDigest)) mismatches.push("operationDigest");
+        if (!Number.isSafeInteger(params.operationRevision) ||
+          (artifact && artifact.revision !== params.operationRevision)) mismatches.push("operationRevision");
+        if (!params.action?.trim() || (artifact && artifact.action !== params.action)) mismatches.push("action");
+        if (!params.command?.trim() || (artifact && artifact.command !== params.command)) mismatches.push("command");
+        if (!target || !(target === workspace || target.startsWith(workspace + path.sep)) ||
+          (artifact && artifact.target !== target)) mismatches.push("target");
+        if (!params.effect || (artifact && artifact.effect !== params.effect)) mismatches.push("effect");
+        if (mismatches.length) return fail(`safe stop: incomplete exact operation binding (${mismatches.join(", ")})`);
       }
+      const bindingTarget = executable ? existingCanonical(params.target!) : undefined;
+      const operationArtifact = executable ? currentOperation(workspace, params.operationPath) : undefined;
+      const options = executable
+        ? ["Approve the exact rendered operation once", params.safeOutcome]
+        : params.options;
+      const missingQuestion = [
+        ...(!params.requestId?.trim() ? ["requestId"] : []),
+        ...(!params.action?.trim() ? ["action"] : []),
+        ...(!params.safeOutcome?.trim() ? ["safeOutcome"] : []),
+        ...(!executable && !params.decision?.trim() ? ["decision"] : []),
+        ...(!options?.length ? ["options"] : []),
+        ...(options?.length && !options.includes(params.safeOutcome) ? ["safeOutcome"] : []),
+      ];
+      if (missingQuestion.length) return fail(`safe stop: incomplete question binding (${[...new Set(missingQuestion)].join(", ")})`);
+      if (!options) return fail("safe stop: incomplete question binding (options)");
+      if (new Set(options).size !== options.length ||
+        (executable && params.safeOutcome === options[0])) return fail("safe stop: invalid question options");
       const contract = params.trigger === "strict-approval"
         ? currentContract(workspace, params.contractPath)
         : undefined;
@@ -1613,10 +1625,11 @@ export function registerRotta(
       }
       // The verified file, not a duplicated model-supplied number, defines the
       // revision shown to the user and bound to their answer.
-      const decision = contract
+      const decision = executable
+        ? `${params.decision?.trim() ? `${params.decision.trim()}\n\n` : ""}Action: ${params.action}\nCommand: ${params.command}\nTarget: ${bindingTarget ?? existingCanonical(params.target!)}\nEffect: ${params.effect}\nWorkspace: ${workspace}\nArtifact: ${operationArtifact!.path}\nDigest: ${params.operationDigest}\nRevision: ${params.operationRevision}\nScope: one execution`
+        : contract
         ? `${params.decision}\n\nExact contract: ${contract.path}\nSHA-256: ${contract.digest}\nRevision: ${contract.revision}`
-        : params.decision;
-      const bindingTarget = executable ? existingCanonical(params.target!) : undefined;
+        : params.decision!;
       const bindingDigest = params.operationDigest;
       const session = ctx.sessionManager.getSessionId();
       if (!session) return fail("safe stop: active session unavailable");
@@ -1628,7 +1641,7 @@ export function registerRotta(
         workspace,
         action: params.action,
         decision,
-        options: [...params.options],
+        options: [...options],
         safeOutcome: params.safeOutcome,
         contractPath: contract?.path,
         contractRevision: contract?.revision,
@@ -1649,7 +1662,7 @@ export function registerRotta(
       try {
         try {
           choice = await Promise.race([
-            ctx.ui.select(decision, params.options, { signal }),
+            ctx.ui.select(decision, options, { signal }),
             aborted,
           ]);
         } catch {
@@ -1668,12 +1681,12 @@ export function registerRotta(
             (existingCanonical(params.target!) !== bindingTarget ||
               params.operationDigest !== bindingDigest ||
               (() => { const latest = currentOperation(workspace, params.operationPath);
-                return !latest || latest.path !== path.resolve(workspace, params.operationPath!) ||
+                return !latest || latest.path !== operationArtifact?.path ||
                   latest.digest !== bindingDigest || latest.revision !== params.operationRevision ||
                   latest.action !== params.action || latest.command !== params.command ||
                   latest.target !== bindingTarget || latest.effect !== params.effect;
               })())) ||
-          !params.options.includes(choice) ||
+          !options.includes(choice) ||
           (contract && (() => {
             const latest = currentContract(workspace, params.contractPath);
             return !latest || latest.path !== binding.contractPath ||
@@ -1687,7 +1700,7 @@ export function registerRotta(
           pendingOperations.set(params.requestId, {
             session, workspace, command: params.command!, target: existingCanonical(params.target!),
             revision: params.operationRevision!, digest: params.operationDigest!,
-            artifactPath: path.resolve(workspace, params.operationPath!), action: params.action, effect: params.effect!,
+            artifactPath: operationArtifact!.path, action: params.action, effect: params.effect!,
           });
         }
         return toolResult(choice, {

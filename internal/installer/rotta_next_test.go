@@ -10,6 +10,34 @@ import (
 	"github.com/Syfra3/Rotta/assets"
 )
 
+func TestGenericLocalTierPolicyInstalledAcrossHosts(t *testing.T) {
+	paths := map[string][]string{
+		"core/rotta-core.md": {"Classify effect and target before dispatch", "Revalidate", "exact one-time route"},
+		"agents/rotta-orchestrator.md": {"task, canonical target, outcome and maximum effect", "Do not dispatch arbitrary shell"},
+		"agents/rotta-ops.md": {"fail closed to the existing exact route", "before every write"},
+	}
+	for _, host := range []struct {
+		name string
+		install func(Options, string) ([]string, error)
+		root string
+	}{
+		{"pi", installPi, filepath.Join(".pi", "agent", "rotta-next")},
+		{"opencode", installOpenCode, filepath.Join(".config", "opencode", "skills", "rotta-next")},
+		{"claude", installClaudeCode, filepath.Join(".claude", "skills", "rotta-next")},
+	} {
+		home := t.TempDir()
+		t.Setenv("OPENCODE_CONFIG", "")
+		t.Setenv("XDG_CONFIG_HOME", "")
+		if _, err := host.install(Options{}, home); err != nil { t.Fatalf("%s: %v", host.name, err) }
+		for assetPath, wants := range paths {
+			role := strings.TrimSuffix(filepath.Base(assetPath), ".md")
+			for _, want := range wants {
+				assertRottaNextFileContains(t, filepath.Join(home, host.root, role, "SKILL.md"), want)
+			}
+		}
+	}
+}
+
 func TestRottaNextCorePolicyUsesCoherentSlices(t *testing.T) {
 	data, err := assets.FS.ReadFile("core/rotta-core.md")
 	if err != nil {
@@ -144,6 +172,7 @@ func TestHarnessReliabilityWorkflowGovernanceIsCoherentAndInstalled(t *testing.T
 		"source change requires a safe-stop and rebaseline",
 		"delegates every named structural Vela question to `rotta-explore`",
 		"source fallback or safely stop, but may not invoke Vela itself",
+		"Never dispatch `rotta-ops` for diagnostic-only file inspection",
 	})
 	assertRottaNextContainsAll(t, explore, []string{
 		"only agent asset authorized to make bounded Vela calls",
