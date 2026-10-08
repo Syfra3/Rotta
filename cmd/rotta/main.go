@@ -122,11 +122,14 @@ func readBenchmarkInput(input string) ([]workflow.OutcomeRecord, []string, error
 func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	target := flags.String("target", "both", "install target: claude-code, opencode, codex, pi, both, or all")
+	target := flags.String("target", "both", "install target: claude-code, opencode, codex, pi, copilot, both, or all")
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
 	routing := flags.String("model-routing", "", "OpenCode model routing: enabled, custom, or disabled")
+	var openCodeModels, openCodeEfforts repeatedFlag
+	flags.Var(&openCodeModels, "model", "OpenCode custom role=model assignment (repeat for all seven roles)")
+	flags.Var(&openCodeEfforts, "model-effort", "OpenCode custom role=variant assignment (low, medium, high, xhigh; repeat for all seven roles)")
 	piRouting := flags.String("pi-model-routing", "", "Pi model routing: enabled, custom, or disabled")
 	var piModels repeatedFlag
 	flags.Var(&piModels, "pi-model", "Pi custom role=model assignment (repeat for all four roles)")
@@ -144,12 +147,25 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	customModels, err := parseAssignments(openCodeModels, "--model")
+	if err != nil {
+		return err
+	}
+	customEfforts, err := parseAssignments(openCodeEfforts, "--model-effort")
+	if err != nil {
+		return err
+	}
+	if (*routing != string(installer.ModelRoutingCustom) && (len(customModels) > 0 || len(customEfforts) > 0)) || (*piRouting != string(installer.ModelRoutingCustom) && len(piCustom) > 0) {
+		return fmt.Errorf("role assignments require the corresponding custom model routing selection")
+	}
 	result, err := installer.Install(installer.Options{
 		Target:               *target,
 		ProjectPath:          *projectPath,
 		SetupAncora:          *setupAncora,
 		SetupVela:            *setupVela,
 		ModelRouting:         installer.ModelRoutingRequest(*routing),
+		ModelRoutingModels:   customModels,
+		ModelRoutingEfforts:  customEfforts,
 		PiModelRouting:       installer.ModelRoutingRequest(*piRouting),
 		PiModelRoutingModels: piCustom,
 		CommandStdin:         os.Stdin,
@@ -181,6 +197,9 @@ func validRoutingFlag(value string) bool {
 	return value == "" || value == string(installer.ModelRoutingEnabled) || value == string(installer.ModelRoutingCustom) || value == string(installer.ModelRoutingDisabled)
 }
 func parseRoleModels(values []string) (map[string]string, error) {
+	return parseAssignments(values, "--pi-model")
+}
+func parseAssignments(values []string, flagName string) (map[string]string, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
@@ -188,10 +207,10 @@ func parseRoleModels(values []string) (map[string]string, error) {
 	for _, value := range values {
 		role, model, ok := strings.Cut(value, "=")
 		if !ok || role == "" || model == "" {
-			return nil, fmt.Errorf("--pi-model must use role=model")
+			return nil, fmt.Errorf("%s must use role=value", flagName)
 		}
 		if _, exists := models[role]; exists {
-			return nil, fmt.Errorf("--pi-model repeats role %s", role)
+			return nil, fmt.Errorf("%s repeats role %s", flagName, role)
 		}
 		models[role] = model
 	}

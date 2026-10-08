@@ -46,10 +46,8 @@ func TestSCN001_OmittedRoutingUsesOnlyXDGGlobalConfiguration(t *testing.T) {
 		t.Fatalf("parse XDG global config: %v", err)
 	}
 	agents := config["agent"].(map[string]interface{})
-	wantModels := map[string]string{
-		"rotta-orchestrator": "openai/gpt-5.6-sol", "rotta-architect": "openai/gpt-5.6-sol", "rotta-review": "openai/gpt-5.6-sol",
-		"rotta-impl": "openai/gpt-5.6-terra", "rotta-ops": "openai/gpt-5.6-luna", "rotta-explore": "openai/gpt-5.6-luna", "rotta-cleaner": "openai/gpt-5.6-luna",
-	}
+	wantModels := DefaultOpenCodeRouting()
+	wantEfforts := DefaultOpenCodeRoutingEfforts()
 	manifest, err := readManagedArtifactsManifest(filepath.Join(xdg, "rotta", "managed-artifacts.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +57,14 @@ func TestSCN001_OmittedRoutingUsesOnlyXDGGlobalConfiguration(t *testing.T) {
 		if got := agent["model"]; got != want {
 			t.Fatalf("%s model = %q, want %q", role, got, want)
 		}
+		if got := agent["variant"]; got != wantEfforts[role] {
+			t.Fatalf("%s variant = %q, want %q", role, got, wantEfforts[role])
+		}
 		if manifest.Files[openCodeModelOwnershipKey(filepath.Join(xdg, "opencode", "opencode.json"), role)] != contentDigest([]byte(want)) {
 			t.Fatalf("missing field ownership for %s.model", role)
+		}
+		if manifest.Files[openCodeFieldOwnershipKey(filepath.Join(xdg, "opencode", "opencode.json"), role, "variant")] != contentDigest([]byte(wantEfforts[role])) {
+			t.Fatalf("missing field ownership for %s.variant", role)
 		}
 		if permission := agent["permission"].(map[string]interface{})["question"]; role != "rotta-orchestrator" && permission != "deny" {
 			t.Fatalf("%s question permission = %q, want deny", role, permission)
@@ -84,6 +88,24 @@ func TestSCN004_UnownedModelRefusesBeforeMutation(t *testing.T) {
 	}
 	if got, readErr := os.ReadFile(target); readErr != nil || string(got) != string(before) {
 		t.Fatalf("conflicted global config changed: %q, %v", got, readErr)
+	}
+}
+
+func TestUnownedVariantRefusesBeforeMutation(t *testing.T) {
+	home := t.TempDir()
+	xdg := filepath.Join(home, "xdg")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	target := filepath.Join(xdg, "opencode", "opencode.json")
+	before := []byte(`{"agent":{"rotta-impl":{"variant":"high"}}}`)
+	writeRoutingTestFile(t, target, before)
+	_, err := Install(Options{Target: "opencode"})
+	if err == nil || !containsAll(err.Error(), target, "rotta-impl.variant") {
+		t.Fatalf("variant conflict = %v", err)
+	}
+	if after, err := os.ReadFile(target); err != nil || string(after) != string(before) {
+		t.Fatalf("conflict mutated config: %q %v", after, err)
 	}
 }
 
@@ -118,7 +140,7 @@ func TestSCN005_DisablePreservesOwnedAgentNonModelFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	architect = config["agent"].(map[string]interface{})["rotta-architect"].(map[string]interface{})
-	if _, exists := architect["model"]; exists || architect["user_setting"] != "keep" {
+	if _, exists := architect["model"]; exists || architect["variant"] != nil || architect["user_setting"] != "keep" {
 		t.Fatalf("disable did not preserve the agent object and user field: %#v", architect)
 	}
 }

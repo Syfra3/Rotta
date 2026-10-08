@@ -27,6 +27,7 @@ type Options struct {
 	SetupContext7         bool // whether to configure Context7 documentation MCP
 	ModelRouting          ModelRoutingRequest
 	ModelRoutingModels    map[string]string
+	ModelRoutingEfforts   map[string]string
 	PiModelRouting        ModelRoutingRequest
 	PiModelRoutingModels  map[string]string
 	PiModelRoutingEfforts map[string]string
@@ -296,7 +297,7 @@ func Install(opts Options) (*Result, error) {
 
 func prepareInstall(opts Options) (*Result, string, string, bool, bool, error) {
 	if !isSupportedInstallTarget(opts.Target) {
-		return nil, "", "", false, false, fmt.Errorf("unsupported host target %q; supported hosts are exactly Claude Code, OpenCode, and Codex", opts.Target)
+		return nil, "", "", false, false, fmt.Errorf("unsupported host target %q; supported hosts are Claude Code, OpenCode, Codex, Pi, and Copilot CLI", opts.Target)
 	}
 	result := &Result{Target: opts.Target, Hosts: map[string]HostInstallResult{}}
 	home, err := os.UserHomeDir()
@@ -354,7 +355,7 @@ func failedCleanInstall(result *Result, opts Options, projectPath string, err er
 }
 
 func setupAncora(opts Options, result *Result, home string) error {
-	if !opts.SetupAncora || opts.Target == "pi" {
+	if !opts.SetupAncora || opts.Target == "pi" || opts.Target == "copilot" {
 		return nil
 	}
 	ar, err := setupAncoraWithBackups(opts, home, result.AgentBackupDirs)
@@ -372,7 +373,7 @@ func setupVela(opts Options, result *Result, home, projectPath string) error {
 }
 
 func setupVelaWithTransaction(opts Options, result *Result, home, projectPath string, transaction *openCodeVelaTransaction) error {
-	if !opts.SetupVela || opts.Target == "pi" {
+	if !opts.SetupVela || opts.Target == "pi" || opts.Target == "copilot" {
 		return nil
 	}
 	vr, err := SetupVela(opts, home, projectPath)
@@ -650,6 +651,10 @@ func recordMCPHostCapabilities(result *Result, opts Options) {
 			result.Hosts[host] = hostResult
 			continue
 		}
+		if host == "copilot" {
+			result.Hosts[host] = hostResult
+			continue
+		}
 		if opts.SetupAncora {
 			hostResult.Capabilities["mcp:ancora"] = exactMCPCapability("mcp:ancora")
 		}
@@ -690,6 +695,14 @@ func recordHostCapabilityMatrix(result *Result, opts Options) {
 			hostResult.Capabilities["commands"] = commandCapability(host)
 		}
 		hostResult.Capabilities["mcp"] = mcpCapability(opts, host)
+		if host == "copilot" {
+			for _, name := range selectedMCPCapabilities(opts) {
+				if hostResult.Capabilities[name].Status == HostCapabilityStatusUnsupported {
+					hostResult.Capabilities["mcp"] = HostCapability{Name: "mcp", Status: HostCapabilityStatusDegraded, Reason: "User-owned Copilot MCP configuration was preserved; selected services were not configured by Rotta.", Remediation: "Configure selected MCP servers in Copilot CLI and verify runtime discovery."}
+					break
+				}
+			}
+		}
 		hostResult.Capabilities["health_checks"] = healthCheckCapability(opts, host)
 		hostResult.Capabilities["lifecycle"] = exactCapability("lifecycle")
 		result.Hosts[host] = hostResult
@@ -704,6 +717,9 @@ func installationCapability(status HostInstallStatus) HostCapability {
 }
 
 func instructionsCapability(host string) HostCapability {
+	if host == "copilot" {
+		return HostCapability{Name: "instructions", Status: HostCapabilityStatusPending, Reason: "Generated Copilot agents point to one managed policy bundle; live agent loading is unverified.", Remediation: "Restart Copilot CLI and verify the selected agent reads its core and role files."}
+	}
 	if host == "codex" {
 		return HostCapability{
 			Name:        "instructions",
@@ -718,6 +734,9 @@ func instructionsCapability(host string) HostCapability {
 func mcpCapability(opts Options, host string) HostCapability {
 	if !opts.SetupAncora && !opts.SetupVela && !opts.SetupContext7 {
 		return HostCapability{Name: "mcp", Status: HostCapabilityStatusSkipped, Reason: "No MCP integrations were selected for this installation."}
+	}
+	if host == "copilot" {
+		return HostCapability{Name: "mcp", Status: HostCapabilityStatusPending, Reason: "Copilot MCP configuration is generated or preserved; runtime behavior has not been observed.", Remediation: "Inspect per-service statuses and verify them in Copilot CLI."}
 	}
 	if host == "codex" && opts.SetupContext7 {
 		return HostCapability{
@@ -734,6 +753,9 @@ func mcpCapability(opts Options, host string) HostCapability {
 }
 
 func healthCheckCapability(opts Options, host string) HostCapability {
+	if host == "copilot" {
+		return HostCapability{Name: "health_checks", Status: HostCapabilityStatusNotApplicable, Reason: "Copilot CLI runtime is not launched or probed by the installer.", Remediation: "Verify agent loading and selected MCP tools in Copilot CLI after restart."}
+	}
 	if host == "pi" {
 		return HostCapability{Name: "health_checks", Status: HostCapabilityStatusNotApplicable, Reason: "Pi installer does not start or probe MCP services.", Remediation: "Pi reports runtime discovery errors after activation."}
 	}

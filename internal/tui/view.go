@@ -48,7 +48,7 @@ func (m Model) screenViews() map[Screen]func() string {
 func (m Model) viewWelcome() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Rotta Installer") + "\n")
-	b.WriteString(subtitleStyle.Render("Lightweight reviewed coding workflow for Claude Code, OpenCode, and Codex") + "\n\n")
+	b.WriteString(subtitleStyle.Render("Lightweight reviewed coding workflow for Claude Code, OpenCode, Codex, Pi, and Copilot CLI") + "\n\n")
 
 	b.WriteString(sectionStyle.Render("What this installs") + "\n")
 	b.WriteString(menuItemStyle.Render("  Fast mode        — One coherent slice, focused tests, independent review") + "\n")
@@ -190,6 +190,7 @@ func (m Model) viewTargetSelect() string {
 		{"Pi", "Executable Rotta extension → ~/.pi/agent/extensions/rotta.ts"},
 		{"Both", "Install for both tools"},
 		{"All", "Install every supported host integration once"},
+		{"Copilot CLI", "Global agents and a Rotta-owned policy bundle → ~/.copilot/"},
 	}
 
 	for i, item := range items {
@@ -248,7 +249,7 @@ func (m Model) viewPiModelRouting() string {
 func (m Model) viewCustomModelRouting() string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Custom OpenCode Model Routing") + "\n\n")
-	b.WriteString(inputHintStyle.Render("Choose a model for each phase. Listed models are discovered locally; credentials are not verified.") + "\n\n")
+	b.WriteString(inputHintStyle.Render("Choose a model and reasoning variant for each role. Listed models are discovered locally; credentials are not verified.") + "\n\n")
 	if !m.ModelDiscoveryDone {
 		b.WriteString(menuItemStyle.Render("Discovering models from OpenCode…") + "\n\n")
 	} else if m.ModelDiscoveryError != "" {
@@ -259,12 +260,12 @@ func (m Model) viewCustomModelRouting() string {
 		if index == m.CustomRoutingCursor {
 			style, prefix = menuSelectedStyle, "▸ "
 		}
-		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s", prefix, role.label, m.CustomRouting[role.key])) + "\n")
+		b.WriteString(style.Render(fmt.Sprintf("%s%s: %s (%s)", prefix, role.label, m.CustomRouting[role.key], m.CustomEfforts[role.key])) + "\n")
 	}
 	if m.ModelDiscoveryError != "" && !m.ModelDiscoveryInFlight {
 		b.WriteString(helpStyle.Render("r to retry discovery · "))
 	}
-	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose · n to continue · Esc to go back"))
+	b.WriteString("\n" + helpStyle.Render("j/k to move · Enter to choose model · e to cycle effort · n to continue · Esc to go back"))
 	return appStyle.Render(b.String())
 }
 

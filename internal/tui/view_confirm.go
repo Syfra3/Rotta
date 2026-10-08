@@ -28,7 +28,7 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 		writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
 		if m.ModelRouting == installer.ModelRoutingCustom {
 			for _, role := range routingRoles {
-				writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key])
+				writeConfirmValue(b, "  "+role.label+":", m.CustomRouting[role.key]+" ("+m.CustomEfforts[role.key]+")")
 			}
 		}
 	}
@@ -110,6 +110,13 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 			writeConfirmFile(b, "  ~/.pi/agent/models.json  (openai-codex/gpt-6-sol and gpt-6-luna context windows: 1000000)")
 		}
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models and efforts)")
+	}
+	if m.Target == TargetCopilot || m.Target == TargetAll {
+		writeConfirmFile(b, "  ~/.copilot/agents/rotta-*.agent.md  (Copilot CLI agents)")
+		writeConfirmFile(b, "  ~/.copilot/rotta-next/<role>/SKILL.md  (shared Rotta policy)")
+		if m.SetupAncora || m.SetupVela || m.SetupContext7 {
+			writeConfirmFile(b, "  ~/.copilot/mcp-config.json  (if absent or Rotta-owned; otherwise preserved)")
+		}
 	}
 }
 

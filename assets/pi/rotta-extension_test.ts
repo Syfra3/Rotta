@@ -31,6 +31,7 @@ function host(
   const headers: unknown[] = [];
   const shortcuts: any[] = [];
   const overlays: any[] = [];
+  const widgets: Record<string, any> = {};
   const notifications: Array<{ message: string; level: string }> = [];
   const events: Record<string, unknown> = {};
   const emittedEvents: Array<{ event: string; data: unknown }> = [];
@@ -70,6 +71,7 @@ function host(
     sessionManager: { getSessionId: () => "trusted-session" },
     ui: {
       setHeader: (factory: unknown) => headers.push(factory),
+      setWidget: (name: string, factory: any) => { widgets[name] = factory; },
       custom: async (factory: any) => {
         let closed = false;
         const component = factory(
@@ -99,6 +101,7 @@ function host(
     headers,
     shortcuts,
     overlays,
+    widgets,
     notifications,
     events,
     emittedEvents,
@@ -287,11 +290,21 @@ Deno.test("compact built-ins register only after a TUI session starts", async ()
   }
 });
 
-Deno.test("compact built-ins visibly disable shadows on Pi version or factory-shape mismatch", async () => {
+for (const version of ["0.88.0", "0.99.1", "1.0.0", "2.0.0"]) {
+  Deno.test(`Pi ${version} TUI registers compact built-ins without a startup error`, async () => {
+    const mock = host();
+    registerRotta(mock.pi as any, { home: () => "/test-home", piVersion: version });
+    await (mock.events.session_start as any)({}, mock.ctx);
+    assert(mock.tools.some((tool) => tool.name === "bash"));
+    assert(mock.tools.some((tool) => tool.name === "edit"));
+    assert(mock.notifications.length === 0);
+  });
+}
+
+Deno.test("compact built-ins visibly disable shadows on factory-shape mismatch regardless of Pi version", async () => {
   const cases = [
-    { piVersion: "0.88.0" },
     {
-      piVersion: "0.87.1",
+      piVersion: "2.0.0",
       builtinFactories: {
         bash: (() => ({ name: "bash", parameters: {}, execute: async () => ({}) })) as any,
         edit: (() => ({ name: "edit", parameters: {}, execute: async () => ({}) })) as any,
@@ -559,8 +572,9 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     home: () => "/test-home",
   });
   assert(
-    mock.tools.length === 3,
-    "default registration did not expose both tools",
+    mock.tools.length === 4 && mock.tools.some((entry) => entry.name === "rotta_prepare_question") &&
+      !mock.tools.some((entry) => entry.name === "rotta_local_text_replace"),
+    "read-only question preparation must coexist with existing tools; unsafe local adapter must not be registered",
   );
   const result = await tool(mock.tools, "rotta_delegate").execute(
     "call",
@@ -860,6 +874,8 @@ Deno.test("timeout remains a Pi error and recovers requested routing without fab
       model: "requested/model",
     });
     assert(failure.details.reason === "timeout");
+    assert(failure.details.checkpointRequired === true &&
+      failure.details.nextAction.includes("Partial child output is not a handoff"));
     assert(
       pendingDetailTimers.cleared.length === 1,
       "tool_result did not consume and clear the independent detail TTL",
@@ -1224,6 +1240,120 @@ Deno.test("every child role gets its own isolated process allowlist", async () =
   }
 });
 
+Deno.test("parent denies declared missing child capabilities before spawning, but permits compatible requests", async () => {
+  const fixture = fakeSpawn({ stdout: '{"status":"success","output":"ok"}\n' });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home" });
+  const delegate = tool(mock.tools, "rotta_delegate");
+  for (const requiredTools of [["bash"], ["pdf"], ["bash", "pdf"]]) {
+    await delegate.execute("denied", { role: "exploration", task: "inspect source", requiredTools },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("infeasible child spawned"); }, (error: Error) => {
+        assert(error.message.includes("exploration child lacks required tool(s)"));
+        assert(requiredTools.every((name) => error.message.includes(name)));
+      });
+    assert(fixture.calls.length === 0);
+  }
+  await delegate.execute("allowed", { role: "exploration", task: "read source", requiredTools: ["read"] },
+    signal().signal, () => {}, mock.ctx);
+  assert(fixture.calls.length === 1);
+});
+
+Deno.test("mechanically incomplete question is diagnosed before UI without bound values", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  try {
+  registerRotta(mock.pi as any, { home: () => "/test-home" });
+  await tool(mock.tools, "rotta_question").execute("incomplete", {
+    trigger: "policy-decision", requestId: "id", workspace: mock.ctx.cwd,
+    action: "decide", safeOutcome: "Stop", decision: "private decision payload",
+  }, signal().signal, () => {}, mock.ctx).then(() => { throw Error("incomplete question accepted"); }, (error: Error) => {
+    assert(error.message.includes("options"));
+    assert(!error.message.includes("private decision payload"));
+  });
+  assert(mock.selects.length === 0);
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("question preparation binds an explicit safe choice and current contract bytes without authorizing", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  const contract = `${workspace}/contract.md`;
+  Deno.writeTextFileSync(contract, "# Approval\nRevision: 1\n");
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const draft = { trigger: "strict-approval", requestId: "approve-r1", action: "approve repair",
+      decision: "Approve the exact repair contract?", choices: ["Approve revision 1"],
+      safeOption: "Stop", contractPath: contract };
+    const result = await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx);
+    const request = result.details.request;
+    assert(mock.selects.length === 0 && request.workspace === workspace);
+    assert(request.options.join("|") === "Approve revision 1|Stop" && request.safeOutcome === "Stop");
+    assert(request.contractRevision === 1 && request.contractPath === contract);
+    assert(request.contractDigest === createHash("sha256").update(Deno.readFileSync(contract)).digest("hex"));
+    const answer = await tool(mock.tools, "rotta_question").execute("ask", request,
+      signal().signal, () => {}, mock.ctx);
+    assert(answer.content[0].text === "Approve revision 1" && Number(mock.selects.length) === 1);
+    await prepare.execute("duplicate", { ...draft, safeOption: "Approve revision 1" },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("ambiguous draft accepted"); },
+      (error: Error) => assert(error.message.includes("distinct")));
+    await prepare.execute("missing", { ...draft, decision: "" },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("missing decision accepted"); },
+      (error: Error) => assert(error.message.includes("incomplete question draft")));
+    Deno.writeTextFileSync(contract, "# Approval\nRevision: 2\n");
+    await tool(mock.tools, "rotta_question").execute("stale", request,
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("stale approval accepted"); },
+      (error: Error) => assert(error.message.includes("approval identity mismatch")));
+    assert(Number(mock.selects.length) === 1, "stale request displayed to user");
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("operation question preparation binds the current exact artifact, never a draft command", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  Deno.mkdirSync(`${workspace}/.rotta/ops`, { recursive: true });
+  const operationPath = `${workspace}/.rotta/ops/check.md`;
+  const action = "inspect owned target";
+  const bytes = `Action: ${action}\nCommand: pwd\nTarget: ${workspace}\nEffect: read-only\nRevision: 1\n`;
+  Deno.writeTextFileSync(operationPath, bytes);
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const draft = { trigger: "external-consent", requestId: "inspect-once", action,
+      decision: "Inspect this target once?", safeOption: "Stop", operationPath };
+    const result = await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx);
+    const request = result.details.request;
+    assert(request.operationDigest === createHash("sha256").update(bytes).digest("hex"));
+    assert(request.command === "pwd" && request.target === workspace && request.operationRevision === 1);
+    assert(mock.selects.length === 0, "preparation cannot display approval");
+    await prepare.execute("mismatch", { ...draft, action: "other" }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("mismatched operation accepted"); },
+        (error: Error) => assert(error.message.includes("operation identity")));
+    Deno.writeTextFileSync(operationPath, bytes.replace("Revision: 1", "Revision: 2"));
+    await tool(mock.tools, "rotta_question").execute("stale", request, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("stale operation accepted"); },
+        (error: Error) => assert(error.message.includes("incomplete exact operation binding")));
+    assert(mock.selects.length === 0);
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("diagnostic-only operations delegation fails with actionable parent-side guidance", async () => {
+  const fixture = fakeSpawn({ stdout: '{"status":"success","output":"unexpected"}\n' });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home" });
+  await tool(mock.tools, "rotta_delegate").execute(
+    "diagnostic", { role: "operations", task: "read an artifact; do not execute" },
+    signal().signal, () => {}, mock.ctx,
+  ).then(() => { throw new Error("unbound operations delegate accepted"); }, (error: Error) => {
+    assert(error.message.includes("diagnostic-only inspection must use read or a non-operations role"));
+    assert(error.message.includes("no operation ran"));
+  });
+  assert(fixture.calls.length === 0, "unbound operations child started");
+});
+
 Deno.test("operations gate denies missing, modified and replayed commands", () => {
   assert(!operationGate(undefined)({ command: "git status" }));
   const gate = operationGate("git status");
@@ -1377,12 +1507,14 @@ Deno.test("delegate renderer stays compact until expanded", () => {
   );
 });
 
-Deno.test("latest Rotta action detail shortcut opens a bounded Escape-close overlay", async () => {
+Deno.test("live detail widget toggles without intercepting input and follows action lifecycle", async () => {
   const mock = host();
   registerRotta(mock.pi as any, { home: () => "/test-home" });
-  assert(mock.shortcuts[0]?.shortcut === "ctrl+shift+o");
+  const toggle = mock.shortcuts.find((s: any) => s.shortcut === "ctrl+shift+o");
+  const diagnostic = mock.shortcuts.find((s: any) => s.shortcut === "ctrl+shift+d");
+  assert(toggle && diagnostic);
   (mock.events.tool_execution_start as any)(
-    { toolName: "rotta_delegate", args: { role: "reviewer", task: "secret-free task" } },
+    { toolName: "rotta_delegate", toolCallId: "action-1", args: { role: "reviewer", task: "secret-free task" } },
     mock.ctx,
   );
   const delegate = tool(mock.tools, "rotta_delegate") as any;
@@ -1401,33 +1533,57 @@ Deno.test("latest Rotta action detail shortcut opens a bounded Escape-close over
     "nonmatching mouse event returned a handled result",
   );
   await Promise.resolve();
-  assert(mock.overlays.length === 1, "normalized click did not open details");
-  await mock.shortcuts[0].handler(mock.ctx);
-  const shown = mock.overlays[1];
-  const lines = shown.component.render(24);
-  assert(lines.every((line: string) => visibleWidth(line) <= 24));
-  shown.component.handleInput("\x1b");
-  assert(shown.closed, "Escape did not close detail overlay");
+  assert(mock.overlays.length === 0 && mock.widgets["rotta-action-detail"]);
+  // Shortcut handlers only install a widget; they do not consume ordinary editor/navigation keys.
+  assert(await toggle.handler(mock.ctx) === undefined && !mock.widgets["rotta-action-detail"]);
+  assert(await toggle.handler(mock.ctx) === undefined && mock.widgets["rotta-action-detail"]);
+  assert(mock.overlays.length === 0, "keyboard toggle opened a focus-capturing overlay");
+  const view = () => mock.widgets["rotta-action-detail"]({ requestRender() {} }, { fg: (_: string, s: string) => s }).render(40).join(" ");
+  assert(view().includes("running") && !view().includes("secret-free task"));
+  (mock.events.tool_execution_update as any)({ toolCallId: "action-1", partialResult: { details: { diagnostic: "streaming" } } });
+  assert(!view().includes("streaming"));
+  (mock.events.tool_execution_end as any)({ toolName: "rotta_delegate", toolCallId: "action-1", isError: true, result: { details: { diagnostic: "Bearer dangerous-secret" } } });
+  assert(view().includes("failed"));
+  diagnostic.handler(mock.ctx);
+  assert(!view().includes("dangerous-secret") && view().includes("redacted"));
+  diagnostic.handler(mock.ctx);
+  (mock.events.tool_execution_start as any)(
+    { toolName: "rotta_ancora_search", toolCallId: "action-2", args: { query: "safe" } }, mock.ctx,
+  );
+  assert(view().includes("running") && view().includes("ancora"));
+  (mock.events.tool_execution_end as any)(
+    { toolName: "rotta_ancora_search", toolCallId: "action-2", isError: false, result: { content: [{ type: "text", text: "done" }] } },
+  );
+  assert(view().includes("completed") && !view().includes("running"), "managed action did not transition to completed in the open widget");
+  assert(mock.overlays.length === 0, "lifecycle update opened a modal");
+  await toggle.handler(mock.ctx);
+  assert(!mock.widgets["rotta-action-detail"] && mock.overlays.length === 0);
 });
 
-Deno.test("detail overlay clamps repeated scrolling to non-empty content bounds", () => {
-  const component = detailOverlayComponent(
-    { requestRender() {} },
+Deno.test("diagnostic widget redacts Basic and Bearer authorization credentials", () => {
+  for (const diagnostic of [
+    "Authorization: Basic c3ludGhldGljOnNlY3JldA==",
+    '"Authorization": "Basic c3ludGhldGljOnNlY3JldA=="',
+    "Authorization: Bearer synthetic-secret",
+    '"Authorization": "Bearer synthetic-secret"',
+  ]) {
+    const component = detailOverlayComponent({ requestRender() {} },
+      { fg: (_: string, text: string) => text } as any,
+      () => ({ service: "delegate", action: "reviewer", state: "failed", request: {}, diagnostic }), () => true);
+    const rendered = component.render(120).join(" ");
+    assert(rendered.includes("redacted"), `credential not redacted: ${diagnostic}`);
+    assert(!rendered.includes("c3ludGhldGljOnNlY3JldA==") && !rendered.includes("synthetic-secret"),
+      `credential leaked: ${diagnostic}`);
+  }
+});
+
+Deno.test("diagnostic widget bounds long escaped data", () => {
+  const component = detailOverlayComponent({ requestRender() {} },
     { fg: (_: string, text: string) => text } as any,
-    {
-      service: "delegate",
-      action: "reviewer",
-      state: "complete",
-      request: "request ".repeat(80),
-      response: "response ".repeat(80),
-    },
-    () => {},
-  );
-  component.render(20);
-  for (let index = 0; index < 100; index++) component.handleInput("\x1b[6~");
+    () => ({ service: "delegate", action: "reviewer", state: "complete", request: {}, diagnostic: "\\n".repeat(5000) + "token=secret" }), () => true);
   const lines = component.render(20);
-  assert(lines.length > 3, "overscroll emptied the detail viewport");
-  assert(lines.some((line: string) => line.includes("response")));
+  assert(lines.length <= 8 && lines.every((line: string) => visibleWidth(line) <= 20));
+  assert(!lines.join("").includes("secret"));
 });
 
 Deno.test("delegate timeout status names role and honors bounded explicit timeout", async () => {
@@ -1522,6 +1678,20 @@ Deno.test("delegate defaults to ten minutes and clamps explicit timeout at thirt
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }
+});
+
+Deno.test("invalid child final requires a verified checkpoint, never a successful partial result", async () => {
+  const partial = JSON.stringify({ type: "message_end", message: { role: "assistant",
+    content: "Earlier partial success" } });
+  const invalid = JSON.stringify({ type: "message_end", message: { role: "assistant",
+    content: '{"status":"success",}' } });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fakeSpawn({ stdout: `${partial}\n${invalid}\n` }).spawn,
+    home: () => "/test-home" });
+  const failure = await recoveredDelegateFailure(mock, { role: "reviewer", task: "review" });
+  assert(failure.details.reason === "invalid_result" && failure.details.checkpointRequired === true);
+  assert(failure.details.nextAction.includes("Verify the persisted work record"));
+  assert(!failure.error.message.includes("Earlier partial success"));
 });
 
 Deno.test("delegate accepts ordinary final assistant text while preserving envelope validation", async () => {
@@ -1732,7 +1902,7 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     history: "x".repeat(70_000),
   });
   const oversizedTrailing = fakeSpawn({
-    stdout: `${finalAssistant}\n${trailingAgentEnd}`,
+    stdout: [Buffer.from(`${finalAssistant}\n`), Buffer.from(trailingAgentEnd)],
   });
   const oversizedHost = host();
   const updates: any[] = [];
@@ -1754,6 +1924,8 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     oversizedResult.content[0].text === "authoritative result",
     "oversized trailing agent_end evicted the final assistant result",
   );
+  assert(updates.length === 1 && updates[0].details.running === true,
+    "child JSONL stdout should not republish the diagnostic tail on every chunk");
   assert(
     updates.every((update) =>
       Buffer.byteLength(update.content?.[0]?.text ?? "", "utf8") <= 65_536 +
@@ -2097,6 +2269,15 @@ Deno.test("exact operation consent binds dispatch once without executing on cons
       options: ["Approve the exact rendered operation once", "Stop"], safeOutcome: "Stop",
       command, target, operationPath: artifactPath, operationRevision: revision, operationDigest: digest,
     };
+    const generated = await question.execute("generated-consent", {
+      trigger: "external-consent", requestId: "generated", workspace: project,
+      action, effect, safeOutcome: "Stop", command, target,
+      operationPath: artifactPath, operationRevision: revision, operationDigest: digest,
+    }, signal().signal, () => {}, mock.ctx);
+    assert(generated.content[0].text === "Approve the exact rendered operation once");
+    const displayed = mock.selects.at(-1) as { title: string; options: string[] };
+    assert(displayed.options.join("|") === "Approve the exact rendered operation once|Stop");
+    assert(displayed.title.includes(`Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nWorkspace: ${project}\nArtifact: ${artifactPath}\nDigest: ${digest}\nRevision: 1\nScope: one execution`));
     const dispatch = (binding: typeof operation, ctx = mock.ctx) => delegate.execute(
       "dispatch", { role: "operations", task: "run exact harmless command", operation: binding },
       signal().signal, () => {}, ctx,
@@ -2136,10 +2317,18 @@ Deno.test("exact operation consent binds dispatch once without executing on cons
     for (const invalid of [
       bytes + "Command: printf safe\n", bytes.replace(`Effect: ${effect}\n`, ""),
       bytes.replace("Revision: 1", "Revision: 2"),
+      bytes.replace("Action: ", "# Action: "),
+      bytes.replace(`Effect: ${effect}`, "Effect: "),
+      bytes.replace(`Effect: ${effect}`, "Effect: private\ncontinuation"),
     ]) {
       Deno.writeTextFileSync(artifactPath, invalid);
       await question.execute("invalid-artifact", { ...request, operationDigest: createHash("sha256").update(invalid).digest("hex") }, signal().signal, () => {}, mock.ctx)
-        .then(() => { throw Error("invalid artifact approved"); }, () => {});
+        .then(() => { throw Error("invalid artifact approved"); }, (error: Error) => {
+          assert(error.message.includes(invalid.includes("Revision: 2") ? "operationRevision" : "operationPath"),
+            "missing structural field name");
+          assert(!error.message.includes(command) && !error.message.includes(target) &&
+            !error.message.includes("private"), "diagnostic exposed packet values");
+        });
       assert(callCount() === 1);
     }
     Deno.writeTextFileSync(artifactPath, bytes);
@@ -2156,6 +2345,69 @@ Deno.test("exact operation consent binds dispatch once without executing on cons
         .then(() => { throw new Error("external target approved"); }, () => {});
       assert(callCount() === 1, "invalid target caused execution");
     } finally { Deno.removeSync(outside, { recursive: true }); }
+  } finally { Deno.removeSync(project, { recursive: true }); }
+});
+
+Deno.test("canonical operation identity supports absolute, relative and aliased consent with single-use guarded dispatch", async () => {
+  const project = Deno.makeTempDirSync();
+  try {
+    const ops = `${project}/.rotta/ops`;
+    Deno.mkdirSync(ops, { recursive: true });
+    const target = project;
+    const command = "printf fixture-only";
+    const action = "read-only preflight";
+    const effect = "stubbed result only";
+    const bytes = `Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nRevision: 1\n`;
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const canonical = `${ops}/preflight.md`;
+    Deno.writeTextFileSync(canonical, bytes);
+    Deno.symlinkSync(canonical, `${ops}/alias.md`);
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"stubbed"}\n' });
+    const mock = host();
+    mock.ctx.cwd = project;
+    registerRotta(mock.pi as any, { spawn: fake.spawn });
+    const question = tool(mock.tools, "rotta_question");
+    const delegate = tool(mock.tools, "rotta_delegate");
+    const answerText = "Approve the exact rendered operation once";
+    for (const [index, supplied] of [canonical, ".rotta/ops/preflight.md", ".rotta/ops/alias.md"].entries()) {
+      const requestId = `canonical-${index}`;
+      const request = { trigger: "external-consent", requestId, workspace: project, action, effect,
+        safeOutcome: "Stop", command, target, operationPath: supplied, operationRevision: 1, operationDigest: digest };
+      const binding = { requestId, command, target, action, effect, artifactPath: supplied, revision: 1, digest };
+      const count = fake.calls.length;
+      await question.execute(requestId, request, signal().signal, () => {}, mock.ctx);
+      assert((mock.selects.at(-1) as { title: string }).title.includes(`Artifact: ${canonical}\nDigest: ${digest}\nRevision: 1\nScope: one execution`));
+      assert(fake.calls.length === count, "prompt executed operation");
+      const dispatch = (operation = binding) => delegate.execute("dispatch", {
+        role: "operations", task: "stub only", operation,
+      }, signal().signal, () => {}, mock.ctx);
+      await dispatch();
+      assert(fake.calls.length === count + 1, "authorized operation did not dispatch");
+      await dispatch().then(() => { throw Error("replay accepted"); }, () => {});
+      assert(fake.calls.length === count + 1, "replay spawned child");
+      await question.execute(`${requestId}-again`, request, signal().signal, () => {}, mock.ctx);
+      await dispatch({ ...binding, command: "other" }).then(() => { throw Error("mismatch accepted"); }, () => {});
+      await dispatch().then(() => { throw Error("mismatch did not consume consent"); }, () => {});
+      assert(fake.calls.length === count + 1);
+      await question.execute(`${requestId}-stale`, request, signal().signal, () => {}, mock.ctx);
+      Deno.writeTextFileSync(canonical, bytes + "tampered\n");
+      await dispatch().then(() => { throw Error("stale artifact accepted"); }, () => {});
+      Deno.writeTextFileSync(canonical, bytes);
+      await dispatch().then(() => { throw Error("stale consent replayed"); }, () => {});
+      assert(fake.calls.length === count + 1);
+    }
+    const outside = Deno.makeTempDirSync();
+    try {
+      Deno.writeTextFileSync(`${outside}/out.md`, bytes);
+      for (const supplied of [`${outside}/out.md`, ".rotta/ops/missing.md"]) {
+        await question.execute("invalid", { trigger: "external-consent", requestId: "invalid", workspace: project,
+          action, effect, safeOutcome: "Stop", command, target, operationPath: supplied,
+          operationRevision: 1, operationDigest: digest }, signal().signal, () => {}, mock.ctx)
+          .then(() => { throw Error("invalid path approved"); }, () => {});
+      }
+    } finally { Deno.removeSync(outside, { recursive: true }); }
+    assert(fake.calls.length === 3);
+    assert(mock.selects.every((selection: any) => selection.options[0] === answerText));
   } finally { Deno.removeSync(project, { recursive: true }); }
 });
 
@@ -2453,7 +2705,12 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   await question.execute("partial-consent", { ...request, trigger: "external-consent", command: "printf x" },
     signal().signal, () => {}, mock.ctx).then(() => {
     throw new Error("partial consent was accepted");
-  }, (error: Error) => assert(error.message.includes("incomplete exact operation binding")));
+  }, (error: Error) => {
+    assert(error.message.includes("operationPath") && error.message.includes("target") &&
+      error.message.includes("effect") && error.message.includes("operationRevision") &&
+      error.message.includes("operationDigest"), "missing field names");
+    assert(!error.message.includes("printf x"), "diagnostic exposed supplied command");
+  });
   const accepted = await question.execute(
     "call",
     request,

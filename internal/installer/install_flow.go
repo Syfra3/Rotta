@@ -70,6 +70,9 @@ func installNamedHosts(opts Options, result *Result, home string) error {
 
 func installedHostResult(opts Options, host, home string, files []string) (HostInstallResult, error) {
 	result := HostInstallResult{Host: host, Status: HostInstallStatusInstalled, Files: files}
+	if host == "copilot" {
+		result.Capabilities = copilotHostCapabilities(opts, home)
+	}
 	if host != "opencode" {
 		return result, nil
 	}
@@ -96,13 +99,15 @@ func installHost(opts Options, host, home string) ([]string, error) {
 		return installCodex(opts, home)
 	case "pi":
 		return installPi(opts, home)
+	case "copilot":
+		return installCopilot(opts, home)
 	default:
 		return nil, fmt.Errorf("unsupported host target %q", host)
 	}
 }
 
 func setupContext7(opts Options, result *Result, home, projectPath string) (bool, error) {
-	if !opts.SetupContext7 || opts.Target == "pi" {
+	if !opts.SetupContext7 || opts.Target == "pi" || opts.Target == "copilot" {
 		return false, nil
 	}
 	context7Result, err := ConfigureContext7(opts, home)

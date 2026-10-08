@@ -100,7 +100,8 @@ Generated files are written for the selected target:
 | Claude Code | Role agents under `~/.claude/agents/` and skills under `~/.claude/skills/rotta-next/` |
 | Codex | Adapted instructions in `~/.codex/AGENTS.md` |
 | Pi | Executable global extension at `~/.pi/agent/extensions/rotta.ts`, explicit MCP bridge, and `~/.pi/agent/rotta-next/mcp.json` |
-| Both or all | Installs the selected host integrations; `all` includes Pi exactly once |
+| GitHub Copilot CLI | Agents in `~/.copilot/agents/` and shared-policy renderings in `~/.copilot/rotta-next/` |
+| Both or all | Installs the selected host integrations; `all` includes Pi and Copilot CLI exactly once |
 
 All core and role files are tracked in `~/.config/rotta/managed-artifacts.json` with SHA-256 digests. Reinstalling updates only Rotta-owned, unmodified files. Installation rejects unowned, modified, malformed, or symlinked managed targets instead of silently overwriting them.
 
@@ -111,6 +112,12 @@ When OpenCode is selected, the installer offers **Default**, **Custom**, and **D
 Pi support is global-only and installs the managed executable extension above plus Pi-specific core and role files beneath `~/.pi/agent/rotta-next/`. It explicitly loads the sibling `rotta-mcp-bridge.ts`; the bridge is not globally auto-discovered as a second parent extension. Its separately managed `model-routing.json` is versioned and applies only a complete valid four-role profile; malformed, incomplete, unknown-role, or disabled profiles fail closed to normal parent inheritance. The managed `mcp.json` contains only version 1 and enabled booleans for Ancora, Vela, and Context7, reflecting the installer selections. The extension passes those exact installed policy paths to its Pi adapter (and safely stops if its host adapter cannot resolve the home path); it does not reuse OpenCode loading instructions. It performs bounded, isolated delegation with adapter-enforced role tool allowlists (reviewers have no shell-capable tool), parent-only serialized work-record writes, cancellation/timeout/output limits, fresh reviewer contexts, and validated result/error transport. Its question adapter accepts only Rotta governance triggers and fails closed for unavailable UI, cancellation, or stale/invalid decision bindings. These are adapter constraints, not an OS sandbox or proof of host-wide tool enforcement.
 
 When selected, Pi's bridge uses preinstalled `ancora` and `vela` binaries and an existing session project's `.vela/graph.json`; it never downloads, installs, or indexes either. Context7 uses its fixed HTTPS MCP endpoint at runtime, optionally with `CONTEXT7_API_KEY`; it may try anonymous access, and runtime authentication/rate errors are reported by Pi without persisting the key. Installation observes binary/graph presence without launching services and reports `unavailable`, `configured-pending-health`, or `disabled`; Pi's `rotta_mcp_status` tool exposes later observed runtime state and sanitized reasons. These offline checks do not claim live Pi or service compatibility. Rotta never installs Pi or dependencies, runs a Pi model, or invokes a package manager. The recorded `earendil-works/pi` 0.86.1 manifest commit is research provenance only, not a supported-version claim; compatible installed-Pi runtime verification requires separate authority.
+
+### GitHub Copilot CLI integration
+
+Choose **Copilot CLI** in the installer or run `rotta install --target copilot --project /path/to/project`. Restart Copilot CLI and select `rotta-orchestrator` with `/agent` or launch `copilot --agent rotta-orchestrator`. The other Rotta agents are available for bounded delegation. Agents load the core and their role from the same absolute `~/.copilot/rotta-next/` bundle rendered from `assets/core/` and `assets/agents/`; there is no independent Copilot policy fork. The installer uses the managed-artifact manifest to refuse unowned, edited, or symlinked agent files.
+
+When optional integrations are selected, Rotta writes `~/.copilot/mcp-config.json` only if absent or still Rotta-owned and unmodified; an existing user-owned/edited file is preserved and each selected integration is reported as unvalidated with remediation. Deselecting services clears them from a still-owned config. Vela is launched as `vela serve --mcp`; existing configs generated with `vela mcp` need a managed reinstall or a reconciled update. Copilot-only installation does not download binaries, launch servers, or probe Copilot CLI. A generated MCP config reports **pending verification**, not verified runtime availability. Rotta does not enforce Copilot agent tool restrictions or one-time operation guards; inspect the available tools before delegating or operating. Verify agent loading and selected MCP tools inside Copilot after restart.
 
 OpenCode prompts and installed skills explicitly read the core and role from the same absolute bundle under the effective `XDG_CONFIG_HOME` (or `~/.config`). They do not resolve `rotta-core` by name, avoiding stale same-named skills under `~/.claude/` or other discovery paths. Exact legacy prompts are upgraded only with intact managed-role ownership evidence. Custom prompts are preserved; setup reports degraded `source_loading` with a concrete remediation when their loader cannot be established. This reports generated configuration, not proof of live host behavior: overlays and read permissions can still intervene. Restart OpenCode and verify the actual loaded paths after installing. Duplicate custom/other-host skills are not deleted.
 
@@ -134,7 +141,7 @@ It ships first-class installation paths for:
 - opencode
 - Claude Code
 
-Other agents can use the same policy by reading `assets/core/rotta-core.md` and the matching role prompt under `assets/agents/`.
+Codex, Pi, and Copilot CLI also have installer integrations. Other agents can use the same policy by reading `assets/core/rotta-core.md` and the matching role prompt under `assets/agents/`.
 
 ## Workflow Modes
 

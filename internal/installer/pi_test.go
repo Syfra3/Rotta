@@ -22,6 +22,15 @@ func fakePiObservations(t *testing.T, graph bool) {
 	t.Cleanup(func() { piLookPath, piStat = oldLook, oldStat })
 }
 
+func TestPiInstallerShipsOperationsDiagnosticGuidance(t *testing.T) {
+	home := t.TempDir()
+	if _, err := installPi(Options{}, home); err != nil {
+		t.Fatalf("install Pi: %v", err)
+	}
+	assertRottaNextFileContains(t, piExtensionPath(home), "diagnostic-only inspection must use read or a non-operations role")
+	assertRottaNextFileContains(t, filepath.Join(home, ".pi", "agent", "rotta-next", "rotta-orchestrator", "SKILL.md"), "Never dispatch `rotta-ops` for diagnostic-only file inspection")
+}
+
 func TestPiInstallIsManagedIdempotentAndPreservesConflicts(t *testing.T) {
 	home := t.TempDir()
 	files, err := installPi(Options{}, home)
