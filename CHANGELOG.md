@@ -6,7 +6,6 @@
 ### Features
 
 * add Copilot CLI integration and configurable model efforts ([a034091](https://github.com/Syfra3/Rotta/commit/a03409100813121a18dfcac3928eedad7beb463c))
-* add Copilot CLI integration and configurable routing ([df1e63b](https://github.com/Syfra3/Rotta/commit/df1e63b3222ad3291af5d46a5bbdc29a022d6691))
 
 
 ### Bug Fixes
