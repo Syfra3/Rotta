@@ -144,6 +144,16 @@ type QuestionParams = {
   operationPath?: string;
   effect?: string;
 };
+type QuestionDraftParams = {
+  trigger: QuestionParams["trigger"];
+  requestId: string;
+  action: string;
+  decision: string;
+  choices?: string[];
+  safeOption: string;
+  contractPath?: string;
+  operationPath?: string;
+};
 type ToolContext = {
   cwd: string;
   hasUI: boolean;
@@ -960,6 +970,10 @@ async function runChild(
             cancelled: signal.aborted,
             ...(stdout ? { diagnostic: stdout } : {}),
             ...(reason ? { reason } : {}),
+            ...(reason === "timeout" || reason === "invalid_result"
+              ? { checkpointRequired: true,
+                nextAction: "Verify the persisted work record and current diff before a changed-hypothesis retry; inspect any operation effect before considering another authorization. Partial child output is not a handoff." }
+              : {}),
             ...(error ? { failed: true } : {}),
           }));
         }
@@ -1024,7 +1038,7 @@ async function runChild(
         timer = setTimeout(() => {
           stop();
           finish(
-            `child timed out after ${effectiveTimeout}ms`,
+            `child timed out after ${effectiveTimeout}ms; no final handoff accepted. Verify the persisted checkpoint and any operation effect before retry`,
             true,
             "timeout",
           );
@@ -1096,7 +1110,7 @@ async function runChild(
           finish(result.message || "child reported an error without a message", true, "child_error");
         } else {finish(
             code === 0
-              ? "child returned invalid result protocol"
+              ? "child returned invalid result protocol; no final handoff accepted. Verify the persisted checkpoint and any operation effect before retry"
               : `child exited ${code}; inspect bounded child diagnostic and local Pi logs`,
             true,
             code === 0 ? "invalid_result" : "child_error",
@@ -1233,6 +1247,59 @@ const Question = Type.Object({
   operationPath: Type.Optional(Type.String()),
   effect: Type.Optional(Type.String()),
 });
+const QuestionDraft = Type.Object({
+  trigger: Type.Union([
+    Type.Literal("strict-clarification"), Type.Literal("strict-approval"),
+    Type.Literal("policy-decision"), Type.Literal("external-consent"),
+    Type.Literal("vela-unavailable"),
+  ]),
+  requestId: Type.String(),
+  action: Type.String(),
+  decision: Type.String(),
+  choices: Type.Optional(Type.Array(Type.String())),
+  safeOption: Type.String(),
+  contractPath: Type.Optional(Type.String()),
+  operationPath: Type.Optional(Type.String()),
+});
+
+function prepareQuestion(draft: QuestionDraftParams, cwd: string): QuestionParams {
+  const workspace = existingCanonical(cwd);
+  if (!workspace) fail("safe stop: question workspace unavailable");
+  if (!draft.requestId?.trim() || !draft.action?.trim() || !draft.decision?.trim() ||
+    !draft.safeOption?.trim()) fail("safe stop: incomplete question draft");
+  const executable = draft.trigger === "external-consent" && !!draft.operationPath;
+  const choices = draft.choices ?? [];
+  if (choices.some((choice) => !choice.trim()) ||
+    new Set([...choices, draft.safeOption]).size !== choices.length + 1) {
+    fail("safe stop: question options must be distinct and include one explicit safe choice");
+  }
+  if (!executable && !choices.length) fail("safe stop: question requires a named decision alternative");
+  if (executable && choices.length) fail("safe stop: exact operation options are fixed by the runtime");
+  const prepared: QuestionParams = {
+    trigger: draft.trigger, requestId: draft.requestId, workspace,
+    action: draft.action, decision: draft.decision,
+    options: [...choices, draft.safeOption], safeOutcome: draft.safeOption,
+  };
+  if (draft.trigger === "strict-approval") {
+    const contract = currentContract(workspace, draft.contractPath);
+    if (!contract || contract.revision === undefined) fail("safe stop: contract identity missing or ambiguous");
+    Object.assign(prepared, { contractPath: contract.path,
+      contractRevision: contract.revision, contractDigest: contract.digest });
+  } else if (draft.contractPath) fail("safe stop: contract artifact only valid for strict approval");
+  if (executable) {
+    const artifact = currentOperation(workspace, draft.operationPath);
+    if (!artifact || artifact.action !== draft.action ||
+      draft.safeOption === "Approve the exact rendered operation once") {
+      fail("safe stop: operation identity missing, mismatched or unsafe");
+    }
+    Object.assign(prepared, { operationPath: artifact.path, operationRevision: artifact.revision,
+      operationDigest: artifact.digest, command: artifact.command, target: artifact.target,
+      effect: artifact.effect });
+  } else if (draft.operationPath || draft.trigger === "external-consent") {
+    fail("safe stop: exact operation artifact required for external consent");
+  }
+  return prepared;
+}
 
 export function registerRotta(
   pi: ExtensionAPI,
@@ -1536,9 +1603,19 @@ export function registerRotta(
     },
   });
   pi.registerTool({
+    name: "rotta_prepare_question",
+    label: "Prepare Rotta question",
+    description: "Read-only preparation before rotta_question: provide explicit decision alternatives and a separately named safeOption. Derives canonical workspace and current contract/operation identity; returns a request to pass unchanged to rotta_question. It never asks the user or records approval. A changed artifact must be prepared again.",
+    parameters: QuestionDraft,
+    async execute(_id: string, draft: QuestionDraftParams, _signal: AbortSignal, _onUpdate: unknown, ctx: ToolContext) {
+      const request = prepareQuestion(draft, ctx.cwd);
+      return toolResult(JSON.stringify(request), { request });
+    },
+  });
+  pi.registerTool({
     name: "rotta_question",
     label: "Rotta decision",
-    description: "Ask one bound governance decision. For strict-approval supply contractDigest as SHA-256 of the exact file bytes. Pi reads the contract revision from those bytes; contractRevision is optional but, when supplied, must match. The contract needs one `Revision: 1` line or `(revision 1)` H1 suffix. A changed digest or conflicting revision fails safely.",
+    description: "Ask one bound governance decision. Use rotta_prepare_question first with explicit decision, choices and safeOption; pass its request unchanged. This tool revalidates the current artifact and session before accepting an answer. Direct callers must supply safeOutcome as an exact option. A changed digest or conflicting revision fails safely.",
     parameters: Question,
     async execute(
       toolCallId: string,

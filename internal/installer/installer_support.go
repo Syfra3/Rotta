@@ -54,6 +54,9 @@ func recordMCPStatuses(result *Result, opts Options) {
 		for _, capabilityName := range selectedMCPCapabilities(opts) {
 			name := strings.TrimPrefix(capabilityName, "mcp:")
 			status := mcpStatusResult(result.Hosts[host], capabilityName)
+			if host == "copilot" && result.Hosts[host].Capabilities[capabilityName].Status == HostCapabilityStatusUnsupported {
+				status.Status = MCPStatusPreserved
+			}
 			if host == "opencode" {
 				status = openCodeMCPStatus(result, name, status)
 			}
@@ -181,10 +184,10 @@ func context7MCPCapability(host string) HostCapability {
 func selectedHosts(target string) []string {
 	switch target {
 	case "all":
-		return []string{"claude-code", "opencode", "codex", "pi"}
+		return []string{"claude-code", "opencode", "codex", "pi", "copilot"}
 	case "both":
 		return []string{"claude-code", "opencode"}
-	case "claude-code", "opencode", "codex", "pi":
+	case "claude-code", "opencode", "codex", "pi", "copilot":
 		return []string{target}
 	}
 	return nil
@@ -192,7 +195,7 @@ func selectedHosts(target string) []string {
 func targetsCodex(target string) bool { return target == "codex" || target == "all" }
 func isSupportedInstallTarget(target string) bool {
 	switch target {
-	case "", "claude-code", "opencode", "codex", "pi", "both", "all":
+	case "", "claude-code", "opencode", "codex", "pi", "copilot", "both", "all":
 		return true
 	}
 	return false
@@ -200,7 +203,7 @@ func isSupportedInstallTarget(target string) bool {
 
 func installAllHosts(opts Options, result *Result, home, projectPath string) (*Result, error) {
 	var installErr error
-	for _, host := range []string{"claude-code", "opencode", "codex", "pi"} {
+	for _, host := range selectedHosts(opts.Target) {
 		files, err := cleanAndInstallHost(opts, host, home)
 		if err != nil {
 			result.Hosts[host] = HostInstallResult{Host: host, Status: HostInstallStatusFailed}
@@ -249,6 +252,8 @@ func cleanAndInstallHost(opts Options, host, home string) ([]string, error) {
 		return installCodex(hostOpts, home)
 	case "pi":
 		return installPi(hostOpts, home)
+	case "copilot":
+		return installCopilot(hostOpts, home)
 	}
 	return nil, fmt.Errorf("unsupported host target %q", host)
 }

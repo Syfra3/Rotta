@@ -52,6 +52,7 @@ const (
 	TargetOpenCode   = "opencode"
 	TargetCodex      = "codex"
 	TargetPi         = "pi"
+	TargetCopilot    = "copilot"
 	TargetBoth       = "both"
 	TargetAll        = "all"
 )
@@ -95,7 +96,7 @@ type Model struct {
 	Height     int
 
 	// Target selection
-	TargetCursor int // 0=Claude Code, 1=OpenCode, 2=Codex, 3=Pi, 4=Both, 5=All
+	TargetCursor int // index into targetKeys and targets
 	Target       string
 
 	// Project path
@@ -106,6 +107,7 @@ type Model struct {
 	ModelRoutingCursor       int
 	ModelRouting             installer.ModelRoutingRequest
 	CustomRouting            map[string]string
+	CustomEfforts            map[string]string
 	CustomRoutingCursor      int
 	ModelPickerCursor        int
 	ModelPickerQuery         string
@@ -164,8 +166,8 @@ type Model struct {
 	RecoveryError   string
 }
 
-var targets = []string{"Claude Code", "OpenCode", "Codex", "Pi", "Both", "All"}
-var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetPi, TargetBoth, TargetAll}
+var targets = []string{"Claude Code", "OpenCode", "Codex", "Pi", "Both", "All", "Copilot CLI"}
+var targetKeys = []string{TargetClaudeCode, TargetOpenCode, TargetCodex, TargetPi, TargetBoth, TargetAll, TargetCopilot}
 var modeNames = []string{"Spec Mode (Spec Partner + Gherkin Author)", "Implementation Mode (TDD Craftsman)", "Review Mode (Judge + Mutation Tester)"}
 var modeDescriptions = []string{
 	"Draft → Hard Spec → Gherkin → Human approval",

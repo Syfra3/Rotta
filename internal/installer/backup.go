@@ -456,6 +456,9 @@ func targetBackupPaths(target, home string) []string {
 	if target == "pi" || target == "all" {
 		paths = append(paths, piBackupPaths(home)...)
 	}
+	if target == "copilot" || target == "all" {
+		paths = append(paths, copilotBackupPaths(home)...)
+	}
 	return paths
 }
 

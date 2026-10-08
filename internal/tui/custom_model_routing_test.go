@@ -23,6 +23,14 @@ func TestCustomRoutingCopiesDefaultsAndShowsResolvedAssignments(t *testing.T) {
 	if !reflect.DeepEqual(got.CustomRouting, installer.DefaultOpenCodeRouting()) {
 		t.Fatalf("custom routing = %#v, want exact default copy", got.CustomRouting)
 	}
+	if !reflect.DeepEqual(got.CustomEfforts, installer.DefaultOpenCodeRoutingEfforts()) {
+		t.Fatalf("custom efforts = %#v", got.CustomEfforts)
+	}
+	cycled, _ := got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	got = cycled.(Model)
+	if got.CustomEfforts["rotta-orchestrator"] != "medium" {
+		t.Fatalf("effort did not cycle: %q", got.CustomEfforts["rotta-orchestrator"])
+	}
 	got.AvailableModels = []string{"anthropic/claude-sonnet", "openai/gpt-5.6-terra"}
 	got.ModelDiscoveryDone = true
 	picker, _ := got.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -33,7 +41,7 @@ func TestCustomRoutingCopiesDefaultsAndShowsResolvedAssignments(t *testing.T) {
 	}
 	got.Screen = ScreenConfirm
 	view := got.View()
-	for _, want := range []string{"Custom", "Orchestration:", "anthropic/claude-sonnet", "Implementation:"} {
+	for _, want := range []string{"Custom", "Orchestration:", "anthropic/claude-sonnet (medium)", "Implementation:"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("confirmation missing %q:\n%s", want, view)
 		}

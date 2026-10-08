@@ -572,8 +572,9 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     home: () => "/test-home",
   });
   assert(
-    mock.tools.length === 3 && !mock.tools.some((entry) => entry.name === "rotta_local_text_replace"),
-    "unsafe local adapter must not be registered; existing tools must remain",
+    mock.tools.length === 4 && mock.tools.some((entry) => entry.name === "rotta_prepare_question") &&
+      !mock.tools.some((entry) => entry.name === "rotta_local_text_replace"),
+    "read-only question preparation must coexist with existing tools; unsafe local adapter must not be registered",
   );
   const result = await tool(mock.tools, "rotta_delegate").execute(
     "call",
@@ -873,6 +874,8 @@ Deno.test("timeout remains a Pi error and recovers requested routing without fab
       model: "requested/model",
     });
     assert(failure.details.reason === "timeout");
+    assert(failure.details.checkpointRequired === true &&
+      failure.details.nextAction.includes("Partial child output is not a handoff"));
     assert(
       pendingDetailTimers.cleared.length === 1,
       "tool_result did not consume and clear the independent detail TTL",
@@ -1272,6 +1275,71 @@ Deno.test("mechanically incomplete question is diagnosed before UI without bound
   } finally { Deno.removeSync(workspace, { recursive: true }); }
 });
 
+Deno.test("question preparation binds an explicit safe choice and current contract bytes without authorizing", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  const contract = `${workspace}/contract.md`;
+  Deno.writeTextFileSync(contract, "# Approval\nRevision: 1\n");
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const draft = { trigger: "strict-approval", requestId: "approve-r1", action: "approve repair",
+      decision: "Approve the exact repair contract?", choices: ["Approve revision 1"],
+      safeOption: "Stop", contractPath: contract };
+    const result = await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx);
+    const request = result.details.request;
+    assert(mock.selects.length === 0 && request.workspace === workspace);
+    assert(request.options.join("|") === "Approve revision 1|Stop" && request.safeOutcome === "Stop");
+    assert(request.contractRevision === 1 && request.contractPath === contract);
+    assert(request.contractDigest === createHash("sha256").update(Deno.readFileSync(contract)).digest("hex"));
+    const answer = await tool(mock.tools, "rotta_question").execute("ask", request,
+      signal().signal, () => {}, mock.ctx);
+    assert(answer.content[0].text === "Approve revision 1" && Number(mock.selects.length) === 1);
+    await prepare.execute("duplicate", { ...draft, safeOption: "Approve revision 1" },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("ambiguous draft accepted"); },
+      (error: Error) => assert(error.message.includes("distinct")));
+    await prepare.execute("missing", { ...draft, decision: "" },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("missing decision accepted"); },
+      (error: Error) => assert(error.message.includes("incomplete question draft")));
+    Deno.writeTextFileSync(contract, "# Approval\nRevision: 2\n");
+    await tool(mock.tools, "rotta_question").execute("stale", request,
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("stale approval accepted"); },
+      (error: Error) => assert(error.message.includes("approval identity mismatch")));
+    assert(Number(mock.selects.length) === 1, "stale request displayed to user");
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("operation question preparation binds the current exact artifact, never a draft command", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  Deno.mkdirSync(`${workspace}/.rotta/ops`, { recursive: true });
+  const operationPath = `${workspace}/.rotta/ops/check.md`;
+  const action = "inspect owned target";
+  const bytes = `Action: ${action}\nCommand: pwd\nTarget: ${workspace}\nEffect: read-only\nRevision: 1\n`;
+  Deno.writeTextFileSync(operationPath, bytes);
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const draft = { trigger: "external-consent", requestId: "inspect-once", action,
+      decision: "Inspect this target once?", safeOption: "Stop", operationPath };
+    const result = await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx);
+    const request = result.details.request;
+    assert(request.operationDigest === createHash("sha256").update(bytes).digest("hex"));
+    assert(request.command === "pwd" && request.target === workspace && request.operationRevision === 1);
+    assert(mock.selects.length === 0, "preparation cannot display approval");
+    await prepare.execute("mismatch", { ...draft, action: "other" }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("mismatched operation accepted"); },
+        (error: Error) => assert(error.message.includes("operation identity")));
+    Deno.writeTextFileSync(operationPath, bytes.replace("Revision: 1", "Revision: 2"));
+    await tool(mock.tools, "rotta_question").execute("stale", request, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("stale operation accepted"); },
+        (error: Error) => assert(error.message.includes("incomplete exact operation binding")));
+    assert(mock.selects.length === 0);
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
 Deno.test("diagnostic-only operations delegation fails with actionable parent-side guidance", async () => {
   const fixture = fakeSpawn({ stdout: '{"status":"success","output":"unexpected"}\n' });
   const mock = host();
@@ -1610,6 +1678,20 @@ Deno.test("delegate defaults to ten minutes and clamps explicit timeout at thirt
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }
+});
+
+Deno.test("invalid child final requires a verified checkpoint, never a successful partial result", async () => {
+  const partial = JSON.stringify({ type: "message_end", message: { role: "assistant",
+    content: "Earlier partial success" } });
+  const invalid = JSON.stringify({ type: "message_end", message: { role: "assistant",
+    content: '{"status":"success",}' } });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: fakeSpawn({ stdout: `${partial}\n${invalid}\n` }).spawn,
+    home: () => "/test-home" });
+  const failure = await recoveredDelegateFailure(mock, { role: "reviewer", task: "review" });
+  assert(failure.details.reason === "invalid_result" && failure.details.checkpointRequired === true);
+  assert(failure.details.nextAction.includes("Verify the persisted work record"));
+  assert(!failure.error.message.includes("Earlier partial success"));
 });
 
 Deno.test("delegate accepts ordinary final assistant text while preserving envelope validation", async () => {

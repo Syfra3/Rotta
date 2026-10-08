@@ -15,14 +15,19 @@ func TestCustomRoutingWritesExactModelsAndTransitionsToDisabled(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
 	custom := DefaultOpenCodeRouting()
 	custom["rotta-impl"] = "anthropic/claude-sonnet"
+	efforts := DefaultOpenCodeRoutingEfforts()
+	efforts["rotta-impl"] = "high"
 
-	if _, err := Install(Options{Target: "opencode", ModelRouting: ModelRoutingCustom, ModelRoutingModels: custom}); err != nil {
+	if _, err := Install(Options{Target: "opencode", ModelRouting: ModelRoutingCustom, ModelRoutingModels: custom, ModelRoutingEfforts: efforts}); err != nil {
 		t.Fatalf("custom install: %v", err)
 	}
 	path := filepath.Join(xdg, "opencode", "opencode.json")
 	config := readRoutingConfig(t, path)
 	if got := config["agent"].(map[string]interface{})["rotta-impl"].(map[string]interface{})["model"]; got != custom["rotta-impl"] {
 		t.Fatalf("custom model = %q, want %q", got, custom["rotta-impl"])
+	}
+	if got := config["agent"].(map[string]interface{})["rotta-impl"].(map[string]interface{})["variant"]; got != "high" {
+		t.Fatalf("custom variant = %q", got)
 	}
 	manifest, err := readManagedArtifactsManifest(filepath.Join(xdg, "rotta", "managed-artifacts.json"))
 	if err != nil {
@@ -31,6 +36,9 @@ func TestCustomRoutingWritesExactModelsAndTransitionsToDisabled(t *testing.T) {
 	if got := manifest.Files[openCodeModelOwnershipKey(path, "rotta-impl")]; got != contentDigest([]byte(custom["rotta-impl"])) {
 		t.Fatalf("custom ownership digest = %q", got)
 	}
+	if got := manifest.Files[openCodeFieldOwnershipKey(path, "rotta-impl", "variant")]; got != contentDigest([]byte("high")) {
+		t.Fatalf("variant ownership = %q", got)
+	}
 	if _, err := Install(Options{Target: "opencode", ModelRouting: ModelRoutingDisabled}); err != nil {
 		t.Fatalf("disable custom routing: %v", err)
 	}
@@ -38,6 +46,9 @@ func TestCustomRoutingWritesExactModelsAndTransitionsToDisabled(t *testing.T) {
 	for _, role := range routingRolesForTest() {
 		if _, exists := config["agent"].(map[string]interface{})[role].(map[string]interface{})["model"]; exists {
 			t.Fatalf("%s model remains after disabling custom routing", role)
+		}
+		if _, exists := config["agent"].(map[string]interface{})[role].(map[string]interface{})["variant"]; exists {
+			t.Fatalf("%s variant remains after disabling", role)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(xdg, "rotta", "managed-artifacts.json")); err != nil {

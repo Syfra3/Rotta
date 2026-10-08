@@ -26,3 +26,23 @@ func TestCustomRoutingRejectsInvalidOrWhitespacePaddedModelIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestCustomOpenCodeEffortsValidateEveryRole(t *testing.T) {
+	models := DefaultOpenCodeRouting()
+	efforts := DefaultOpenCodeRoutingEfforts()
+	efforts["rotta-impl"] = "high"
+	routing, err := resolveOpenCodeRoutingWithEfforts(ModelRoutingCustom, models, efforts)
+	if err != nil || routing.efforts["rotta-impl"] != "high" {
+		t.Fatalf("custom effort = %#v, %v", routing.efforts, err)
+	}
+	for _, invalid := range []string{"off", "max", "extreme", ""} {
+		efforts["rotta-impl"] = invalid
+		if _, err := resolveOpenCodeRoutingWithEfforts(ModelRoutingCustom, models, efforts); err == nil {
+			t.Fatalf("accepted %q", invalid)
+		}
+	}
+	delete(efforts, "rotta-impl")
+	if _, err := resolveOpenCodeRoutingWithEfforts(ModelRoutingCustom, models, efforts); err == nil {
+		t.Fatal("accepted incomplete efforts")
+	}
+}

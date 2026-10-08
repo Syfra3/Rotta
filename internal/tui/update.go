@@ -234,6 +234,9 @@ func (m Model) updateModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.CustomRouting == nil {
 				m.CustomRouting = installer.DefaultOpenCodeRouting()
 			}
+			if m.CustomEfforts == nil {
+				m.CustomEfforts = installer.DefaultOpenCodeRoutingEfforts()
+			}
 			m.Screen = ScreenCustomModelRouting
 			if !m.ModelDiscoveryDone && !m.ModelDiscoveryInFlight {
 				return m, m.startModelDiscovery()
@@ -367,6 +370,16 @@ func nextPiEffort(current string) string {
 	return "low"
 }
 
+func nextOpenCodeEffort(current string) string {
+	levels := []string{"low", "medium", "high", "xhigh"}
+	for index, effort := range levels {
+		if effort == current {
+			return levels[(index+1)%len(levels)]
+		}
+	}
+	return "low"
+}
+
 func (m Model) updatePiModelPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	models := m.filteredPiModels()
 	switch msg.String() {
@@ -419,6 +432,9 @@ func (m Model) updateCustomModelRouting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ModelPickerQuery = ""
 			m.Screen = ScreenModelPicker
 		}
+	case "e":
+		role := routingRoles[m.CustomRoutingCursor].key
+		m.CustomEfforts[role] = nextOpenCodeEffort(m.CustomEfforts[role])
 	case "esc", "b":
 		m.PrevScreen = ScreenCustomModelRouting
 		m.Screen = ScreenModelRouting
@@ -637,6 +653,7 @@ func runInstall(m Model) tea.Cmd {
 			SetupContext7:         m.SetupContext7,
 			ModelRouting:          m.ModelRouting,
 			ModelRoutingModels:    m.CustomRouting,
+			ModelRoutingEfforts:   m.CustomEfforts,
 			PiModelRouting:        m.PiModelRouting,
 			PiModelRoutingModels:  m.PiCustomRouting,
 			PiModelRoutingEfforts: m.PiCustomEfforts,

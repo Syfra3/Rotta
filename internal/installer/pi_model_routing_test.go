@@ -222,7 +222,7 @@ func TestAllKeepsPiAndOpenCodeRoutingIndependent(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := readRoutingConfig(t, filepath.Join(xdg, "opencode", "opencode.json"))
-	if got := config["agent"].(map[string]interface{})["rotta-impl"].(map[string]interface{})["model"]; got != "openai/gpt-5.6-terra" {
+	if got := config["agent"].(map[string]interface{})["rotta-impl"].(map[string]interface{})["model"]; got != DefaultOpenCodeRouting()["rotta-impl"] {
 		t.Fatalf("OpenCode model = %q", got)
 	}
 	assertPiRouting(t, home, map[string]string{}, nil)
