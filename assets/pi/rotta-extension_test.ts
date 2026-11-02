@@ -30,6 +30,7 @@ function host(
   const selects: unknown[] = [];
   const headers: unknown[] = [];
   const shortcuts: any[] = [];
+  const commands: Record<string, { handler: (args: string, ctx: any) => Promise<void> }> = {};
   const overlays: any[] = [];
   const widgets: Record<string, any> = {};
   const notifications: Array<{ message: string; level: string }> = [];
@@ -59,8 +60,19 @@ function host(
     registerShortcut(shortcut: string, options: unknown) {
       shortcuts.push({ shortcut, ...(options as object) });
     },
+    registerCommand(name: string, options: any) {
+      commands[name] = options;
+    },
     on(event: string, handler: unknown) {
-      events[event] = handler;
+      const previous = events[event];
+      // Pi supports multiple listeners for a lifecycle event. Preserve both
+      // the extension cleanup and the asynchronously loaded MCP bridge cleanup.
+      events[event] = event === "session_shutdown" && typeof previous === "function"
+        ? async (...args: unknown[]) => {
+          await (previous as (...values: unknown[]) => unknown)(...args);
+          await (handler as (...values: unknown[]) => unknown)(...args);
+        }
+        : handler;
     },
   };
   const ctx = {
@@ -72,7 +84,7 @@ function host(
     ui: {
       setHeader: (factory: unknown) => headers.push(factory),
       setWidget: (name: string, factory: any) => { widgets[name] = factory; },
-      custom: async (factory: any) => {
+      custom: async (factory: any): Promise<any> => {
         let closed = false;
         const component = factory(
           { requestRender() {} },
@@ -100,6 +112,7 @@ function host(
     selects,
     headers,
     shortcuts,
+    commands,
     overlays,
     widgets,
     notifications,
@@ -561,6 +574,259 @@ Deno.test(
   },
 );
 
+Deno.test("Rotta Pi status and stats respect the host theme and reported usage", async () => {
+  const mock = host();
+  const statuses: Array<string | undefined> = [];
+  const panes: string[][] = [];
+  (mock.ctx.ui as any).setStatus = (_key: string, text: string | undefined) => statuses.push(text);
+  (mock.ctx as any).getContextUsage = () => ({ percent: 32, contextWindow: 200000, tokens: 64000 });
+  (mock.ctx as any).thinkingLevel = "medium";
+  (mock.ctx.sessionManager as any).getBranch = () => [
+    { id: "a", type: "message", message: { role: "assistant", model: "m1", usage: { input: 10, output: 4, reasoning: 2, cacheRead: 0, cost: { total: 0.01 } }, content: [{ type: "toolCall" }] } },
+    { id: "a", type: "message", message: { role: "assistant", model: "m1", usage: { input: 10 }, content: [] } },
+    { id: "b", type: "message", message: { role: "assistant", model: "m2", content: [] } },
+  ];
+  mock.ctx.ui.custom = async (factory: any) => {
+    const view = factory({ requestRender() {} }, { fg: (name: string, text: string) => `<${name}>${text}`, bold: (text: string) => text }, {}, () => {});
+    panes.push(view.render(100));
+  };
+  registerRotta(mock.pi as any, { home: () => "/test-home", gitExec: (async () => ({ stdout: "feature/ui\n", stderr: "" })) as any });
+  await (mock.events.session_start as any)({}, mock.ctx);
+  assert(statuses.some((value) => value?.includes("context ███░░░░░ 32%")));
+  await mock.commands["rotta:stats"].handler("", mock.ctx);
+  const stats = panes.at(-1)?.join("\n") ?? "";
+  assert(stats.includes("<accent>Rotta • Session stats") && stats.includes("Input 10"));
+  assert(stats.includes("Cache read 0") && stats.includes("write unavailable"));
+  assert(stats.includes("reasoning 2") && stats.includes("Cost $0.0100"));
+  await mock.commands["rotta:status"].handler("", mock.ctx);
+  assert((panes.at(-1)?.join("\n") ?? "").includes("Context: 32.0%"));
+  assert((panes.at(-1)?.join("\n") ?? "").includes("Branch: feature/ui"));
+});
+
+Deno.test("Rotta work view reads recent records without inventing a current task or altering source", async () => {
+  const project = Deno.makeTempDirSync();
+  const folder = `${project}/.rotta/work`;
+  Deno.mkdirSync(folder, { recursive: true });
+  const file = `${folder}/sample.md`;
+  const record = "Work ID: example\nPhase: review\nNext action: verify checks\nBlocker: none\n";
+  Deno.writeTextFileSync(file, record);
+  const mock = host();
+  mock.ctx.cwd = project;
+  let narrow: string[] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    const view = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => {});
+    narrow = view.render(18);
+  };
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    await mock.commands["rotta:work"].handler("", mock.ctx);
+    assert(narrow.every((line) => visibleWidth(line) <= 18));
+    assert(narrow.some((line) => line.includes("example")) && narrow.some((line) => line.includes("review")));
+    assert(Deno.readTextFileSync(file) === record, "view modified the work record");
+  } finally { Deno.removeSync(project, { recursive: true }); }
+});
+
+Deno.test("Rotta changes uses shell-free bounded Git reads and labels uncertain attribution", async () => {
+  const mock = host();
+  const calls: Array<{ argv: string[]; cwd: string; maxBuffer: number }> = [];
+  const panes: string[][] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    const view = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => {});
+    panes.push(view.render(100));
+  };
+  registerRotta(mock.pi as any, { home: () => "/test-home", gitExec: (async (_git: string, argv: string[], opts: any) => {
+    calls.push({ argv, cwd: opts.cwd, maxBuffer: opts.maxBuffer });
+    return { stdout: argv.includes("status") ? " M src/a.ts\0?? scratch.txt\0" : "diff --git a/src/a.ts b/src/a.ts\n+ok\n", stderr: "" };
+  }) as any });
+  await mock.commands["rotta:changes"].handler("", mock.ctx);
+  assert(calls.length === 2 && calls.every((call) => call.cwd === mock.ctx.cwd));
+  assert(calls[0].argv.includes("-z") && calls[1].argv.includes("--no-ext-diff") && calls[1].argv.at(-1) === "src/a.ts");
+  assert(calls[1].maxBuffer === 65536, "diff has no output limit");
+  assert((panes[0]?.join("\n") ?? "").includes("Author: unknown"));
+});
+
+Deno.test("Rotta changes records observed parent edit without claiming exclusive diff authorship", async () => {
+  const cwd = Deno.makeTempDirSync();
+  Deno.writeTextFileSync(`${cwd}/file.ts`, "existing");
+  const mock = host();
+  mock.ctx.cwd = cwd;
+  let panel = "";
+  mock.ctx.ui.custom = async (factory: any) => {
+    panel = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => {}).render(100).join("\n");
+  };
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home", gitExec: (async (_git: string, args: string[]) => ({
+      stdout: args.includes("status") ? " M file.ts\0" : "diff --git a/file.ts b/file.ts\n+line\n", stderr: "",
+    })) as any });
+    await (mock.events.session_start as any)({}, mock.ctx);
+    (mock.events.tool_execution_start as any)({ toolName: "edit", toolCallId: "edited", args: { path: "file.ts" } }, mock.ctx);
+    (mock.events.tool_execution_end as any)({ toolName: "edit", toolCallId: "edited", isError: false, result: {} });
+    await mock.commands["rotta:changes"].handler("", mock.ctx);
+    assert(panel.includes("Pi parent edit observed") && panel.includes("Author: unknown"));
+  } finally { Deno.removeSync(cwd, { recursive: true }); }
+});
+
+Deno.test("independent Rotta clarification groups closed non-binding answers without granting approval", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  mock.ctx.ui.custom = async (factory: any) => {
+    let completed: unknown;
+    const view = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, (value: unknown) => { completed = value; });
+    assert(view.render(80).join("\n").includes("clarification 1/2"));
+    view.handleInput("\r");
+    assert(view.render(80).join("\n").includes("clarification 2/2"));
+    view.handleInput("\r");
+    view.dispose?.();
+    return completed;
+  };
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const questions = [1, 2].map((number) => ({ trigger: "strict-clarification", requestId: `q${number}`,
+      action: `scope ${number}`, decision: `Which scope ${number}?`, choices: ["Focused"], safeOption: "Stop / use safe defaults" }));
+    const result = await tool(mock.tools, "rotta_clarify_independent").execute("call", { independent: true, questions }, signal().signal, () => {}, mock.ctx);
+    assert(result.details.authority === "clarification only" && result.details.answers.length === 2);
+    await tool(mock.tools, "rotta_clarify_independent").execute("invalid", {
+      independent: true, questions: [{ ...questions[0], trigger: "strict-approval" }, questions[1]],
+    }, signal().signal, () => {}, mock.ctx).then(() => { throw new Error("approval in a clarification batch succeeded"); }, () => {});
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("Rotta agent activity reports child response usage without adding it to parent session", async () => {
+  const mock = host();
+  const panes: string[][] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    const view = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => {});
+    panes.push(view.render(100));
+  };
+  registerRotta(mock.pi as any, { home: () => "/test-home" });
+  await (mock.events.session_start as any)({}, mock.ctx);
+  (mock.events.tool_execution_start as any)({ toolName: "rotta_delegate", toolCallId: "child-1", args: { role: "reviewer" } }, mock.ctx);
+  (mock.events.tool_execution_update as any)({ toolName: "rotta_delegate", toolCallId: "child-1", partialResult: { details: { requestedModel: "planned-model" } } });
+  (mock.events.tool_execution_end as any)({ toolName: "rotta_delegate", toolCallId: "child-1", isError: false,
+    result: { details: { elapsedMs: 3200, responseModel: "observed-model", responseUsage: { output: 24, responses: 1 } } } });
+  await mock.commands["rotta:agents"].handler("", mock.ctx);
+  assert((panes.at(-1)?.join("\n") ?? "").includes("reviewer • complete • 3s • observed observed-model / requested planned-model • output 24"));
+  await mock.commands["rotta:stats"].handler("", mock.ctx);
+  assert((panes.at(-1)?.join("\n") ?? "").includes("Parent session only; child usage is separate"));
+});
+
+Deno.test("Rotta prompt navigation is opt-in, bounded and clearable without deleting Pi history", async () => {
+  const prior = process.env.ROTTA_PI_HISTORY;
+  const mock = host();
+  const panes: string[][] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    const view = factory({ requestRender() {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => {});
+    panes.push(view.render(100));
+  };
+  try {
+    delete process.env.ROTTA_PI_HISTORY;
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    (mock.events.input as any)({ text: "not stored", source: "interactive" }, mock.ctx);
+    await mock.commands["rotta:history"].handler("", mock.ctx);
+    assert(mock.notifications.some((notice) => notice.message.includes("off")));
+    process.env.ROTTA_PI_HISTORY = "1";
+    (mock.events.input as any)({ text: "one\nline", source: "interactive" }, mock.ctx);
+    await mock.commands["rotta:history"].handler("", mock.ctx);
+    assert((panes.at(-1)?.join("\n") ?? "").includes("one line"));
+    await mock.commands["rotta:history:clear"].handler("", mock.ctx);
+    await mock.commands["rotta:history"].handler("", mock.ctx);
+    assert((panes.at(-1)?.join("\n") ?? "").includes("No prompts captured"));
+  } finally { if (prior === undefined) delete process.env.ROTTA_PI_HISTORY; else process.env.ROTTA_PI_HISTORY = prior; }
+});
+
+Deno.test("Rotta run notifications are opt-in, settled-only, and deduplicated", async () => {
+  const prior = process.env.ROTTA_PI_NOTIFICATIONS;
+  const mock = host();
+  (mock.ctx.sessionManager as any).getBranch = () => [{ id: "turn-1" }];
+  try {
+    delete process.env.ROTTA_PI_NOTIFICATIONS;
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    (mock.events.agent_settled as any)({ aborted: false }, mock.ctx);
+    assert(!mock.notifications.some((notice) => notice.message.includes("Pi run finished")));
+    process.env.ROTTA_PI_NOTIFICATIONS = "1";
+    (mock.events.agent_settled as any)({ aborted: false }, mock.ctx);
+    (mock.events.agent_settled as any)({ aborted: false }, mock.ctx);
+    (mock.events.agent_settled as any)({ aborted: true }, mock.ctx);
+    (mock.events.agent_settled as any)({ aborted: false }, { ...mock.ctx, mode: "print" });
+    assert(mock.notifications.filter((notice) => notice.message.includes("Pi run finished")).length === 1);
+  } finally { if (prior === undefined) delete process.env.ROTTA_PI_NOTIFICATIONS; else process.env.ROTTA_PI_NOTIFICATIONS = prior; }
+});
+
+Deno.test("rotta:lazygit opens the current workspace in an interactive terminal and restores Pi", async () => {
+  const mock = host();
+  const order: string[] = [];
+  mock.ctx.cwd = "/workspace/repository";
+  mock.ctx.ui.custom = async (factory: any) => {
+    let result: unknown;
+    factory({
+      stop: () => order.push("stop"),
+      start: () => order.push("start"),
+      requestRender: (force: boolean) => { if (force) order.push("render"); },
+    }, {}, {}, (value: unknown) => { result = value; order.push("done"); });
+    return result;
+  };
+  registerRotta(mock.pi as any, {
+    home: () => "/test-home",
+    lazyGitSpawnSync: ((name: string, args: string[], options: any) => {
+      assert(name === "lazygit" && args.length === 0, "LazyGit must run without a shell or injected arguments");
+      assert(options.cwd === "/workspace/repository" && options.stdio === "inherit", "wrong terminal or workspace");
+      order.push("spawn");
+      return { status: 0 };
+    }) as any,
+  });
+  const noticesBefore = mock.notifications.length;
+  await mock.commands["rotta:lazygit"].handler("", mock.ctx);
+  assert(order.join(",") === "stop,spawn,start,render,done", "Pi was not suspended and resumed around LazyGit");
+  assert(mock.notifications.length === noticesBefore, "successful exit should not add a notification");
+});
+
+Deno.test("rotta:lazygit is TUI-only and reports a missing executable without leaving Pi suspended", async () => {
+  const mock = host();
+  const order: string[] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    let result: unknown;
+    factory({
+      stop: () => order.push("stop"),
+      start: () => order.push("start"),
+      requestRender: () => order.push("render"),
+    }, {}, {}, (value: unknown) => { result = value; });
+    return result;
+  };
+  registerRotta(mock.pi as any, {
+    home: () => "/test-home",
+    lazyGitSpawnSync: (() => ({ status: null, error: new Error("lazygit not found") })) as any,
+  });
+  mock.ctx.mode = "rpc";
+  await mock.commands["rotta:lazygit"].handler("", mock.ctx);
+  assert(order.length === 0 && mock.notifications[0].message.includes("interactive Pi terminal"));
+  mock.ctx.mode = "tui";
+  await mock.commands["rotta:lazygit"].handler("", mock.ctx);
+  assert(order.join(",") === "stop,start,render");
+  assert(mock.notifications[1].message.includes("lazygit not found"));
+});
+
+Deno.test("rotta:lazygit resumes Pi even when the terminal launcher throws", async () => {
+  const mock = host();
+  const order: string[] = [];
+  mock.ctx.ui.custom = async (factory: any) => {
+    let result: unknown;
+    factory({
+      stop: () => order.push("stop"),
+      start: () => order.push("start"),
+      requestRender: () => order.push("render"),
+    }, {}, {}, (value: unknown) => { result = value; });
+    return result;
+  };
+  registerRotta(mock.pi as any, {
+    home: () => "/test-home",
+    lazyGitSpawnSync: (() => { throw new Error("terminal unavailable"); }) as any,
+  });
+  await mock.commands["rotta:lazygit"].handler("", mock.ctx);
+  assert(order.join(",") === "stop,start,render");
+  assert(mock.notifications.some((notice) => notice.message.includes("terminal unavailable")));
+});
+
 Deno.test("installed entrypoint registers real Pi tools and isolates the child invocation", async () => {
   const fixture = fakeSpawn({
     stdout:
@@ -572,9 +838,10 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
     home: () => "/test-home",
   });
   assert(
-    mock.tools.length === 4 && mock.tools.some((entry) => entry.name === "rotta_prepare_question") &&
+    mock.tools.length === 6 && mock.tools.some((entry) => entry.name === "rotta_prepare_question") &&
+      mock.tools.some((entry) => entry.name === "rotta_copy_worktree_env") &&
       !mock.tools.some((entry) => entry.name === "rotta_local_text_replace"),
-    "read-only question preparation must coexist with existing tools; unsafe local adapter must not be registered",
+    "bounded env provisioning must coexist with question preparation; unsafe generic adapter must not be registered",
   );
   const result = await tool(mock.tools, "rotta_delegate").execute(
     "call",
@@ -636,6 +903,139 @@ Deno.test("installed entrypoint registers real Pi tools and isolates the child i
   assert(allowedTools.includes("rotta_ancora_context"));
   assert(allowedTools.includes("rotta_context7_query_docs"));
   assert(!allowedTools.includes("bash"));
+});
+
+Deno.test("trusted compiled runtime bypasses PATH wrapper and malformed runtime fails closed", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const binary = `${dir}/pi`;
+    await Deno.writeFile(binary, new Uint8Array([127, 69, 76, 70, 1]));
+    const fixture = fakeSpawn({ stdout: '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n' });
+    const mock = host();
+    registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home", piRuntime: () => ({ executable: binary }) });
+    await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx);
+    assert(fixture.calls[0][0] === binary);
+    const args = fixture.calls[0][1] as string[];
+    assert(args.includes("--no-session") && args.includes("--no-extensions") && args.includes("--tools") && args.includes("--mode"));
+    const invalid = host();
+    const other = fakeSpawn({});
+    registerRotta(invalid.pi as any, { spawn: other.spawn, home: () => "/test-home", piRuntime: () => ({ executable: `${dir}/missing` }) });
+    await tool(invalid.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, invalid.ctx)
+      .then(() => { throw Error("invalid runtime accepted"); }, (error: Error) => assert(error.message.includes("trusted current Pi runtime unavailable")));
+    assert(other.calls.length === 0);
+  } finally { await Deno.remove(dir, { recursive: true }); }
+});
+
+Deno.test("Node and Bun Pi package CLI entries launch directly; unrelated CLI cannot launch", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const packageDir = `${dir}/node_modules/@earendil-works/pi-coding-agent/dist`;
+    await Deno.mkdir(packageDir, { recursive: true });
+    const entry = `${packageDir}/cli.js`;
+    await Deno.writeTextFile(entry, "// isolated fixture");
+    for (const engine of ["node", "bun"]) {
+      const executable = `${dir}/${engine}`;
+      await Deno.writeFile(executable, new Uint8Array([127, 69, 76, 70, 1]));
+      const fixture = fakeSpawn({ stdout: '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n' });
+      const mock = host();
+      registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home", piRuntime: () => ({ executable, entry }) });
+      await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx);
+      assert(fixture.calls[0][0] === executable && (fixture.calls[0][1] as string[])[0] === entry);
+      const args = fixture.calls[0][1] as string[];
+      assert(args.includes("--no-session") && args.includes("--no-extensions") && args.includes("--tools") && args.includes("--mode"));
+    }
+    const wrong = `${dir}/unrelated/cli.js`;
+    await Deno.mkdir(`${dir}/unrelated`);
+    await Deno.writeTextFile(wrong, "// unrelated");
+    const denied = fakeSpawn({});
+    const mock = host();
+    registerRotta(mock.pi as any, { spawn: denied.spawn, home: () => "/test-home", piRuntime: () => ({ executable: `${dir}/node`, entry: wrong }) });
+    await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("unrelated CLI launched"); }, (error: Error) => assert(error.message.includes("trusted current Pi runtime unavailable")));
+    assert(denied.calls.length === 0);
+  } finally { await Deno.remove(dir, { recursive: true }); }
+});
+
+Deno.test("compiled Pi platform signatures bypass wrapper while scripts and unrelated names fail closed", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    for (const [name, magic] of [
+      ["pi", [127, 69, 76, 70]], ["pi.exe", [77, 90, 0, 0]],
+      ["pi", [254, 237, 250, 206]], ["pi", [202, 254, 186, 190]],
+      ["pi", [190, 186, 254, 202]], ["pi", [202, 254, 186, 191]],
+    ] as const) {
+      const folder = `${dir}/${magic.join("-")}`;
+      await Deno.mkdir(folder);
+      const executable = `${folder}/${name}`;
+      await Deno.writeFile(executable, new Uint8Array(magic));
+      const fixture = fakeSpawn({ stdout: '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n' });
+      const mock = host();
+      registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home", piRuntime: () => ({ executable }) });
+      await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx);
+      assert(fixture.calls[0][0] === executable);
+      const args = fixture.calls[0][1] as string[];
+      assert(args.includes("--no-session") && args.includes("--no-extensions") && args.includes("--tools") &&
+        args.includes("--no-skills") && args.includes("--no-context-files") && args.filter((arg) => arg === "-e").length === 2);
+      assert((args.find((arg) => arg.includes("rotta-child-guard")) ?? "").includes("rotta-child-guard"));
+    }
+    for (const [name, contents] of [
+      ["pi", "#!/bin/sh\nexec pi"], ["pi.exe", "#!/bin/sh\nexec pi"],
+      ["other", "MZ\0\0"], ["other-fat", "\xca\xfe\xba\xbe"],
+    ]) {
+      const executable = `${dir}/${name}`;
+      await Deno.writeTextFile(executable, contents);
+      const fixture = fakeSpawn({});
+      const mock = host();
+      registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home", piRuntime: () => ({ executable }) });
+      await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error("untrusted executable accepted"); }, (error: Error) => assert(error.message.includes("trusted current Pi runtime unavailable")));
+      assert(fixture.calls.length === 0);
+    }
+  } finally { await Deno.remove(dir, { recursive: true }); }
+});
+
+Deno.test("Windows-named Node CLI and fat Mach-O Bun CLI preserve direct guarded launch", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const entry = `${dir}/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`;
+    await Deno.mkdir(`${dir}/node_modules/@earendil-works/pi-coding-agent/dist`, { recursive: true });
+    await Deno.writeTextFile(entry, "// fixture");
+    for (const [name, magic] of [["node.exe", [77, 90, 0, 0]], ["bun", [202, 254, 186, 190]]] as const) {
+      const executable = `${dir}/${name}`;
+      await Deno.writeFile(executable, new Uint8Array(magic));
+      const fixture = fakeSpawn({ stdout: '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}\n' });
+      const mock = host();
+      registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home", piRuntime: () => ({ executable, entry }) });
+      await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review" }, signal().signal, () => {}, mock.ctx);
+      const args = fixture.calls[0][1] as string[];
+      assert(fixture.calls[0][0] === executable && args[0] === entry && args.includes("--no-extensions") &&
+        args.includes("--tools") && args.filter((arg) => arg === "-e").length === 2);
+    }
+  } finally { await Deno.remove(dir, { recursive: true }); }
+});
+
+Deno.test("timeout tracks session, model and tool JSON stages without exposing payloads", async () => {
+  for (const [event, stage] of [
+    ['{"type":"session","secret":"Bearer hidden"}', "session started; awaiting model"],
+    ['{"type":"agent_start","secret":"Bearer hidden"}', "model request in progress"],
+    ['{"type":"tool_execution_start","toolName":"bash","args":{"command":"Bearer hidden"}}', "tool execution in progress"],
+  ]) {
+    const fixture = fakeSpawn({ stdout: `${event}\n`, wait: true });
+    const mock = host();
+    registerRotta(mock.pi as any, { spawn: fixture.spawn, home: () => "/test-home" });
+    await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review", timeoutMs: 5 }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("partial output accepted"); }, (error: Error) => {
+        assert(error.message.includes(`last known stage: ${stage}`));
+        assert(!error.message.includes("hidden") && !error.message.includes("bash") && error.message.includes("no final handoff accepted"));
+      });
+  }
+  const sequence = fakeSpawn({ stdout: '{"type":"session"}\n{"type":"agent_start"}\n{"type":"tool_execution_start","args":{"secret":"Bearer hidden"}}\n', wait: true });
+  const mock = host();
+  registerRotta(mock.pi as any, { spawn: sequence.spawn, home: () => "/test-home" });
+  await tool(mock.tools, "rotta_delegate").execute("call", { role: "reviewer", task: "review", timeoutMs: 5 }, signal().signal, () => {}, mock.ctx)
+    .then(() => { throw Error("sequence accepted"); }, (error: Error) => {
+      assert(error.message.includes("last known stage: tool execution in progress") && !error.message.includes("hidden"));
+    });
 });
 
 Deno.test("Pi routing profile applies complete roles, but explicit and inheritance win safely", async () => {
@@ -738,6 +1138,7 @@ Deno.test("delegate preserves requested routing and prefers authoritative child 
         model: "provider/base-model",
         responseModel: "provider/actual-model",
         providerThinkingLevel: "medium",
+        usage: { input: 41, output: 9, reasoning: 3, cacheRead: 0, cost: { total: 0.02 } },
         content: "done",
       },
     }) + "\n",
@@ -773,6 +1174,9 @@ Deno.test("delegate preserves requested routing and prefers authoritative child 
       result.details.requestedModel === "requested/model",
     "final assistant metadata was not authoritative or retained",
   );
+  assert(result.details.responseUsage.input === 41 && result.details.responseUsage.cacheRead === 0 &&
+    result.details.responseUsage.reasoning === 3 && result.details.responseUsage.cost === 0.02,
+    "reported child response usage was lost or fabricated");
   const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
   const rendered = delegate.renderResult(
     result,
@@ -1074,6 +1478,7 @@ Deno.test("default parent entrypoint loads the installed bridge once and reports
   let spawns = 0;
   const pi = {
     registerTool: (entry: any) => tools.push(entry),
+    registerCommand: () => {},
     registerShortcut: () => {},
     on: (name: string, handler: any) => (events[name] ??= []).push(handler),
   };
@@ -1298,16 +1703,184 @@ Deno.test("question preparation binds an explicit safe choice and current contra
     assert(answer.content[0].text === "Approve revision 1" && Number(mock.selects.length) === 1);
     await prepare.execute("duplicate", { ...draft, safeOption: "Approve revision 1" },
       signal().signal, () => {}, mock.ctx).then(() => { throw Error("ambiguous draft accepted"); },
-      (error: Error) => assert(error.message.includes("distinct")));
+      (error: Error) => assert(error.message.includes("choices/safeOption")));
     await prepare.execute("missing", { ...draft, decision: "" },
       signal().signal, () => {}, mock.ctx).then(() => { throw Error("missing decision accepted"); },
-      (error: Error) => assert(error.message.includes("incomplete question draft")));
+      (error: Error) => assert(error.message.includes("decision")));
     Deno.writeTextFileSync(contract, "# Approval\nRevision: 2\n");
     await tool(mock.tools, "rotta_question").execute("stale", request,
       signal().signal, () => {}, mock.ctx).then(() => { throw Error("stale approval accepted"); },
       (error: Error) => assert(error.message.includes("approval identity mismatch")));
     assert(Number(mock.selects.length) === 1, "stale request displayed to user");
   } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("sibling worktree contract and exact operation stay bound in the current Pi session", async () => {
+  const parent = Deno.makeTempDirSync();
+  const main = `${parent}/main`, sibling = `${parent}/stripe`;
+  Deno.mkdirSync(main);
+  const git = (...args: string[]) => {
+    const result = new Deno.Command("git", { args: ["-C", main, ...args] }).outputSync();
+    assert(result.code === 0, new TextDecoder().decode(result.stderr));
+  };
+  try {
+    git("init");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "fixture");
+    git("worktree", "add", "--detach", sibling);
+    Deno.mkdirSync(`${sibling}/.rotta/strict`, { recursive: true });
+    Deno.mkdirSync(`${sibling}/.rotta/ops`, { recursive: true });
+    const contractPath = `${sibling}/.rotta/strict/stripe.md`;
+    const operationPath = `${sibling}/.rotta/ops/sdk.md`;
+    Deno.writeTextFileSync(contractPath, "Revision: 1\n");
+    const action = "install SDK in sibling";
+    const command = `pnpm --dir ${sibling} add stripe --ignore-scripts`;
+    Deno.writeTextFileSync(operationPath,
+      `Action: ${action}\nCommand: ${command}\nTarget: ${sibling}\nEffect: install dependency in sibling\nRevision: 1\n`);
+    const mock = host(); mock.ctx.cwd = main;
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"stubbed"}\n' });
+    registerRotta(mock.pi as any, { spawn: fake.spawn, home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const question = tool(mock.tools, "rotta_question");
+    const draft = { trigger: "strict-approval", requestId: "stripe", workspace: sibling,
+      action: "approve Stripe", decision: "Approve?", choices: ["Approve"], safeOption: "Stop", contractPath };
+    const approved = (await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx)).details.request;
+    assert(approved.workspace === sibling && approved.contractPath === contractPath);
+    await question.execute("approve", approved, signal().signal, () => {}, mock.ctx);
+    const operation = (await prepare.execute("operation", { trigger: "external-consent", requestId: "sdk",
+      workspace: sibling, action, decision: "Install?", safeOption: "Stop", operationPath },
+      signal().signal, () => {}, mock.ctx)).details.request;
+    await question.execute("consent", operation, signal().signal, () => {}, mock.ctx);
+    await tool(mock.tools, "rotta_delegate").execute("execute", { role: "operations", workspace: sibling,
+      task: "Run exact approved command", operation: { requestId: "sdk", command, target: sibling,
+        action, effect: "install dependency in sibling", artifactPath: operationPath,
+        revision: 1, digest: operation.operationDigest } }, signal().signal, () => {}, mock.ctx);
+    assert(fake.calls.length === 1);
+    assert((fake.calls[0][2] as { cwd: string }).cwd === sibling, "operation child ran outside selected worktree");
+    assert(mock.ctx.cwd === main, "Pi session cwd was unexpectedly changed");
+    const unrelated = Deno.makeTempDirSync();
+    try {
+      await prepare.execute("foreign", { ...draft, workspace: unrelated }, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error("unrelated repository accepted"); }, (error: Error) =>
+          assert(error.message.includes("registered sibling Git worktree")));
+    } finally { Deno.removeSync(unrelated, { recursive: true }); }
+    const stale = (await prepare.execute("stale", { trigger: "external-consent", requestId: "stale-sdk",
+      workspace: sibling, action, decision: "Install?", safeOption: "Stop", operationPath },
+      signal().signal, () => {}, mock.ctx)).details.request;
+    await question.execute("stale-consent", stale, signal().signal, () => {}, mock.ctx);
+    git("worktree", "remove", "--force", sibling);
+    await tool(mock.tools, "rotta_delegate").execute("stale-run", { role: "operations", workspace: sibling,
+      task: "Must not run", operation: { requestId: "stale-sdk", command, target: sibling,
+        action, effect: "install dependency in sibling", artifactPath: operationPath,
+        revision: 1, digest: stale.operationDigest } }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("removed worktree dispatched"); }, () => {});
+    assert(fake.calls.length === 1, "removed worktree spawned a child");
+  } finally { Deno.removeSync(parent, { recursive: true }); }
+});
+
+Deno.test("local env provisioning copies ignored files to a sibling without reading values or overwriting", async () => {
+  const parent = Deno.makeTempDirSync(), main = `${parent}/main`, sibling = `${parent}/feature`;
+  Deno.mkdirSync(main);
+  const git = (...args: string[]) => {
+    const result = new Deno.Command("git", { args: ["-C", main, ...args] }).outputSync();
+    assert(result.code === 0, new TextDecoder().decode(result.stderr));
+  };
+  try {
+    git("init");
+    Deno.writeTextFileSync(`${main}/.gitignore`, ".env*\n");
+    git("add", ".gitignore");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture");
+    git("worktree", "add", "--detach", sibling);
+    const secret = "private fixture value - never include in result";
+    Deno.writeTextFileSync(`${main}/.env`, secret);
+    Deno.writeTextFileSync(`${main}/.env.prd`, "production-named local fixture");
+    const mock = host(); mock.ctx.cwd = main;
+    registerRotta(mock.pi as any);
+    const copy = tool(mock.tools, "rotta_copy_worktree_env");
+    const request = { sourceWorkspace: main, targetWorkspace: sibling, files: [".env", ".env.prd"] };
+    const result = await copy.execute("copy", request, signal().signal, () => {}, mock.ctx);
+    assert(result.details.copiedPaths.join("|") === ".env|.env.prd");
+    assert(!JSON.stringify(result).includes(secret));
+    assert(Deno.readTextFileSync(`${sibling}/.env`) === secret);
+    assert(Deno.readTextFileSync(`${sibling}/.env.prd`) === "production-named local fixture");
+    assert((Deno.statSync(`${sibling}/.env`).mode! & 0o777) === 0o600);
+    await copy.execute("again", request, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("overwrote existing env"); }, () => {});
+    assert(Deno.readTextFileSync(`${sibling}/.env`) === secret);
+    await copy.execute("escape", { ...request, files: ["../.env"] }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("accepted path escape"); }, () => {});
+    Deno.symlinkSync(`${main}/.env`, `${main}/.env.link`);
+    await copy.execute("symlink", { ...request, files: [".env.link"] }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("accepted symlinked env source"); }, () => {});
+    Deno.writeTextFileSync(`${main}/.env.extra`, "unignored fixture");
+    Deno.writeTextFileSync(`${main}/.gitignore`, ".env\n.env.prd\n.env.link\n");
+    await copy.execute("not-ignored", { ...request, files: [".env.extra"] }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("accepted non-ignored env source"); }, () => {});
+    Deno.writeTextFileSync(`${main}/.env.test`, "tracked fixture");
+    git("add", "-f", ".env.test");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "track env");
+    await copy.execute("tracked", { ...request, files: [".env.test"] }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("accepted tracked env"); }, () => {});
+  } finally { Deno.removeSync(parent, { recursive: true }); }
+});
+
+Deno.test("explicit one-time consent can authorize a canonical target outside the workspace", async () => {
+  const project = Deno.makeTempDirSync(), external = Deno.makeTempDirSync();
+  try {
+    Deno.mkdirSync(`${project}/.rotta/ops`, { recursive: true });
+    const artifactPath = `${project}/.rotta/ops/external.md`;
+    const command = `tool --target ${external}`;
+    Deno.writeTextFileSync(artifactPath,
+      `Action: change named external target\nCommand: ${command}\nTarget: ${external}\nEffect: alter external test fixture once\nRevision: 1\n`);
+    const mock = host(); mock.ctx.cwd = project;
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"applied"}\n' });
+    registerRotta(mock.pi as any, { spawn: fake.spawn, home: () => "/test-home" });
+    const prepared = (await tool(mock.tools, "rotta_prepare_question").execute("prepare", {
+      trigger: "external-consent", requestId: "outside", action: "change named external target",
+      decision: "Approve exact external operation?", safeOption: "Stop", operationPath: artifactPath,
+    }, signal().signal, () => {}, mock.ctx)).details.request;
+    assert(prepared.target === external && prepared.workspace === project);
+    await tool(mock.tools, "rotta_question").execute("consent", prepared, signal().signal, () => {}, mock.ctx);
+    const operation = { role: "operations", task: "Apply approved exact operation", operation: {
+      requestId: "outside", command, target: external, action: "change named external target",
+      effect: "alter external test fixture once", artifactPath, revision: 1, digest: prepared.operationDigest,
+    } };
+    await tool(mock.tools, "rotta_delegate").execute("dispatch", operation, signal().signal, () => {}, mock.ctx);
+    assert(fake.calls.length === 1);
+    await tool(mock.tools, "rotta_delegate").execute("replay", operation, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("one-time external consent replayed"); }, () => {});
+    assert(fake.calls.length === 1);
+  } finally {
+    Deno.removeSync(project, { recursive: true });
+    Deno.removeSync(external, { recursive: true });
+  }
+});
+
+Deno.test("external one-time consent refuses a target that appears after approval", async () => {
+  const project = Deno.makeTempDirSync(), external = Deno.makeTempDirSync();
+  try {
+    const target = `${external}/future`, artifactPath = `${project}/.rotta/ops/external.md`;
+    Deno.mkdirSync(`${project}/.rotta/ops`, { recursive: true });
+    const command = `tool --target ${target}`;
+    Deno.writeTextFileSync(artifactPath,
+      `Action: change absent target\nCommand: ${command}\nTarget: ${target}\nEffect: create external fixture once\nRevision: 1\n`);
+    const mock = host(); mock.ctx.cwd = project;
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"applied"}\n' });
+    registerRotta(mock.pi as any, { spawn: fake.spawn, home: () => "/test-home" });
+    const prepared = (await tool(mock.tools, "rotta_prepare_question").execute("prepare", {
+      trigger: "external-consent", requestId: "outside-absent", action: "change absent target",
+      decision: "Approve exact external operation?", safeOption: "Stop", operationPath: artifactPath,
+    }, signal().signal, () => {}, mock.ctx)).details.request;
+    await tool(mock.tools, "rotta_question").execute("consent", prepared, signal().signal, () => {}, mock.ctx);
+    Deno.writeTextFileSync(target, "created by another actor");
+    await tool(mock.tools, "rotta_delegate").execute("dispatch", { role: "operations", task: "Run exact operation",
+      operation: { requestId: "outside-absent", command, target, action: "change absent target",
+        effect: "create external fixture once", artifactPath, revision: 1, digest: prepared.operationDigest } },
+      signal().signal, () => {}, mock.ctx).then(() => { throw Error("changed external target dispatched"); }, () => {});
+    assert(fake.calls.length === 0);
+  } finally {
+    Deno.removeSync(project, { recursive: true });
+    Deno.removeSync(external, { recursive: true });
+  }
 });
 
 Deno.test("operation question preparation binds the current exact artifact, never a draft command", async () => {
@@ -1331,12 +1904,46 @@ Deno.test("operation question preparation binds the current exact artifact, neve
     assert(mock.selects.length === 0, "preparation cannot display approval");
     await prepare.execute("mismatch", { ...draft, action: "other" }, signal().signal, () => {}, mock.ctx)
       .then(() => { throw Error("mismatched operation accepted"); },
-        (error: Error) => assert(error.message.includes("operation identity")));
+        (error: Error) => assert(error.message.includes("action")));
     Deno.writeTextFileSync(operationPath, bytes.replace("Revision: 1", "Revision: 2"));
     await tool(mock.tools, "rotta_question").execute("stale", request, signal().signal, () => {}, mock.ctx)
       .then(() => { throw Error("stale operation accepted"); },
-        (error: Error) => assert(error.message.includes("incomplete exact operation binding")));
+        (error: Error) => assert(error.message.includes("stale prepared operation identity")));
     assert(mock.selects.length === 0);
+  } finally { Deno.removeSync(workspace, { recursive: true }); }
+});
+
+Deno.test("redundant fixed operation approval is normalized before display without authorizing execution", async () => {
+  const mock = host();
+  const workspace = Deno.makeTempDirSync();
+  mock.ctx.cwd = workspace;
+  Deno.mkdirSync(`${workspace}/.rotta/ops`, { recursive: true });
+  const operationPath = `${workspace}/.rotta/ops/prune.md`;
+  const action = "archive and prune approved files";
+  Deno.writeTextFileSync(operationPath,
+    `Action: ${action}\nCommand: python3 .rotta/ops/prune.py\nTarget: ${workspace}\nEffect: archive and prune\nRevision: 1\n`);
+  try {
+    registerRotta(mock.pi as any, { home: () => "/test-home" });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const draft = { trigger: "external-consent", requestId: "prune-once", action,
+      decision: "Archive and prune once?", safeOption: "Keep files", operationPath };
+    await prepare.execute("malformed", { ...draft, choices: ["Approve any operation"] },
+      signal().signal, () => {}, mock.ctx).then(
+        () => { throw Error("arbitrary operation choice accepted"); },
+        (error: Error) => assert(error.message.includes("options are fixed")),
+      );
+    assert(mock.selects.length === 0, "a rejected draft displayed a question");
+    // Same request and artifact can be prepared once more after a pre-display error.
+    const redundant = await prepare.execute("prepare", {
+      ...draft, choices: ["Approve the exact rendered operation once"],
+    }, signal().signal, () => {}, mock.ctx);
+    assert(redundant.details.request.options.join("|") ===
+      "Approve the exact rendered operation once|Keep files");
+    assert(mock.selects.length === 0, "preparation displayed or approved an operation");
+    const answer = await tool(mock.tools, "rotta_question").execute("ask", redundant.details.request,
+      signal().signal, () => {}, mock.ctx);
+    assert(answer.content[0].text === "Approve the exact rendered operation once");
+    assert(Number(mock.selects.length) === 1);
   } finally { Deno.removeSync(workspace, { recursive: true }); }
 });
 
@@ -2077,8 +2684,23 @@ Deno.test("transport bounds UTF-8 output, rejects invalid protocol, and terminat
     timeoutHost.ctx,
   ).then(() => {
     throw new Error("timeout succeeded");
-  }, () => {});
+  }, (error: Error) => {
+    assert(error.message.includes("no child output observed"));
+    assert(error.message.includes("last known stage: spawned; no JSON session startup evidence"));
+    assert(!error.message.includes("success"));
+  });
   assert(slow.killed.includes("SIGTERM"));
+  const partial = fakeSpawn({ stdout: '{"tool_args":"Bearer confidential-value"}\n', wait: true });
+  const partialHost = host();
+  registerRotta(partialHost.pi as any, { spawn: partial.spawn, home: () => "/test-home" });
+  await tool(partialHost.tools, "rotta_delegate").execute(
+    "partial-timeout", { role: "reviewer", task: "review", timeoutMs: 5 },
+    signal().signal, () => {}, partialHost.ctx,
+  ).then(() => { throw Error("partial stdout became a handoff"); }, (error: Error) => {
+    assert(error.message.includes("partial child output observed"));
+    assert(error.message.includes("no JSON session startup evidence"));
+    assert(!error.message.includes("confidential-value"));
+  });
   const cancelled = fakeSpawn({ wait: true });
   const cancelHost = host();
   registerRotta(cancelHost.pi as any, {
@@ -2300,6 +2922,9 @@ Deno.test("exact operation consent binds dispatch once without executing on cons
     await question.execute("consent-third", request, signal().signal, () => {}, mock.ctx);
     await denied(operation, { ...mock.ctx, sessionManager: { getSessionId: () => "other-session" } });
     await question.execute("consent-final", request, signal().signal, () => {}, mock.ctx);
+    await (mock.events.session_shutdown as any)({}, mock.ctx);
+    await denied(operation); // a closed session cannot retain a pending one-time authorization
+    await question.execute("consent-after-restart", request, signal().signal, () => {}, mock.ctx);
     const result = await dispatch(operation);
     assert(result.content[0].text === "safe result", "matching child result missing");
     assert(callCount() === 1, "matching operation did not dispatch once");
@@ -2345,6 +2970,151 @@ Deno.test("exact operation consent binds dispatch once without executing on cons
         .then(() => { throw new Error("external target approved"); }, () => {});
       assert(callCount() === 1, "invalid target caused execution");
     } finally { Deno.removeSync(outside, { recursive: true }); }
+  } finally { Deno.removeSync(project, { recursive: true }); }
+});
+
+Deno.test("absent operation target is single-use and appearing target or replaced ancestry fails closed", async () => {
+  const project = Deno.makeTempDirSync();
+  const outside = Deno.makeTempDirSync();
+  try {
+    const ops = `${project}/.rotta/ops`;
+    Deno.mkdirSync(ops, { recursive: true });
+    const ancestor = `${project}/new`;
+    Deno.mkdirSync(ancestor);
+    const target = `${ancestor}/branch`;
+    const artifactPath = `${ops}/create.md`;
+    const command = `git worktree add ${target}`;
+    const action = "create branch fixture", effect = "create workspace target";
+    const bytes = `Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nRevision: 1\n`;
+    Deno.writeTextFileSync(artifactPath, bytes);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const operation = { requestId: "create", command, target, action, effect, artifactPath, revision: 1, digest };
+    const request = { trigger: "external-consent", requestId: "create", workspace: project,
+      action, effect, safeOutcome: "Stop", command, target, operationPath: artifactPath,
+      operationRevision: 1, operationDigest: digest };
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"stubbed"}\n' });
+    const mock = host(); mock.ctx.cwd = project;
+    registerRotta(mock.pi as any, { spawn: fake.spawn });
+    const question = tool(mock.tools, "rotta_question");
+    const delegate = tool(mock.tools, "rotta_delegate");
+    const dispatch = () => delegate.execute("run", { role: "operations", task: "stub only", operation }, signal().signal, () => {}, mock.ctx);
+    const denied = async () => {
+      const before = fake.calls.length;
+      await dispatch().then(() => { throw Error("unsafe dispatch"); }, () => {});
+      assert(fake.calls.length === before);
+    };
+    const approve = async () => {
+      await question.execute("approve", request, signal().signal, () => {}, mock.ctx);
+      assert(fake.calls.length === 0);
+    };
+    await approve();
+    Deno.mkdirSync(target); await denied(); Deno.removeSync(target, { recursive: true });
+    await approve();
+    Deno.renameSync(ancestor, `${project}/old`);
+    Deno.mkdirSync(ancestor); await denied();
+    Deno.removeSync(ancestor); Deno.symlinkSync(outside, ancestor);
+    await question.execute("escape", request, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("symlink escape approved"); }, () => {});
+    await denied();
+    Deno.removeSync(ancestor); Deno.renameSync(`${project}/old`, ancestor);
+    await approve(); await dispatch(); assert(fake.calls.length === 1);
+    await denied();
+  } finally { Deno.removeSync(project, { recursive: true }); Deno.removeSync(outside, { recursive: true }); }
+});
+
+Deno.test("prepared operation cannot rebind an appearing target or replaced ancestor before question UI", async () => {
+  const project = Deno.makeTempDirSync();
+  try {
+    Deno.mkdirSync(`${project}/.rotta/ops`, { recursive: true });
+    const parent = `${project}/parent`;
+    Deno.mkdirSync(parent);
+    const target = `${parent}/new`;
+    const artifactPath = `${project}/.rotta/ops/create.md`;
+    const action = "create fixture";
+    Deno.writeTextFileSync(artifactPath, `Action: ${action}\nCommand: git worktree add fixture\nTarget: ${target}\nEffect: stub only\nRevision: 1\n`);
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"stub"}\n' });
+    const mock = host(); mock.ctx.cwd = project;
+    registerRotta(mock.pi as any, { spawn: fake.spawn });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const question = tool(mock.tools, "rotta_question");
+    const draft = { trigger: "external-consent", requestId: "prepared", action,
+      decision: "Create once?", safeOption: "Stop", operationPath: artifactPath };
+    const fresh = async () => (await prepare.execute("prepare", draft, signal().signal, () => {}, mock.ctx)).details.request;
+    const reject = async (request: any) => {
+      const shown = mock.selects.length;
+      await question.execute("ask", request, signal().signal, () => {}, mock.ctx)
+        .then(() => { throw Error("stale prepared operation approved"); }, (error: Error) => {
+          assert(error.message.includes("stale prepared operation identity"));
+          assert(!error.message.includes(target));
+        });
+      assert(mock.selects.length === shown && fake.calls.length === 0, "stale preparation reached UI or child");
+    };
+    const appearing = await fresh();
+    Deno.mkdirSync(target);
+    await reject(appearing);
+    Deno.removeSync(target);
+    await reject(appearing); // consumed preparation cannot be replayed as a direct question
+    const swapped = await fresh();
+    Deno.renameSync(parent, `${project}/old`);
+    Deno.mkdirSync(parent);
+    await reject(swapped);
+    Deno.removeSync(parent);
+    Deno.renameSync(`${project}/old`, parent);
+    const valid = await fresh();
+    const approved = await question.execute("valid", valid, signal().signal, () => {}, mock.ctx);
+    assert(approved.content[0].text === "Approve the exact rendered operation once");
+    assert(mock.selects.length === 1 && fake.calls.length === 0);
+    await (mock.events.session_shutdown as any)({}, mock.ctx);
+    await reject(valid); // a serialized request cannot become a direct call after session cleanup
+  } finally { Deno.removeSync(project, { recursive: true }); }
+});
+
+Deno.test("failed same-ID replacement preparation or question revokes only its previous consent", async () => {
+  const project = Deno.makeTempDirSync();
+  try {
+    Deno.mkdirSync(`${project}/.rotta/ops`, { recursive: true });
+    const target = `${project}/new`;
+    const artifactPath = `${project}/.rotta/ops/create.md`;
+    const action = "create target", command = "git worktree add new", effect = "stubbed creation";
+    const bytes = `Action: ${action}\nCommand: ${command}\nTarget: ${target}\nEffect: ${effect}\nRevision: 1\n`;
+    Deno.writeTextFileSync(artifactPath, bytes);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const fake = fakeSpawn({ stdout: '{"status":"success","output":"stub"}\n' });
+    const mock = host(); mock.ctx.cwd = project;
+    registerRotta(mock.pi as any, { spawn: fake.spawn });
+    const prepare = tool(mock.tools, "rotta_prepare_question");
+    const question = tool(mock.tools, "rotta_question");
+    const delegate = tool(mock.tools, "rotta_delegate");
+    const draft = (requestId: string) => ({ trigger: "external-consent", requestId, action,
+      decision: "Create once?", safeOption: "Stop", operationPath: artifactPath });
+    const direct = (requestId: string) => ({ trigger: "external-consent", requestId, workspace: project,
+      action, command, target, effect, safeOutcome: "Stop", operationPath: artifactPath,
+      operationRevision: 1, operationDigest: digest });
+    const operation = (requestId: string) => ({ requestId, action, command, target, effect, artifactPath, revision: 1, digest });
+    const dispatch = (requestId: string) => delegate.execute("run", {
+      role: "operations", task: "stub only", operation: operation(requestId),
+    }, signal().signal, () => {}, mock.ctx);
+    const denied = async (requestId: string) => {
+      const before = fake.calls.length;
+      await dispatch(requestId).then(() => { throw Error("stale consent dispatched"); }, () => {});
+      assert(fake.calls.length === before);
+    };
+    await question.execute("first", direct("first"), signal().signal, () => {}, mock.ctx);
+    await question.execute("other", direct("other"), signal().signal, () => {}, mock.ctx);
+    await prepare.execute("failed", { ...draft("first"), action: "altered" }, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("invalid preparation accepted"); }, () => {});
+    await denied("first");
+    await question.execute("again", direct("first"), signal().signal, () => {}, mock.ctx);
+    const prepared = (await prepare.execute("prepare", draft("first"), signal().signal, () => {}, mock.ctx)).details.request;
+    Deno.mkdirSync(target);
+    const before = mock.selects.length;
+    await question.execute("stale", prepared, signal().signal, () => {}, mock.ctx)
+      .then(() => { throw Error("stale replacement approved"); }, () => {});
+    assert(mock.selects.length === before, "replacement reached decision UI");
+    await denied("first");
+    Deno.removeSync(target);
+    await dispatch("other");
+    assert(fake.calls.length === 1, "unrelated consent was revoked");
   } finally { Deno.removeSync(project, { recursive: true }); }
 });
 
@@ -2699,9 +3469,12 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
     );
     assert(answer.content[0].text === "Approve", `${trigger} was not accepted`);
   }
-  const legacy = await question.execute("legacy-consent", { ...request, trigger: "external-consent" },
-    signal().signal, () => {}, mock.ctx);
-  assert(legacy.content[0].text === "Approve");
+  await question.execute("legacy-consent", { ...request, trigger: "external-consent" },
+    signal().signal, () => {}, mock.ctx).then(() => {
+    throw new Error("unbound operation consent was accepted");
+  }, (error: Error) => {
+    assert(error.message.includes("operationPath"), "unbound operation needs an artifact");
+  });
   await question.execute("partial-consent", { ...request, trigger: "external-consent", command: "printf x" },
     signal().signal, () => {}, mock.ctx).then(() => {
     throw new Error("partial consent was accepted");
@@ -2722,6 +3495,21 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
     !accepted.isError && accepted.details.session === "trusted-session" &&
       accepted.details.workspace === project,
   );
+  const listenerController = signal();
+  let attached = 0;
+  let removed = 0;
+  const add = listenerController.signal.addEventListener.bind(listenerController.signal);
+  const remove = listenerController.signal.removeEventListener.bind(listenerController.signal);
+  (listenerController.signal as any).addEventListener = (...args: any[]) => {
+    if (args[0] === "abort") attached++;
+    return add(...args as ["abort", EventListener]);
+  };
+  (listenerController.signal as any).removeEventListener = (...args: any[]) => {
+    if (args[0] === "abort") removed++;
+    return remove(...args as ["abort", EventListener]);
+  };
+  await question.execute("listener-cleanup", request, listenerController.signal, () => {}, mock.ctx);
+  assert(attached === removed, "completed question retained an abort listener");
   assert(
     JSON.stringify(mock.selects[0]).includes('"multiple":false') &&
       JSON.stringify(mock.selects[0]).includes('"custom":false'),
@@ -2807,7 +3595,7 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   await aborted.then(() => {
     throw new Error("question abort succeeded");
   }, (error: Error) => {
-    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(error.message.includes("decision cancelled"));
     assert(!error.message.includes("question UI failed"));
   });
   const invalidHost = host();
@@ -2823,7 +3611,7 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   ).then(() => {
     throw new Error("invalid selection succeeded");
   }, (error: Error) => {
-    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(error.message.includes("invalid decision selection"));
     assert(!error.message.includes("question UI failed"));
   });
   const brokenHost = host();
@@ -2865,7 +3653,7 @@ Deno.test("question adapter binds current session/cwd/action and fails closed", 
   await pendingApproval.then(() => {
     throw new Error("changed contract was approved");
   }, (error: Error) => {
-    assert(error.message.includes("cancelled, stale, or invalid decision"));
+    assert(error.message.includes("stale contract identity"));
     assert(!error.message.includes("question UI failed"));
   });
   await staleQuestion.execute(

@@ -39,7 +39,37 @@ func openCodeAgentPrompt(agent agentEntry, root string) string {
 }
 
 func bindOpenCodeAsset(data []byte, root, role string) []byte {
-	return bindHostAsset(data, openCodeBundleInstructions(root, role))
+	return wrapOpenCodePolicyLines(bindHostAsset(data, openCodeBundleInstructions(root, role)))
+}
+
+// OpenCode's read tool truncates individual lines beyond 2000 characters.
+// Wrap prose at existing spaces so the installed policy remains fully readable
+// without changing its words, frontmatter, tables, or fenced examples.
+func wrapOpenCodePolicyLines(data []byte) []byte {
+	lines := strings.Split(string(data), "\n")
+	inFence := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+		}
+		if inFence || strings.HasPrefix(trimmed, "|") || strings.HasPrefix(trimmed, "```") {
+			continue
+		}
+		var wrapped []string
+		for len(line) > 1600 {
+			breakAt := strings.LastIndexByte(line[:1600], ' ')
+			if breakAt < 1 {
+				break
+			}
+			wrapped = append(wrapped, line[:breakAt])
+			line = line[breakAt+1:]
+		}
+		if len(wrapped) > 0 {
+			lines[i] = strings.Join(append(wrapped, line), "\n")
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
 }
 
 // Existing non-model config is user-owned. The sole migration exception is an

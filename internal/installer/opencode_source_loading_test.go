@@ -48,6 +48,7 @@ func TestOpenCodeCanonicalLoadingWithDuplicateSkills(t *testing.T) {
 					t.Fatalf("incorrect generated entry: %#v", entry)
 				}
 				installed := readRottaNextInstalledAsset(t, filepath.Join(root, agent.skillName, "SKILL.md"))
+				assertOpenCodePolicyReadable(t, installed)
 				original, err := readRenderedAsset(agent.assetPath, Options{})
 				if err != nil {
 					t.Fatal(err)
@@ -59,7 +60,14 @@ func TestOpenCodeCanonicalLoadingWithDuplicateSkills(t *testing.T) {
 					}
 				}
 				assertRottaNextContainsAll(t, installed, []string{"## Resolved OpenCode policy bundle", filepath.Join(root, "rotta-core", "SKILL.md"), "every instruction to load rotta-core or this role means these exact files"})
+				if agent.skillName == "rotta-orchestrator" {
+					originalBody := strings.TrimSpace(string(original[strings.Index(string(original)[4:], "\n---\n")+4+len("\n---\n"):]))
+					if !strings.Contains(strings.ReplaceAll(installed, "\n", " "), strings.ReplaceAll(originalBody, "\n", " ")) {
+						t.Fatal("wrapping dropped orchestrator policy content")
+					}
+				}
 			}
+			assertOpenCodePolicyReadable(t, readRottaNextInstalledAsset(t, filepath.Join(root, "rotta-core", "SKILL.md")))
 			for _, path := range duplicates {
 				if got := readRottaNextInstalledAsset(t, path); got != "custom/stale skill: "+path {
 					t.Fatalf("modified duplicate skill %s", path)
@@ -70,6 +78,15 @@ func TestOpenCodeCanonicalLoadingWithDuplicateSkills(t *testing.T) {
 				t.Fatalf("source loading evidence = %#v", capability)
 			}
 		})
+	}
+}
+
+func assertOpenCodePolicyReadable(t *testing.T, policy string) {
+	t.Helper()
+	for i, line := range strings.Split(policy, "\n") {
+		if len(line) > 2000 {
+			t.Fatalf("installed OpenCode policy line %d exceeds read tool limit: %d bytes", i+1, len(line))
+		}
 	}
 }
 

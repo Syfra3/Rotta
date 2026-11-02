@@ -91,6 +91,63 @@ func TestSCN004_UnownedModelRefusesBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRoutingRecreatesMissingRoleWithStaleOwnership(t *testing.T) {
+	for _, missingConfig := range []bool{true, false} {
+		name := "role"
+		if missingConfig {
+			name = "config"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			xdg := filepath.Join(home, "xdg")
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+			target := filepath.Join(xdg, "opencode", "opencode.json")
+			if _, err := Install(Options{Target: "opencode"}); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := readManagedArtifactsManifest(filepath.Join(xdg, "rotta", "managed-artifacts.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range []string{"model", "variant"} {
+				if manifest.Files[openCodeFieldOwnershipKey(target, "rotta-architect", field)] == "" {
+					t.Fatalf("missing initial ownership for %s", field)
+				}
+			}
+			if missingConfig {
+				if err := os.Remove(target); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				config := readRoutingConfig(t, target)
+				agents := config["agent"].(map[string]interface{})
+				delete(agents, "rotta-architect")
+				config["unrelated"] = "keep"
+				agents["custom"] = map[string]interface{}{"model": "user/custom"}
+				data, err := json.Marshal(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeRoutingTestFile(t, target, data)
+			}
+			if _, err := Install(Options{Target: "opencode"}); err != nil {
+				t.Fatalf("reinstall: %v", err)
+			}
+			config := readRoutingConfig(t, target)
+			agents := config["agent"].(map[string]interface{})
+			architect := agents["rotta-architect"].(map[string]interface{})
+			if architect["model"] != DefaultOpenCodeRouting()["rotta-architect"] || architect["variant"] != DefaultOpenCodeRoutingEfforts()["rotta-architect"] {
+				t.Fatalf("recreated routing: %#v", architect)
+			}
+			if !missingConfig && (config["unrelated"] != "keep" || agents["custom"].(map[string]interface{})["model"] != "user/custom") {
+				t.Fatalf("unrelated configuration changed: %#v", config)
+			}
+		})
+	}
+}
+
 func TestUnownedVariantRefusesBeforeMutation(t *testing.T) {
 	home := t.TempDir()
 	xdg := filepath.Join(home, "xdg")

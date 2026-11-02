@@ -40,6 +40,32 @@ func TestGenericLocalTierPolicyInstalledAcrossHosts(t *testing.T) {
 	}
 }
 
+func TestEngineerConsentPolicySurvivesHostInstallation(t *testing.T) {
+	for _, host := range []struct {
+		name string
+		install func(Options, string) ([]string, error)
+		root string
+	}{
+		{"pi", installPi, filepath.Join(".pi", "agent", "rotta-next")},
+		{"opencode", installOpenCode, filepath.Join(".config", "opencode", "skills", "rotta-next")},
+		{"claude", installClaudeCode, filepath.Join(".claude", "skills", "rotta-next")},
+	} {
+		home := t.TempDir()
+		t.Setenv("OPENCODE_CONFIG", "")
+		t.Setenv("XDG_CONFIG_HOME", "")
+		if _, err := host.install(Options{}, home); err != nil {
+			t.Fatalf("%s: %v", host.name, err)
+		}
+		for file, phrase := range map[string]string{
+			"rotta-core":         "informed-consent workflow for engineers, not a risk veto",
+			"rotta-orchestrator": "carry out the approved step and continue",
+			"rotta-ops":          "including canonical targets outside the worktree",
+		} {
+			assertRottaNextFileContains(t, filepath.Join(home, host.root, file, "SKILL.md"), phrase)
+		}
+	}
+}
+
 func TestIsolatedVerificationAndAutonomousReviewSurviveHostRendering(t *testing.T) {
 	for _, host := range []struct {
 		name    string
@@ -344,12 +370,12 @@ func TestRottaQuestionPolicyIsOrchestratorOnlyAndSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"five allow-listed triggers", "materially incomplete Strict clarification", "exact approval of a rendered Strict contract", "material non-operational policy decision", "one-time consent for one exact rendered destructive/external operation", "Approve the exact rendered operation once", "generic `continue`", "single-select", "standing authorization", "source fallback", "unauthorized pending re-index review", "sequential clarification flow", "at most three questions", "Stop / use safe defaults", "canonical contract path", "SHA-256 content digest", "rendered revision", "Agent-turn governance-question procedure", "host-native question UI", "bounded text fallback", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+	for _, want := range []string{"five allow-listed triggers", "materially incomplete Strict clarification", "exact approval of a rendered Strict contract", "material non-operational policy decision", "one-time consent for one exact rendered destructive/external operation", "Approve the exact rendered operation once", "generic `continue`", "single-select", "standing authorization", "source fallback", "unauthorized pending re-index review", "sequential clarification flow", "at most three questions", "Stop / use safe defaults", "canonical contract path", "SHA-256 content digest", "rendered revision", "Agent-turn governance-question procedure", "host-native question UI", "bounded text fallback", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "Canonical out-of-workspace path targets are eligible", "agent-turn policy, not host enforcement", "no Vela invocation"} {
 		if !strings.Contains(string(core), want) {
 			t.Fatalf("core question policy missing %q", want)
 		}
 	}
-	for _, want := range []string{"host-native question UI", "bounded text-response fallback", "Only this orchestrator", "five allow-listed triggers", "Approve the exact rendered operation once", "never invoke Vela", "Agent-turn governance-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "out-of-workspace path targets", "agent-turn policy, not host enforcement", "no Vela invocation"} {
+	for _, want := range []string{"host-native question UI", "bounded text-response fallback", "Only this orchestrator", "five allow-listed triggers", "Approve the exact rendered operation once", "never invoke Vela", "Agent-turn governance-question procedure", "Eligibility is structural", "named material decision", "named alternatives", "routing or continuation-equivalent", "ephemeral binding", "exactly one item", "`multiple: false`", "`custom: false`", "exact fallback reply", "discard the answer and safe-stop", "current binding", "canonicalized target", "canonical target outside the worktree is eligible", "agent-turn policy, not host enforcement", "no Vela invocation"} {
 		if !strings.Contains(string(orchestrator), want) {
 			t.Fatalf("orchestrator question policy missing %q:\n%s", want, orchestrator)
 		}

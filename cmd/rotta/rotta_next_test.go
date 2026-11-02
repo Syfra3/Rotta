@@ -67,6 +67,7 @@ func TestCLIReportsPreservedCustomLoaderOnNoOpInstall(t *testing.T) {
 func TestCLIInstallsGlobalPiExtensionWithoutOpenCodeConfirmation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	var stdout bytes.Buffer
 	if err := runCLI([]string{"install", "--target", "pi", "--project", filepath.Join(home, "project")}, &stdout, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)

@@ -93,8 +93,23 @@ type ToolResultEventResult = {
 };
 type SessionContext = {
   mode: string;
+  hasUI: boolean;
+  cwd: string;
+  model?: { provider: string; id: string };
+  thinkingLevel?: string;
+  getContextUsage?(): { percent: number | null; contextWindow: number; tokens: number | null } | undefined;
+  sessionManager: { getSessionId(): string; getBranch?(): unknown[] };
   ui: {
     setHeader(factory: (tui: unknown, theme: Theme) => Header): void;
+    notify(message: string, level: "info" | "warning" | "error"): void;
+    setStatus(key: string, text: string | undefined): void;
+    select(title: string, options: string[]): Promise<string | undefined>;
+    custom<T>(factory: (
+      tui: { stop(): void; start(): void; requestRender(force?: boolean): void },
+      theme: Theme,
+      keys: unknown,
+      done: (value: T) => void,
+    ) => { render(): string[]; invalidate(): void }): Promise<T | undefined>;
   };
 };
 
@@ -108,6 +123,13 @@ export interface ExtensionAPI {
     options?: { timeout?: number },
   ): Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
   registerTool(tool: unknown): void;
+  registerCommand(
+    name: string,
+    options: {
+      description?: string;
+      handler: (args: string, ctx: SessionContext) => Promise<void> | void;
+    },
+  ): void;
   registerShortcut(
     shortcut: string,
     options: {
@@ -124,6 +146,9 @@ export interface ExtensionAPI {
     handler: (event: { systemPrompt: string }) => unknown,
   ): void;
   on(event: "session_shutdown", handler: (event: unknown) => unknown): void;
+  on(event: "message_end", handler: (event: { message: unknown }, ctx: SessionContext) => unknown): void;
+  on(event: "input", handler: (event: { text: string }, ctx: SessionContext) => unknown): void;
+  on(event: "agent_settled", handler: (event: { aborted: boolean }, ctx: SessionContext) => unknown): void;
   on(event: "tool_call", handler: (event: ToolCallEvent) => unknown): void;
   on(
     event: "tool_result",
