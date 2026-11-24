@@ -122,7 +122,7 @@ func TestPiRoutingSelectionReachesConfirmationIndependently(t *testing.T) {
 		t.Fatalf("Pi default = %#v", got)
 	}
 	got.Screen = ScreenConfirm
-	if view := got.View(); !strings.Contains(view, "Pi model routing:") || !strings.Contains(view, "model-routing.json") || !strings.Contains(view, "models.json") || !strings.Contains(view, "gpt-6-sol and gpt-6-luna context windows: 1000000") {
+	if view := got.View(); !strings.Contains(view, "Pi model routing:") || !strings.Contains(view, "model-routing.json") || !strings.Contains(view, "models.json") || !strings.Contains(view, "gpt-6-sol / gpt-6-luna context windows: 1000000") {
 		t.Fatalf("Pi confirmation missing: %s", view)
 	}
 }
@@ -152,15 +152,15 @@ func TestPiCustomRoutingCyclesEffortAndConfirmsSelection(t *testing.T) {
 	if got.PiOrchestratorEffort != "medium" {
 		t.Fatalf("orchestrator effort did not cycle from low to medium: %#v", got.PiOrchestratorEffort)
 	}
-	if view := got.View(); !strings.Contains(view, "Orchestrator: openai-codex/gpt-6-sol (medium)") || !strings.Contains(view, "Implementation: openai-codex/gpt-6-sol (low)") {
+	if view := got.View(); !strings.Contains(view, "Orchestrator: openai-codex/gpt-6.1-sol (medium)") || !strings.Contains(view, "Implementation: openai-codex/gpt-6.1-terra (high)") {
 		t.Fatalf("custom view missing effort: %s", view)
 	}
 	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
 	got = next.(Model)
 	next, _ = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
 	got = next.(Model)
-	if got.PiCustomEfforts["implementation"] != "medium" {
-		t.Fatalf("implementation effort did not cycle from low to medium: %#v", got.PiCustomEfforts)
+	if got.PiCustomEfforts["implementation"] != "xhigh" {
+		t.Fatalf("implementation effort did not cycle from high to xhigh: %#v", got.PiCustomEfforts)
 	}
 	got.Screen = ScreenConfirm
 	if view := got.View(); !strings.Contains(view, "Orchestrator:") || !strings.Contains(view, "Implementation:") || !strings.Contains(view, "(medium)") {

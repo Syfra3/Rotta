@@ -36,6 +36,7 @@ const (
 	ScreenAncora
 	ScreenVela
 	ScreenContext7
+	ScreenTelemetry
 	ScreenConfirm
 	ScreenInstalling
 	ScreenSuccess
@@ -151,6 +152,10 @@ type Model struct {
 	Context7Cursor int  // 0=Install+configure, 1=Skip
 	SetupContext7  bool // resolved choice
 
+	// Optional local telemetry (interactive default: accept)
+	TelemetryCursor int // 0=accept, 1=decline
+	SetupTelemetry  bool
+
 	// Confirm
 	ConfirmCursor int // 0=Cancel, 1=Install
 
@@ -211,20 +216,22 @@ func New() Model {
 	sp.Style = lipgloss.NewStyle().Foreground(colorLavender)
 
 	return Model{
-		Screen:         ScreenWelcome,
-		TargetCursor:   0,
-		Target:         TargetClaudeCode,
-		ProjectInput:   ti,
-		SelectedModes:  [3]bool{true, true, true},
-		UseDefaults:    true,
-		AncoraCursor:   0, // default to "Install + configure"
-		SetupAncora:    true,
-		VelaCursor:     0, // default to "Install + configure"
-		SetupVela:      true,
-		Context7Cursor: 0, // default to "Install + configure"
-		SetupContext7:  true,
-		ConfirmCursor:  1, // default to "Install", not "Cancel"
-		InstallSpinner: sp,
+		Screen:          ScreenWelcome,
+		TargetCursor:    0,
+		Target:          TargetClaudeCode,
+		ProjectInput:    ti,
+		SelectedModes:   [3]bool{true, true, true},
+		UseDefaults:     true,
+		AncoraCursor:    0, // default to "Install + configure"
+		SetupAncora:     true,
+		VelaCursor:      0, // default to "Install + configure"
+		SetupVela:       true,
+		Context7Cursor:  0, // default to "Install + configure"
+		SetupContext7:   true,
+		TelemetryCursor: 0, // default to accept
+		SetupTelemetry:  true,
+		ConfirmCursor:   1, // default to "Install", not "Cancel"
+		InstallSpinner:  sp,
 	}
 }
 

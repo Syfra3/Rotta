@@ -591,11 +591,8 @@ func validateOpenCodeModelOwnership(home, configPath string, agentMap map[string
 	for role := range immutableOpenCodeRouting {
 		raw, exists := agentMap[role]
 		if !exists {
-			for _, field := range []string{"model", "variant"} {
-				if _, recorded := manifest.Files[openCodeFieldOwnershipKey(configPath, role, field)]; recorded {
-					return routingFieldConflict(configPath, role, field, "recorded field is missing")
-				}
-			}
+			// A missing role has no user fields to protect. Recreate it using
+			// the requested routing, even when prior field ownership remains.
 			continue
 		}
 		agent, ok := raw.(map[string]interface{})

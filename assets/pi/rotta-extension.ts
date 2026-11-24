@@ -1,11 +1,12 @@
 // Global Pi extension. Pi discovers this exact file at ~/.pi/agent/extensions/rotta.ts.
-import { spawn as nodeSpawn } from "node:child_process";
+import { execFile as nodeExecFile, execFileSync as nodeExecFileSync, spawn as nodeSpawn, spawnSync as nodeSpawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
+import { promisify } from "node:util";
 import { Type } from "typebox";
 import {
   createBashToolDefinition,
@@ -25,6 +26,154 @@ const DETAIL_LIMIT_BYTES = 2048;
 const PENDING_FAILURE_TTL_MS = 60_000;
 const PENDING_FAILURE_CAPACITY = 64;
 const DETAIL_SHORTCUT = "ctrl+shift+o";
+const gitExec = promisify(nodeExecFile);
+const ROTTA_VIEW_ROWS = 512;
+const ROTTA_DIFF_BYTES = 64 * 1024;
+
+type UsageFields = "input" | "output" | "reasoning" | "cacheRead" | "cacheWrite";
+type UsageSummary = Partial<Record<UsageFields, number>> & { cost?: number; responses: number };
+const usageFields: UsageFields[] = ["input", "output", "reasoning", "cacheRead", "cacheWrite"];
+function measuredUsage(value: unknown): UsageSummary | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const usage = value as Record<string, unknown>;
+  const totals: UsageSummary = { responses: 1 };
+  let reported = false;
+  for (const name of usageFields) {
+    if (typeof usage[name] === "number" && Number.isFinite(usage[name]) && usage[name] >= 0) {
+      totals[name] = usage[name] as number;
+      reported = true;
+    }
+  }
+  const cost = usage.cost;
+  if (cost && typeof cost === "object" && typeof (cost as { total?: unknown }).total === "number") {
+    const total = (cost as { total: number }).total;
+    if (Number.isFinite(total) && total >= 0) { totals.cost = total; reported = true; }
+  }
+  return reported ? totals : undefined;
+}
+function addUsage(total: UsageSummary, next: UsageSummary): void {
+  total.responses += next.responses;
+  for (const field of usageFields) if (next[field] !== undefined) total[field] = (total[field] ?? 0) + next[field]!;
+  if (next.cost !== undefined) total.cost = (total.cost ?? 0) + next.cost;
+}
+function usageLabel(value: number | undefined): string {
+  return value === undefined ? "unavailable" : value.toLocaleString("en-US");
+}
+
+// A small, non-persistent Pi-themed panel. It never copies prompts or tool output
+// into the session transcript; closing it releases the component and its lines.
+async function showRottaPanel(ctx: any, title: string, lines: string[]): Promise<void> {
+  if (ctx.mode !== "tui" || typeof ctx.ui?.custom !== "function") {
+    ctx.ui?.notify?.("Rotta views require an interactive Pi terminal", "info");
+    return;
+  }
+  const rows = lines.length > ROTTA_VIEW_ROWS
+    ? [...lines.slice(0, ROTTA_VIEW_ROWS - 1), "… further rows omitted (local view limit)"] : lines;
+  await ctx.ui.custom((tui: any, theme: Theme, _keys: unknown, done: (value: undefined) => void) => {
+    let offset = 0;
+    return {
+      render(width: number) {
+        const size = Math.max(1, width);
+        return [truncateToWidth(theme.fg("accent", theme.bold(`Rotta • ${title}`)), size),
+          ...rows.slice(offset, offset + 15).map((line) => truncateToWidth(theme.fg("text", line), size)),
+          truncateToWidth(theme.fg("muted", `↑↓ scroll • ${rows.length ? offset + 1 : 0}-${Math.min(rows.length, offset + 15)}/${rows.length} • q / Esc close`), size)];
+      },
+      handleInput(data: string) {
+        if (data === "q" || data === "\x1b") { done(undefined); return; }
+        if (data === "\x1b[B" || data === "j") offset = Math.min(Math.max(0, rows.length - 15), offset + 1);
+        if (data === "\x1b[A" || data === "k") offset = Math.max(0, offset - 1);
+        tui.requestRender();
+      },
+      invalidate() { tui.requestRender(); },
+    };
+  });
+}
+
+function sessionUsage(ctx: any): { total: UsageSummary; byModel: Map<string, UsageSummary>; toolCalls: number } {
+  const total: UsageSummary = { responses: 0 };
+  const byModel = new Map<string, UsageSummary>();
+  let toolCalls = 0;
+  const entries = ctx.sessionManager?.getBranch?.() ?? [];
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (!entry || entry.type !== "message" || !entry.message) continue;
+    if (typeof entry.id === "string") { if (ids.has(entry.id)) continue; ids.add(entry.id); }
+    const message = entry.message;
+    if (message.role !== "assistant") continue;
+    toolCalls += Array.isArray(message.content) ? message.content.filter((part: any) => part?.type === "toolCall").length : 0;
+    const usage = measuredUsage(message.usage);
+    if (!usage) continue;
+    addUsage(total, usage);
+    const model = typeof message.model === "string" && message.model ? message.model : "unknown model";
+    const row = byModel.get(model) ?? { responses: 0 };
+    addUsage(row, usage);
+    byModel.set(model, row);
+  }
+  return { total, byModel, toolCalls };
+}
+
+type DelegateActivity = { role: string; state: string; started: number; elapsedMs?: number; model?: string; requestedModel?: string; usage?: UsageSummary };
+function delegateLines(jobs: readonly DelegateActivity[]): string[] {
+  return jobs.length ? jobs.slice(-12).reverse().map((job) =>
+    `${job.role} • ${job.state} • ${elapsedLabel(job.elapsedMs ?? (Date.now() - job.started))} • observed ${job.model ?? "unavailable"} / requested ${job.requestedModel ?? "unavailable"} • output ${usageLabel(job.usage?.output)}`)
+    : ["No Rotta delegations observed in this session"];
+}
+
+type GitChange = { path: string; state: string; staged: boolean; untracked: boolean };
+async function gitChanges(cwd: string, execute = gitExec): Promise<GitChange[]> {
+  const { stdout } = await execute("git", ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"], {
+    cwd, timeout: 5_000, maxBuffer: 128 * 1024, encoding: "utf8",
+  });
+  const tokens = stdout.split("\0");
+  const changes: GitChange[] = [];
+  for (let index = 0; index < tokens.length && changes.length < 80; index++) {
+    const token = tokens[index];
+    if (!token || token.length < 4 || token[2] !== " ") continue;
+    const state = token.slice(0, 2);
+    const file = token.slice(3);
+    if (state.includes("R") || state.includes("C")) index++; // porcelain -z adds the other rename path
+    changes.push({ path: file, state, staged: state[0] !== " " && state[0] !== "?", untracked: state === "??" });
+  }
+  return changes;
+}
+function terminalSafe(text: string): string {
+  return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, " ");
+}
+async function gitDiff(cwd: string, change: GitChange, execute = gitExec): Promise<string[]> {
+  if (change.untracked) return ["Untracked file: diff unavailable until Git tracks it", "Author: unknown"];
+  const args = ["--no-optional-locks", "diff", "--no-ext-diff", "--no-textconv", "--color=never"];
+  const outputs: string[] = [];
+  for (const staged of [false, true]) {
+    if (staged && !change.staged) continue;
+    const { stdout } = await execute("git", [...args, ...(staged ? ["--cached"] : []), "--", change.path], {
+      cwd, timeout: 5_000, maxBuffer: ROTTA_DIFF_BYTES, encoding: "utf8",
+    });
+    if (stdout) outputs.push(`${staged ? "Staged" : "Unstaged"} diff:`, terminalSafe(stdout));
+  }
+  return ["Author: unknown (Git status does not prove who edited a file)", ...(outputs.length ? outputs : ["No textual diff available"])];
+}
+type WorkView = { id: string; phase: string; next: string; blocker: string };
+function workViews(cwd: string): WorkView[] {
+  const root = existingCanonical(path.join(cwd, ".rotta", "work"));
+  if (!root) return [];
+  try {
+    const files = fs.readdirSync(root).filter((name) => /^[a-zA-Z0-9_-]+\.md$/.test(name))
+      .sort((left, right) => {
+        try { return fs.statSync(path.join(root, right)).mtimeMs - fs.statSync(path.join(root, left)).mtimeMs; }
+        catch { return 0; }
+      }).slice(0, 80);
+    return files.map((name) => {
+      try {
+        const file = existingCanonical(path.join(root, name));
+        if (!file.startsWith(root + path.sep) || fs.statSync(file).size > 64 * 1024) return null;
+        const text = fs.readFileSync(file, "utf8");
+        const field = (label: string) => terminalSafe(text.match(new RegExp(`^${label}: ([^\\r\\n]+)`, "m"))?.[1] ?? "unavailable").slice(0, 180);
+        return { id: field("Work ID"), phase: field("Phase"), next: field("Next action"), blocker: field("Blocker") };
+      } catch { return null; }
+    }).filter((view): view is WorkView => view !== null);
+  } catch { return []; }
+}
 const memoryTools = [
   "rotta_ancora_save",
   "rotta_ancora_summarize",
@@ -90,8 +239,53 @@ const roles = {
 } as const;
 type Role = keyof typeof roles;
 type Spawn = typeof nodeSpawn;
+function currentPiRuntime(): { executable: string; entry?: string } | undefined {
+  const executable = process.execPath;
+  if (!path.isAbsolute(executable)) return;
+  const name = path.basename(executable);
+  if (/^pi(?:\.exe)?$/.test(name)) return { executable };
+  if (/^(node|bun)(?:\.exe)?$/.test(name) && process.argv[1] && path.isAbsolute(process.argv[1]))
+    return { executable, entry: process.argv[1] };
+}
+function compiledRuntime(file: string): boolean {
+  // A name alone could identify a shell wrapper. Read only the magic bytes,
+  // never the potentially large executable image.
+  const fd = fs.openSync(file, "r");
+  const magic = Buffer.alloc(4);
+  let bytes: number;
+  try { bytes = fs.readSync(fd, magic, 0, magic.length, 0); }
+  finally { fs.closeSync(fd); }
+  return bytes === 4 && (
+    magic.toString("hex") === "7f454c46" || // ELF
+    magic.subarray(0, 2).toString("hex") === "4d5a" || // PE MZ
+    ["feedface", "cefaedfe", "feedfacf", "cffaedfe", // thin Mach-O
+      "cafebabe", "bebafeca", "cafebabf", "bfbafeca"].includes(magic.toString("hex")) // universal Mach-O
+  );
+}
+function trustedPiRuntime(identity: { executable: string; entry?: string } | undefined) {
+  if (!identity?.executable || !path.isAbsolute(identity.executable)) return;
+  try {
+    const binary = fs.realpathSync(identity.executable);
+    if (!fs.statSync(binary).isFile()) return;
+    if (identity.entry) {
+      if (!/^(node|bun)(?:\.exe)?$/.test(path.basename(binary)) ||
+        !compiledRuntime(binary) || !path.isAbsolute(identity.entry)) return;
+      const entry = fs.realpathSync(identity.entry);
+      if (!fs.statSync(entry).isFile() || !/^(?:pi|cli)\.[cm]?js$/.test(path.basename(entry)) ||
+        !entry.split(path.sep).some((part, index, parts) =>
+          part === "pi" || (part === "node_modules" && parts[index + 1] === "@earendil-works" &&
+            parts[index + 2] === "pi-coding-agent"))) return;
+      return { executable: binary, prefix: [entry] };
+    }
+    if (/^pi(?:\.exe)?$/.test(path.basename(binary)) && compiledRuntime(binary))
+      return { executable: binary, prefix: [] as string[] };
+  } catch { /* fail closed */ }
+}
 export type RottaDependencies = {
   spawn?: Spawn;
+  piRuntime?: () => { executable: string; entry?: string } | undefined;
+  lazyGitSpawnSync?: typeof nodeSpawnSync;
+  gitExec?: typeof gitExec;
   home?: () => string;
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
@@ -120,6 +314,7 @@ export type RottaDependencies = {
 type DelegateParams = {
   role: string;
   task: string;
+  workspace?: string;
   model?: string;
   timeoutMs?: number;
   requiredTools?: string[];
@@ -147,6 +342,7 @@ type QuestionParams = {
 type QuestionDraftParams = {
   trigger: QuestionParams["trigger"];
   requestId: string;
+  workspace?: string;
   action: string;
   decision: string;
   choices?: string[];
@@ -186,6 +382,59 @@ function existingCanonical(input: string) {
   } catch {
     return "";
   }
+}
+// A sibling worktree is an explicitly selected project workspace, not an
+// arbitrary path accepted because it shares a parent directory or .git file.
+function selectedWorkspace(cwd: string, requested?: string): string {
+  const base = existingCanonical(cwd);
+  if (!base) fail("safe stop: question workspace unavailable");
+  if (requested === undefined) return base;
+  const target = existingCanonical(requested);
+  if (!target || !path.isAbsolute(requested) || target !== path.normalize(requested)) {
+    fail("safe stop: selected workspace must be an existing canonical path");
+  }
+  if (target === base) return base;
+  try {
+    const git = (dir: string, ...args: string[]) => nodeExecFileSync("git", ["-C", dir, ...args],
+      { encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const root = existingCanonical(git(base, "rev-parse", "--show-toplevel"));
+    if (root !== base || existingCanonical(git(target, "rev-parse", "--show-toplevel")) !== target ||
+      existingCanonical(path.resolve(base, git(base, "rev-parse", "--git-common-dir"))) !==
+      existingCanonical(path.resolve(target, git(target, "rev-parse", "--git-common-dir"))) ||
+      !git(base, "worktree", "list", "--porcelain").split("\n").some((line) =>
+        line.startsWith("worktree ") && existingCanonical(line.slice(9)) === target)) {
+      fail("safe stop: selected workspace is not a registered sibling Git worktree");
+    }
+  } catch {
+    fail("safe stop: selected workspace is not a registered sibling Git worktree");
+  }
+  return target;
+}
+function operationTarget(workspace: string, supplied: string | undefined) {
+  if (!supplied || !path.isAbsolute(supplied) || path.normalize(supplied) !== supplied ||
+    !workspace) return null;
+  // Require every existing component to be canonical. An absent leaf is allowed,
+  // but a symlink or an existing target cannot silently change identity.
+  let ancestor = supplied;
+  while (true) {
+    try { fs.lstatSync(ancestor); break; } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+    }
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) return null;
+    ancestor = parent;
+  }
+  if (existingCanonical(ancestor) !== ancestor) return null;
+  const chain: string[] = [];
+  for (let current = ancestor; ; current = path.dirname(current)) {
+    const stat = fs.lstatSync(current);
+    chain.push(`${stat.dev}:${stat.ino}`);
+    // An explicitly consented target may live outside the workspace. Bind its
+    // canonical ancestry to the filesystem root so relocation is detected.
+    if (current === workspace || path.dirname(current) === current) break;
+  }
+  const exists = ancestor === supplied;
+  return { path: supplied, ancestor, exists, chain: chain.join("/") };
 }
 function currentContract(cwd: string, supplied: string | undefined) {
   if (!supplied) return null;
@@ -250,12 +499,13 @@ function currentOperation(workspace: string, supplied: string | undefined) {
     if (!revisionText || !/^[1-9][0-9]*$/.test(revisionText)) return null;
     const revision = Number(revisionText);
     if (!Number.isSafeInteger(revision)) return null;
-    const target = existingCanonical(fields.get("Target")!);
-    if (!target || target !== fields.get("Target") ||
-      !(target === workspace || target.startsWith(workspace + path.sep))) return null;
+    const identity = operationTarget(workspace, fields.get("Target"));
+    if (!identity) return null;
+    const target = identity.path;
     return { path: candidate, digest: createHash("sha256").update(bytes).digest("hex"),
       revision, action: fields.get("Action")!, command: fields.get("Command")!,
-      target, effect: fields.get("Effect")! };
+      target, targetAncestor: identity.ancestor, targetExists: identity.exists, targetChain: identity.chain,
+      effect: fields.get("Effect")! };
   } catch { return null; }
 }
 function trimUtf8(text: string, limit = MAX_OUTPUT_BYTES) {
@@ -786,15 +1036,18 @@ async function loadMCPBridge(
       1024,
     );
     return {
+      start: async () => {},
       activate: async () => {},
       close: async () => {},
       status: () => ({ bridge: { state: "unavailable", reason } }),
+      nativeStatus: () => "native MCP bridge unavailable",
     };
   }
 }
 type ChildMetadata = {
   responseModel?: string;
   providerThinkingLevel?: string;
+  responseUsage?: UsageSummary;
 };
 type ChildResult = ({ status: "success"; output: string } | {
   status: "error";
@@ -852,9 +1105,11 @@ function childResultForLine(line: string): ChildResult | null | undefined {
           value.message.providerThinkingLevel.trim()
           ? value.message.providerThinkingLevel
           : undefined;
+      const responseUsage = measuredUsage(value.message.usage);
       const metadata = {
         ...(responseModel ? { responseModel } : {}),
         ...(providerThinkingLevel ? { providerThinkingLevel } : {}),
+        ...(responseUsage ? { responseUsage } : {}),
       };
       const finalAssistant = typeof content === "string"
         ? content
@@ -882,6 +1137,11 @@ function childResultForLine(line: string): ChildResult | null | undefined {
   return undefined;
 }
 
+function reportChildTelemetry(event: { phase: string; role: string; reason?: string; responseUsage?: UsageSummary; responseModel?: string }) {
+  // Telemetry is optional and must never change child dispatch or its result.
+  try { (globalThis as any)[Symbol.for("rotta.pi.child.telemetry")]?.(event); } catch { /* optional observer */ }
+}
+
 async function runChild(
   cwd: string,
   home: string,
@@ -901,6 +1161,7 @@ async function runChild(
   context7Key?: string,
   routing?: { source: string; requestedModel: string; requestedEffort: string },
   operationCommand?: string,
+  runtime?: () => { executable: string; entry?: string } | undefined,
 ) {
   const promptDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "rotta-pi-"),
@@ -948,12 +1209,20 @@ async function runChild(
       let stdout = "", stderr = "", pendingLine = "";
       let pendingLineTooLarge = false;
       let childResult: ChildResult | null = null;
+      let stage = "starting";
+      let outputObserved = false;
       const outDecoder = new StringDecoder("utf8"),
         errDecoder = new StringDecoder("utf8");
       const rolePrefix = `[${role}] `;
       const finish = (text: string, error = false, reason?: string) => {
         if (!done) {
           done = true;
+          reportChildTelemetry({ phase: "finished", role,
+            reason: reason ?? (error ? "child_error" : "success"),
+            responseUsage: reason === "timeout" || reason === "cancelled" || reason === "invalid_result"
+              ? undefined : childResult?.responseUsage,
+            responseModel: childResult?.responseModel,
+          });
           if (timer) clearTimeout(timer);
           signal.removeEventListener("abort", cancel);
           resolve(toolResult(trimUtf8(error ? rolePrefix + text : text), {
@@ -966,9 +1235,16 @@ async function runChild(
             ...(childResult?.providerThinkingLevel
               ? { providerThinkingLevel: childResult.providerThinkingLevel }
               : {}),
+            ...(childResult?.responseUsage
+              ? { responseUsage: childResult.responseUsage }
+              : {}),
             outcome: error ? "error" : "success",
             cancelled: signal.aborted,
-            ...(stdout ? { diagnostic: stdout } : {}),
+            stage,
+            outputObserved,
+            // Partial JSONL may contain unredacted tool arguments or secrets.
+            // Timeout/invalid protocol evidence is structural, not a handoff.
+            ...(stdout && reason !== "timeout" && reason !== "invalid_result" ? { diagnostic: stdout } : {}),
             ...(reason ? { reason } : {}),
             ...(reason === "timeout" || reason === "invalid_result"
               ? { checkpointRequired: true,
@@ -991,7 +1267,12 @@ async function runChild(
         finish("child cancelled", true, "cancelled");
       };
       try {
-        proc = spawn("pi", args, {
+        const selectedRuntime = trustedPiRuntime((runtime ?? currentPiRuntime)());
+        if (!selectedRuntime && (runtime || spawn === nodeSpawn)) {
+          finish("child start failed: trusted current Pi runtime unavailable", true, "start_failed");
+          return;
+        }
+        proc = spawn(selectedRuntime?.executable ?? "pi", [...(selectedRuntime?.prefix ?? []), ...args], {
           cwd,
           shell: false,
           stdio: ["ignore", "pipe", "pipe"],
@@ -1018,6 +1299,8 @@ async function runChild(
         );
         return;
       }
+      stage = "spawned; no JSON session startup evidence";
+      reportChildTelemetry({ phase: "started", role });
       if (signal.aborted) cancel();
       else signal.addEventListener("abort", cancel, { once: true });
       const effectiveTimeout = Math.min(
@@ -1027,6 +1310,7 @@ async function runChild(
           timeoutMs && timeoutMs > 0 ? timeoutMs : limits.defaultTimeoutMs,
         ),
       );
+      if (done) return;
       onUpdate(toolResult("child running", {
         role,
         ...(routing ?? {}),
@@ -1038,13 +1322,21 @@ async function runChild(
         timer = setTimeout(() => {
           stop();
           finish(
-            `child timed out after ${effectiveTimeout}ms; no final handoff accepted. Verify the persisted checkpoint and any operation effect before retry`,
+            `child timed out after ${effectiveTimeout}ms; ${outputObserved ? "partial child output observed" : "no child output observed"}; last known stage: ${stage}; no final handoff accepted. Verify the persisted checkpoint and any operation effect before retry`,
             true,
             "timeout",
           );
         }, effectiveTimeout);
       }
       const consumeLine = (line: string) => {
+        try {
+          const event = JSON.parse(line);
+          if (event?.type === "session") stage = "session started; awaiting model";
+          else if (event?.type === "agent_start" || event?.type === "turn_start" || event?.type === "message_start")
+            stage = "model request in progress";
+          else if (event?.type === "tool_execution_start") stage = "tool execution in progress";
+          else if (event?.type === "tool_execution_end") stage = "tool completed; awaiting final handoff";
+        } catch { /* non-JSON output is not startup evidence */ }
         const result = childResultForLine(line);
         if (result !== undefined) childResult = result;
       };
@@ -1055,6 +1347,7 @@ async function runChild(
         if (isAuthoritativeAssistantPrefix(pendingLine)) childResult = null;
       };
       const consumeStdout = (text: string) => {
+        if (text) outputObserved = true;
         stdout = appendTailBounded(stdout, text);
         const fragments = text.split("\n");
         for (let index = 0; index < fragments.length; index++) {
@@ -1087,6 +1380,7 @@ async function runChild(
         // view does not consume it. Keep the bounded tail for the final result.
       });
       proc!.stderr!.on("data", (data) => {
+        if (data.length) outputObserved = true;
         stderr = appendBounded(stderr, errDecoder.write(data));
       });
       proc!.on(
@@ -1218,10 +1512,16 @@ const Delegate = Type.Object({
     Type.Literal("operations"),
   ]),
   task: Type.String(),
+  workspace: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()),
   timeoutMs: Type.Optional(Type.Number()),
   requiredTools: Type.Optional(Type.Array(Type.String())),
   operation: Type.Optional(Type.Object({ requestId: Type.String(), command: Type.String(), target: Type.String(), action: Type.String(), effect: Type.String(), artifactPath: Type.String(), revision: Type.Number(), digest: Type.String() })),
+});
+const CopyWorktreeEnv = Type.Object({
+  sourceWorkspace: Type.String(),
+  targetWorkspace: Type.String(),
+  files: Type.Array(Type.String()),
 });
 const Question = Type.Object({
   trigger: Type.Union([
@@ -1254,6 +1554,7 @@ const QuestionDraft = Type.Object({
     Type.Literal("vela-unavailable"),
   ]),
   requestId: Type.String(),
+  workspace: Type.Optional(Type.String()),
   action: Type.String(),
   decision: Type.String(),
   choices: Type.Optional(Type.Array(Type.String())),
@@ -1261,24 +1562,90 @@ const QuestionDraft = Type.Object({
   contractPath: Type.Optional(Type.String()),
   operationPath: Type.Optional(Type.String()),
 });
+const IndependentClarifications = Type.Object({
+  independent: Type.Literal(true),
+  questions: Type.Array(QuestionDraft),
+});
+
+async function collectClarifications(ctx: any, questions: QuestionParams[], signal: AbortSignal): Promise<string[] | undefined> {
+  if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
+    const answers: string[] = [];
+    for (const question of questions) {
+      if (signal.aborted) return undefined;
+      const answer = await ctx.ui.select(question.decision!, question.options!, { signal });
+      if (!answer || answer === question.safeOutcome || !question.options!.includes(answer)) return undefined;
+      answers.push(answer);
+    }
+    return answers;
+  }
+  let removeAbort = () => {};
+  try {
+    return await ctx.ui.custom((tui: any, theme: Theme, _keys: unknown, done: (answer: string[] | undefined) => void) => {
+    const answers: string[] = [];
+    let cursor = 0;
+    let selected = 0;
+    let completed = false;
+    const finish = (value: string[] | undefined) => { if (!completed) { completed = true; done(value); } };
+    const onAbort = () => finish(undefined);
+    signal.addEventListener("abort", onAbort, { once: true });
+    removeAbort = () => signal.removeEventListener("abort", onAbort);
+    return {
+      render(width: number) {
+        const question = questions[cursor];
+        const size = Math.max(1, width);
+        return [
+          truncateToWidth(theme.fg("accent", theme.bold(`Rotta clarification ${cursor + 1}/${questions.length}`)), size),
+          ...wrapTextWithAnsi(terminalSafe(question.decision!), size).slice(0, 8).map((line) => truncateToWidth(theme.fg("text", line), size)),
+          ...question.options!.map((option, index) => truncateToWidth(theme.fg(index === selected ? "accent" : "muted", `${index === selected ? "›" : " "} ${index + 1}. ${terminalSafe(option)}`), size)),
+          truncateToWidth(theme.fg("dim", "↑↓ / 1-4 select • Enter accept • Esc stop"), size),
+        ];
+      },
+      handleInput(data: string) {
+        if (completed) return;
+        if (data === "\x1b") { finish(undefined); return; }
+        if (data === "\x1b[B" || data === "j") selected = (selected + 1) % questions[cursor].options!.length;
+        if (data === "\x1b[A" || data === "k") selected = (selected + questions[cursor].options!.length - 1) % questions[cursor].options!.length;
+        if (/^[1-4]$/.test(data) && Number(data) <= questions[cursor].options!.length) selected = Number(data) - 1;
+        if (data === "\r" || data === "\n") {
+          const chosen = questions[cursor].options![selected];
+          if (chosen === questions[cursor].safeOutcome) { finish(undefined); return; }
+          answers.push(chosen);
+          cursor++;
+          selected = 0;
+          if (cursor === questions.length) finish(answers);
+        }
+        tui.requestRender();
+      },
+      invalidate() { tui.requestRender(); },
+      dispose() { removeAbort(); },
+    };
+    });
+  } finally { removeAbort(); }
+}
 
 function prepareQuestion(draft: QuestionDraftParams, cwd: string): QuestionParams {
-  const workspace = existingCanonical(cwd);
-  if (!workspace) fail("safe stop: question workspace unavailable");
-  if (!draft.requestId?.trim() || !draft.action?.trim() || !draft.decision?.trim() ||
-    !draft.safeOption?.trim()) fail("safe stop: incomplete question draft");
+  const workspace = selectedWorkspace(cwd, draft.workspace);
+  for (const field of ["requestId", "action", "decision", "safeOption"] as const) {
+    if (!draft[field]?.trim()) fail(`safe stop: invalid question draft (${field})`);
+  }
   const executable = draft.trigger === "external-consent" && !!draft.operationPath;
   const choices = draft.choices ?? [];
+  // An exact operation has one runtime-owned approval label. Accept a draft
+  // that redundantly names only that label, but never accept custom approvals.
+  const fixedApproval = "Approve the exact rendered operation once";
   if (choices.some((choice) => !choice.trim()) ||
     new Set([...choices, draft.safeOption]).size !== choices.length + 1) {
-    fail("safe stop: question options must be distinct and include one explicit safe choice");
+    fail("safe stop: invalid question draft (choices/safeOption)");
   }
   if (!executable && !choices.length) fail("safe stop: question requires a named decision alternative");
-  if (executable && choices.length) fail("safe stop: exact operation options are fixed by the runtime");
+  if (executable && choices.length && (choices.length !== 1 || choices[0] !== fixedApproval)) {
+    fail("safe stop: exact operation options are fixed by the runtime");
+  }
   const prepared: QuestionParams = {
     trigger: draft.trigger, requestId: draft.requestId, workspace,
     action: draft.action, decision: draft.decision,
-    options: [...choices, draft.safeOption], safeOutcome: draft.safeOption,
+    options: executable ? [fixedApproval, draft.safeOption] : [...choices, draft.safeOption],
+    safeOutcome: draft.safeOption,
   };
   if (draft.trigger === "strict-approval") {
     const contract = currentContract(workspace, draft.contractPath);
@@ -1290,7 +1657,7 @@ function prepareQuestion(draft: QuestionDraftParams, cwd: string): QuestionParam
     const artifact = currentOperation(workspace, draft.operationPath);
     if (!artifact || artifact.action !== draft.action ||
       draft.safeOption === "Approve the exact rendered operation once") {
-      fail("safe stop: operation identity missing, mismatched or unsafe");
+      fail(`safe stop: invalid operation draft (${!artifact ? "operationPath/Target/artifact" : artifact.action !== draft.action ? "action" : "safeOption"})`);
     }
     Object.assign(prepared, { operationPath: artifact.path, operationRevision: artifact.revision,
       operationDigest: artifact.digest, command: artifact.command, target: artifact.target,
@@ -1305,8 +1672,262 @@ export function registerRotta(
   pi: ExtensionAPI,
   dependencies: RottaDependencies = {},
 ) {
+  pi.registerTool({
+    name: "rotta_copy_worktree_env",
+    label: "Copy local worktree env files",
+    description: "Copy explicitly named, Git-ignored .env files between registered worktrees of this repository. Never reads values into the agent transcript, overwrites destination files, or connects to external services. Use only for a user-requested local worktree env setup.",
+    parameters: CopyWorktreeEnv,
+    async execute(_id: string, params: { sourceWorkspace: string; targetWorkspace: string; files: string[] },
+      _signal: AbortSignal, _onUpdate: unknown, ctx: ToolContext) {
+      const source = selectedWorkspace(ctx.cwd, params.sourceWorkspace);
+      const target = selectedWorkspace(ctx.cwd, params.targetWorkspace);
+      if (source === target || !params.files.length || params.files.length > 32 ||
+        new Set(params.files).size !== params.files.length) {
+        fail("safe stop: env copy requires distinct worktrees and 1-32 distinct file paths");
+      }
+      // Preflight the entire batch before writing anything. File names, never
+      // contents, are exposed; production-named files are still only local copies.
+      for (const relative of params.files) {
+        const parts = relative.split("/");
+        const name = parts.at(-1) ?? "";
+        if (!parts.every((part) => part && part !== "." && part !== ".." && part !== ".git") ||
+          !(name === ".env" || /^\.env\.[a-zA-Z0-9_-]+$/.test(name))) {
+          fail("safe stop: env copy accepts only relative .env file paths");
+        }
+        const from = path.join(source, ...parts), to = path.join(target, ...parts);
+        const fromParent = existingCanonical(path.dirname(from));
+        const toParent = existingCanonical(path.dirname(to));
+        if (!fromParent || !toParent ||
+          !(fromParent === source || fromParent.startsWith(source + path.sep)) ||
+          !(toParent === target || toParent.startsWith(target + path.sep))) {
+          fail("safe stop: env copy parent missing or outside selected worktree");
+        }
+        let stat: fs.Stats;
+        try { stat = fs.lstatSync(from); }
+        catch { fail("safe stop: requested env source missing"); }
+        if (!stat.isFile() || stat.size > 1024 * 1024 || fs.existsSync(to)) {
+          fail("safe stop: env source is not a bounded regular file or destination already exists");
+        }
+        const ignored = nodeSpawnSync("git", ["-C", source, "check-ignore", "-q", "--", relative],
+          { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "pipe"] });
+        if (ignored.status !== 0) fail("safe stop: env source must be Git-ignored");
+      }
+      const copied: string[] = [];
+      for (const relative of params.files) {
+        selectedWorkspace(ctx.cwd, source);
+        selectedWorkspace(ctx.cwd, target);
+        const from = path.join(source, relative), to = path.join(target, relative);
+        if (existingCanonical(path.dirname(from)) !== path.dirname(from) ||
+          existingCanonical(path.dirname(to)) !== path.dirname(to)) fail("safe stop: env copy path changed");
+        const fd = fs.openSync(from, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        let bytes: Buffer;
+        try {
+          const stat = fs.fstatSync(fd);
+          if (!stat.isFile() || stat.size > 1024 * 1024) fail("safe stop: env source changed");
+          bytes = fs.readFileSync(fd);
+        } finally { fs.closeSync(fd); }
+        // Exclusive creation and a restrictive mode keep existing files intact.
+        // Values remain inside this host tool and are never returned to the agent.
+        fs.writeFileSync(to, bytes, { flag: "wx", mode: 0o600 });
+        copied.push(relative);
+      }
+      return toolResult(`Copied ${copied.length} local env file(s) into the selected worktree`,
+        { copiedPaths: copied, sourceWorkspace: source, targetWorkspace: target });
+    },
+  });
+  pi.registerCommand("rotta:lazygit", {
+    description: "Open LazyGit in the current workspace to inspect changes",
+    handler: async (_args, ctx) => {
+      if (ctx.mode !== "tui" || !ctx.hasUI) {
+        ctx.ui.notify("Rotta LazyGit requires an interactive Pi terminal", "warning");
+        return;
+      }
+      if (typeof ctx.ui.custom !== "function") {
+        ctx.ui.notify("Rotta LazyGit requires Pi terminal UI support", "warning");
+        return;
+      }
+      try {
+        const result = await ctx.ui.custom<{ status: number | null; signal?: string | null; error?: Error }>((tui, _theme, _keys, done) => {
+          tui.stop();
+          let launched: { status: number | null; signal?: string | null; error?: Error };
+          try {
+            if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
+            launched = (dependencies.lazyGitSpawnSync ?? nodeSpawnSync)("lazygit", [], {
+              cwd: ctx.cwd,
+              stdio: "inherit",
+              env: process.env,
+            });
+          } catch (error) {
+            launched = { status: null, error: error instanceof Error ? error : new Error(String(error)) };
+          } finally {
+            tui.start();
+            tui.requestRender(true);
+          }
+          done(launched);
+          return { render: () => [], invalidate() {} };
+        });
+        if (result?.error) {
+          ctx.ui.notify(result.error.message, "error");
+        } else if (result?.signal) {
+          ctx.ui.notify(`LazyGit exited on ${result.signal}`, "warning");
+        } else if (result?.status !== 0) {
+          ctx.ui.notify(`LazyGit exited with code ${result?.status ?? "unknown"}`, "warning");
+        }
+      } catch (error) {
+        ctx.ui.notify(`Unable to open LazyGit: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    },
+  });
   const active = new Map<string, object>();
-  const pendingOperations = new Map<string, { session: string; workspace: string; command: string; target: string; artifactPath: string; action: string; effect: string; revision: number; digest: string }>();
+  const pendingOperations = new Map<string, { session: string; workspace: string; command: string; target: string; targetAncestor: string; targetExists: boolean; targetChain: string; artifactPath: string; action: string; effect: string; revision: number; digest: string }>();
+  const preparedOperations = new Map<string, { session: string; workspace: string; request: string; artifactPath: string; digest: string; target: string; ancestor: string; exists: boolean; chain: string }>();
+  const preparedIds = new Set<string>();
+  const jobs = new Map<string, DelegateActivity>();
+  const pendingEdits = new Map<string, string>();
+  const observedEdits = new Set<string>();
+  let currentSession = "";
+  let lastCtx: any;
+  const prompts: string[] = [];
+  const notifiedDecisions = new Set<string>();
+  let lastSettledEntry = "";
+  const refreshStatus = (ctx: any) => {
+    if (ctx?.mode !== "tui" || typeof ctx.ui?.setStatus !== "function") return;
+    const usage = ctx.getContextUsage?.();
+    const percent = typeof usage?.percent === "number" ? `${Math.round(usage.percent)}%` : "?";
+    const filled = typeof usage?.percent === "number" ? Math.max(0, Math.min(8, Math.round(usage.percent / 12.5))) : null;
+    const gauge = filled === null ? "" : ` ${"█".repeat(filled)}${"░".repeat(8 - filled)}`;
+    const model = typeof ctx.model?.id === "string" ? ctx.model.id : "model ?";
+    const running = [...jobs.values()].filter((job) => job.state === "running").length;
+    ctx.ui.setStatus("rotta", `Rotta ${model} • context${gauge} ${percent}${running ? ` • ${running} child running` : ""}`);
+  };
+  pi.on("session_shutdown", () => {
+    active.clear();
+    pendingOperations.clear();
+    preparedOperations.clear();
+    // Keep used request IDs tombstoned across sessions: a serialized old
+    // prepared request must not become an unprepared direct call after logout.
+    jobs.clear();
+    pendingEdits.clear(); observedEdits.clear();
+    prompts.length = 0;
+    notifiedDecisions.clear();
+    lastSettledEntry = "";
+    lastCtx?.ui?.setStatus?.("rotta", undefined);
+    currentSession = "";
+  });
+  pi.registerCommand("rotta:stats", {
+    description: "Show local Pi session usage and Rotta child activity",
+    handler: async (_args, ctx) => {
+      const { total, byModel, toolCalls } = sessionUsage(ctx);
+      await showRottaPanel(ctx, "Session stats", [
+        `Assistant responses: ${total.responses || "usage unavailable"} • model tool calls: ${toolCalls}`,
+        `Input ${usageLabel(total.input)} • output ${usageLabel(total.output)} • reasoning ${usageLabel(total.reasoning)} (included in output)`,
+        `Cache read ${usageLabel(total.cacheRead)} • write ${usageLabel(total.cacheWrite)}`,
+        `Cost ${total.cost === undefined ? "unavailable" : `$${total.cost.toFixed(4)}`} (reported estimate)`,
+        "Parent session only; child usage is separate, never added twice",
+        ...[...byModel.entries()].slice(0, 10).map(([model, usage]) =>
+          `${model}: ${usage.responses} responses • input ${usageLabel(usage.input)} • output ${usageLabel(usage.output)}`),
+        "Children:", ...delegateLines([...jobs.values()]),
+      ]);
+    },
+  });
+  pi.registerCommand("rotta:agents", {
+    description: "Show recent Rotta delegated-role activity",
+    handler: async (_args, ctx) => showRottaPanel(ctx, "Agents", delegateLines([...jobs.values()])),
+  });
+  pi.registerCommand("rotta:status", {
+    description: "Show local model, context and active Rotta roles",
+    handler: async (_args, ctx) => {
+      if (ctx.mode !== "tui") return;
+      const context = ctx.getContextUsage?.();
+      const { total } = sessionUsage(ctx);
+      let branch = "unavailable";
+      try {
+        const result = await (dependencies.gitExec ?? gitExec)("git", ["--no-optional-locks", "symbolic-ref", "--short", "HEAD"], {
+          cwd: ctx.cwd, timeout: 5_000, maxBuffer: 4096, encoding: "utf8",
+        });
+        branch = terminalSafe(result.stdout).trim() || "detached or unavailable";
+      } catch { /* not a Git repository or detached HEAD */ }
+      await showRottaPanel(ctx, "Status", [
+        `Model: ${ctx.model?.provider && ctx.model?.id ? `${ctx.model.provider}/${ctx.model.id}` : "unavailable"}`,
+        `Effort: ${ctx.thinkingLevel ?? "unavailable"}`,
+        `Branch: ${branch}`,
+        `Context: ${context?.percent === null || context?.percent === undefined ? "unavailable" : `${context.percent.toFixed(1)}%`}`,
+        `Reported parent cost: ${total.cost === undefined ? "unavailable" : `$${total.cost.toFixed(4)}`}`,
+        `Current session: ${ctx.sessionManager?.getSessionId?.() ?? "unavailable"}`,
+        ...delegateLines([...jobs.values()]),
+      ]);
+    },
+  });
+  pi.registerCommand("rotta:changes", {
+    description: "Inspect read-only Git status and bounded diffs in the current workspace",
+    handler: async (_args, ctx) => {
+      if (ctx.mode !== "tui") return;
+      try {
+        const changes = await gitChanges(ctx.cwd, dependencies.gitExec ?? gitExec);
+        if (!changes.length) { await showRottaPanel(ctx, "Changes", ["No Git changes observed"]); return; }
+        const labels = changes.map((change, index) => `${index + 1}. ${terminalSafe(change.state)} ${terminalSafe(change.path)}`);
+        const selected = await ctx.ui.select("Rotta changes • select a file for a bounded diff", labels);
+        if (selected === undefined) return;
+        const index = labels.indexOf(selected);
+        if (index < 0) return;
+        const change = changes[index];
+        const lines = await gitDiff(ctx.cwd, change, dependencies.gitExec ?? gitExec);
+        const canonical = existingCanonical(path.resolve(ctx.cwd, change.path));
+        const observation = canonical && observedEdits.has(canonical)
+          ? ["Pi parent edit observed; current diff may include other authors"] : [];
+        await showRottaPanel(ctx, `Changes • ${terminalSafe(change.path)}`, [...observation, ...lines.flatMap((line) => line.split("\n"))]);
+      } catch (error) {
+        ctx.ui.notify(`Rotta changes unavailable: ${error instanceof Error && (error as NodeJS.ErrnoException).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? "diff exceeded the local display limit" : "Git unavailable or not a repository"}`, "warning");
+      }
+    },
+  });
+  pi.registerCommand("rotta:work", {
+    description: "Inspect existing Rotta work-record progress without changing it",
+    handler: async (_args, ctx) => {
+      const records = workViews(ctx.cwd);
+      await showRottaPanel(ctx, "Recent work records (activity unverified)", records.length
+        ? records.slice(0, 12).flatMap((record) => [
+          `${record.id} • ${record.phase}`, `  Next: ${record.next}`, `  Blocker: ${record.blocker}`,
+        ]) : ["No readable Rotta work records in this workspace"]);
+    },
+  });
+  pi.registerCommand("rotta:history", {
+    description: "View opt-in in-memory Pi prompt navigation for this session",
+    handler: async (_args, ctx) => {
+      if (process.env.ROTTA_PI_HISTORY !== "1") {
+        ctx.ui.notify("Rotta prompt history is off; set ROTTA_PI_HISTORY=1 before starting Pi to opt in", "info");
+        return;
+      }
+      await showRottaPanel(ctx, "Prompt history", prompts.length
+        ? prompts.slice().reverse().map((prompt, index) => `${index + 1}. ${prompt}`)
+        : ["No prompts captured in this session"]);
+    },
+  });
+  pi.registerCommand("rotta:history:clear", {
+    description: "Clear only Rotta's opt-in, in-memory prompt navigation",
+    handler: async (_args, ctx) => {
+      prompts.length = 0;
+      ctx.ui.notify("Rotta in-memory prompt navigation cleared; Pi's session history is unchanged", "info");
+    },
+  });
+  pi.on("input", (event: any, ctx: any) => {
+    if (process.env.ROTTA_PI_HISTORY !== "1" || ctx?.mode !== "tui" || event?.source !== "interactive" || typeof event?.text !== "string") return;
+    const prompt = terminalSafe(event.text).replace(/\s+/g, " ").trim().slice(0, 240);
+    if (!prompt) return;
+    prompts.push(prompt);
+    if (prompts.length > 20) prompts.shift();
+  });
+  pi.on("agent_settled", (event: any, ctx: any) => {
+    if (process.env.ROTTA_PI_NOTIFICATIONS !== "1" || ctx?.mode !== "tui" || event?.aborted) return;
+    const entry = ctx.sessionManager?.getBranch?.()?.at(-1)?.id;
+    const key = `${ctx.sessionManager?.getSessionId?.() ?? ""}:${entry ?? ""}`;
+    if (!entry || lastSettledEntry === key) return;
+    lastSettledEntry = key;
+    ctx.ui.notify("Rotta: Pi run finished; verify the work outcome before delivery", "info");
+  });
+  pi.on("message_end", (event: any, ctx: any) => {
+    if (event.message?.role === "assistant") refreshStatus(ctx);
+  });
   let compactBuiltinsRegistered = false;
   type PendingFailure = {
     details: Record<string, unknown>;
@@ -1387,6 +2008,17 @@ export function registerRotta(
     handler: showLatest,
   });
   pi.on("tool_execution_start", (event: any, ctx: any) => {
+    if ((event.toolName === "edit" || event.toolName === "write") && typeof event.args?.path === "string" && typeof event.toolCallId === "string" && typeof ctx?.cwd === "string") {
+      pendingEdits.set(event.toolCallId, path.resolve(ctx.cwd, event.args.path));
+      if (pendingEdits.size > 80) pendingEdits.delete(pendingEdits.keys().next().value!);
+    }
+    if (event.toolName === "rotta_delegate" && ctx?.mode === "tui") {
+      const role = roleLabel(event.args?.role);
+      jobs.set(event.toolCallId, { role, state: "running", started: Date.now(),
+        requestedModel: typeof event.args?.model === "string" ? event.args.model : undefined });
+      if (jobs.size > 24) jobs.delete(jobs.keys().next().value!);
+      refreshStatus(ctx);
+    }
     const managed = managedAction(event.toolName);
     if (event.toolName !== "rotta_delegate" && !managed) return;
     latestDetail = {
@@ -1403,6 +2035,13 @@ export function registerRotta(
     }
   });
   pi.on("tool_execution_update", (event: any) => {
+    if (event.toolName === "rotta_delegate" && jobs.has(event.toolCallId)) {
+      const current = jobs.get(event.toolCallId)!;
+      const requested = event.partialResult?.details?.requestedModel;
+      if (typeof requested === "string" && requested !== "default" && requested !== "unavailable") {
+        jobs.set(event.toolCallId, { ...current, requestedModel: requested });
+      }
+    }
     if (!latestDetail || latestDetail.toolCallId !== event.toolCallId) return;
     latestDetail = {
       ...latestDetail,
@@ -1412,6 +2051,31 @@ export function registerRotta(
     refreshDetail();
   });
   pi.on("tool_execution_end", (event: any) => {
+    const edited = pendingEdits.get(event.toolCallId);
+    pendingEdits.delete(event.toolCallId);
+    if (edited && !event.isError && lastCtx?.cwd) {
+      const file = existingCanonical(edited);
+      const root = existingCanonical(lastCtx.cwd);
+      if (file && root && file.startsWith(root + path.sep)) {
+        observedEdits.add(file);
+        if (observedEdits.size > 80) observedEdits.delete(observedEdits.values().next().value!);
+      }
+    }
+    if (event.toolName === "rotta_delegate") {
+      const current = jobs.get(event.toolCallId);
+      if (current) {
+        const details = event.result?.details;
+        jobs.set(event.toolCallId, { ...current,
+          state: details?.cancelled ? "cancelled" : event.isError ? "failed" : "complete",
+          elapsedMs: typeof details?.elapsedMs === "number" ? details.elapsedMs : Date.now() - current.started,
+          model: typeof details?.responseModel === "string" ? details.responseModel : undefined,
+          requestedModel: typeof details?.requestedModel === "string" && details.requestedModel !== "default"
+            ? details.requestedModel : current.requestedModel,
+          usage: measuredUsage(details?.responseUsage),
+        });
+        refreshStatus(lastCtx);
+      }
+    }
     const managed = managedAction(event.toolName);
     if (event.toolName !== "rotta_delegate" && !managed) return;
     if (latestDetail?.toolCallId && latestDetail.toolCallId !== event.toolCallId) return;
@@ -1448,7 +2112,18 @@ export function registerRotta(
     : process.env.HOME ?? os.homedir();
   const bridge = loadMCPBridge(pi, bridgeHome, dependencies);
   pi.on("session_start", async (_event: unknown, ctx: any) => {
+    // Await dynamic bridge loading: its own session_start hook may be registered
+    // after dispatch has already begun. Native rows must exist before a prompt.
+    await (await bridge).start();
     if (ctx.mode !== "tui") return;
+    const session = ctx.sessionManager?.getSessionId?.() ?? "";
+    if (session !== currentSession) {
+      jobs.clear(); pendingEdits.clear(); observedEdits.clear();
+      prompts.length = 0; notifiedDecisions.clear(); lastSettledEntry = "";
+      currentSession = session;
+    }
+    lastCtx = ctx;
+    refreshStatus(ctx);
     if (!compactBuiltinsRegistered) {
       try {
         const definitions = compactBuiltinDefinitions(ctx.cwd, {
@@ -1508,6 +2183,7 @@ export function registerRotta(
       try {
         return toolResult(JSON.stringify((await bridge).status()), {
           status: (await bridge).status(),
+          native: (await bridge).nativeStatus(),
         });
       } catch (error) {
         return toolResult("MCP bridge unavailable", {
@@ -1546,21 +2222,22 @@ export function registerRotta(
       if (selected === "operations") {
         if (!params.operation) fail("safe stop: operations delegation requires a fresh one-time operation binding; diagnostic-only inspection must use read or a non-operations role. No child started and no operation ran");
         const session = ctx.sessionManager.getSessionId();
-        const workspace = existingCanonical(ctx.cwd);
+        const workspace = selectedWorkspace(ctx.cwd, params.workspace);
         const pending = pendingOperations.get(params.operation.requestId);
         // Consume before dispatch, including failed starts and cancellations.
         pendingOperations.delete(params.operation.requestId);
-        const requestedTarget = existingCanonical(params.operation.target);
+        const requestedTarget = operationTarget(workspace, params.operation.target);
         const artifact = currentOperation(workspace, params.operation.artifactPath);
         if (!pending || !session || !workspace || pending.session !== session || pending.workspace !== workspace ||
-          existingCanonical(pending.target) !== pending.target || requestedTarget !== pending.target || params.operation.command !== pending.command || params.operation.action !== pending.action || params.operation.effect !== pending.effect ||
+          !requestedTarget || requestedTarget.path !== pending.target || requestedTarget.ancestor !== pending.targetAncestor || requestedTarget.exists !== pending.targetExists || requestedTarget.chain !== pending.targetChain || params.operation.command !== pending.command || params.operation.action !== pending.action || params.operation.effect !== pending.effect ||
           !artifact || artifact.path !== pending.artifactPath || artifact.digest !== pending.digest || artifact.revision !== pending.revision ||
           params.operation.revision !== pending.revision || params.operation.digest !== pending.digest ||
-          artifact.command !== pending.command || artifact.action !== pending.action || artifact.target !== pending.target || artifact.effect !== pending.effect) {
+          artifact.command !== pending.command || artifact.action !== pending.action || artifact.target !== pending.target || artifact.targetAncestor !== pending.targetAncestor || artifact.targetExists !== pending.targetExists || artifact.targetChain !== pending.targetChain || artifact.effect !== pending.effect) {
           fail("safe stop: operation binding missing or stale at dispatch (session, request, target, or artifact identity); authorization consumed; no child started and no operation ran");
         }
         operationCommand = pending.command;
       } else if (params.operation) fail("operation binding only valid for operations");
+      const childWorkspace = params.workspace ? selectedWorkspace(ctx.cwd, params.workspace) : ctx.cwd;
       const inherited = ctx.model
         ? `${ctx.model.provider}/${ctx.model.id}`
         : undefined;
@@ -1575,7 +2252,7 @@ export function registerRotta(
         ? "parent model"
         : "child default";
       const result = await runChild(
-        ctx.cwd,
+        childWorkspace,
         homeDir(),
         selected,
         params.task,
@@ -1594,6 +2271,7 @@ export function registerRotta(
             (routingSource === "parent model" ? "unavailable" : "default"),
         },
         operationCommand,
+        dependencies.piRuntime,
       );
       if (result.details.failed) {
         rememberDelegatedFailure(_id, result.details);
@@ -1605,11 +2283,54 @@ export function registerRotta(
   pi.registerTool({
     name: "rotta_prepare_question",
     label: "Prepare Rotta question",
-    description: "Read-only preparation before rotta_question: provide explicit decision alternatives and a separately named safeOption. Derives canonical workspace and current contract/operation identity; returns a request to pass unchanged to rotta_question. It never asks the user or records approval. A changed artifact must be prepared again.",
+    description: "Read-only preparation before rotta_question: provide decision alternatives and a separate safeOption. For external-consent with operationPath omit choices: the runtime supplies the fixed approval option. Derives canonical workspace and artifact identity; pass its request unchanged to rotta_question. Preparation never asks the user or records approval; a changed artifact requires new preparation.",
     parameters: QuestionDraft,
     async execute(_id: string, draft: QuestionDraftParams, _signal: AbortSignal, _onUpdate: unknown, ctx: ToolContext) {
+      // Replacement attempts revoke earlier consent before draft validation,
+      // even when the new operation is malformed and cannot be prepared.
+      if (draft.trigger === "external-consent" || draft.operationPath) pendingOperations.delete(draft.requestId);
+      preparedOperations.delete(draft.requestId);
       const request = prepareQuestion(draft, ctx.cwd);
+      if (request.trigger === "external-consent") {
+        preparedIds.add(request.requestId);
+        const session = ctx.sessionManager.getSessionId();
+        const identity = operationTarget(request.workspace, request.target);
+        if (!session || !identity) fail("safe stop: prepared operation identity unavailable");
+        preparedOperations.set(request.requestId, {
+          session, workspace: request.workspace, request: JSON.stringify(request),
+          artifactPath: request.operationPath!, digest: request.operationDigest!,
+          target: identity.path, ancestor: identity.ancestor, exists: identity.exists, chain: identity.chain,
+        });
+      }
       return toolResult(JSON.stringify(request), { request });
+    },
+  });
+  pi.registerTool({
+    name: "rotta_clarify_independent",
+    label: "Rotta independent clarifications",
+    description: "Collect two or three independently prepared non-binding Strict clarifications in one Pi view. Requires explicit independence; never approve contracts, policy or operations.",
+    parameters: IndependentClarifications,
+    async execute(_id: string, params: { independent: true; questions: QuestionDraftParams[] }, signal: AbortSignal, _onUpdate: unknown, ctx: ToolContext) {
+      if (!ctx.hasUI || signal.aborted || params.independent !== true || params.questions.length < 2 || params.questions.length > 3 ||
+        params.questions.some((question) => question.trigger !== "strict-clarification" || (question.choices?.length ?? 0) > 3 || !question.requestId?.trim() ||
+          question.safeOption !== "Stop / use safe defaults" || question.decision.length > 480 || question.choices?.some((choice) => choice.length > 120)) ||
+        new Set(params.questions.map((question) => question.requestId)).size !== params.questions.length) {
+        fail("safe stop: independent clarifications require two or three distinct non-binding questions");
+      }
+      const prepared = params.questions.map((question) => prepareQuestion(question, ctx.cwd));
+      const session = ctx.sessionManager.getSessionId();
+      if (!session) fail("safe stop: active session unavailable");
+      const workspace = selectedWorkspace(ctx.cwd, params.questions[0].workspace);
+      if (prepared.some((question) => question.workspace !== workspace)) fail("safe stop: independent clarifications require one workspace");
+      const answers = await collectClarifications(ctx, prepared, signal);
+      if (!answers || signal.aborted || ctx.sessionManager.getSessionId() !== session || selectedWorkspace(ctx.cwd, params.questions[0].workspace) !== workspace ||
+        answers.length !== prepared.length || answers.some((answer, index) => !prepared[index].options?.includes(answer))) {
+        fail("safe stop: clarification cancelled or current session/workspace changed");
+      }
+      return toolResult(JSON.stringify(prepared.map((question, index) => ({ requestId: question.requestId, answer: answers[index] }))), {
+        answers: prepared.map((question, index) => ({ requestId: question.requestId, answer: answers[index] })),
+        authority: "clarification only",
+      });
     },
   });
   pi.registerTool({
@@ -1624,6 +2345,9 @@ export function registerRotta(
       _onUpdate: unknown,
       ctx: ToolContext,
     ) {
+      // Revoke same-ID consent before UI/workspace/preparation checks can fail.
+      // No other request's pending authorization is affected.
+      if (params.trigger === "external-consent" || params.operationPath) pendingOperations.delete(params.requestId);
       if (
         !ctx.hasUI || signal.aborted
       ) {
@@ -1631,20 +2355,29 @@ export function registerRotta(
           "safe stop: interactive UI or decision binding unavailable",
         );
       }
-      const workspace = existingCanonical(ctx.cwd);
-      const suppliedWorkspace = existingCanonical(params.workspace);
-      if (!workspace || suppliedWorkspace !== workspace) {
+      let workspace: string;
+      try { workspace = selectedWorkspace(ctx.cwd, params.workspace); }
+      catch { return fail("safe stop: approval identity mismatch (workspace)"); }
+      if (!workspace || existingCanonical(params.workspace) !== workspace) {
         return fail("safe stop: approval identity mismatch (workspace)");
       }
-      const executionFields = [params.command, params.target, params.operationPath,
-        params.operationRevision, params.operationDigest, params.effect];
-      const executable = params.trigger === "external-consent" &&
-        executionFields.some((field) => field !== undefined);
-      if (params.trigger === "external-consent" && executable) {
-        // A replaced, rejected, or cancelled request cannot leave an earlier
-        // authorization under the same identity available for later dispatch.
-        pendingOperations.delete(params.requestId);
-        const target = params.target && existingCanonical(params.target);
+      const executable = params.trigger === "external-consent";
+      if (executable) {
+        const prepared = preparedOperations.get(params.requestId);
+        preparedOperations.delete(params.requestId);
+        // A known prepared request cannot fall back to the legacy direct-call
+        // route, even after a rejected or already consumed preparation.
+        if (preparedIds.has(params.requestId)) {
+          const identity = operationTarget(workspace, params.target);
+          if (!prepared || prepared.session !== ctx.sessionManager.getSessionId() ||
+            prepared.workspace !== workspace || prepared.request !== JSON.stringify(params) ||
+            prepared.artifactPath !== params.operationPath || prepared.digest !== params.operationDigest ||
+            !identity || identity.path !== prepared.target || identity.ancestor !== prepared.ancestor ||
+            identity.exists !== prepared.exists || identity.chain !== prepared.chain) {
+            return fail("safe stop: stale prepared operation identity (request, session, target, or artifact)");
+          }
+        }
+        const target = operationTarget(workspace, params.target);
         const artifact = currentOperation(workspace, params.operationPath);
         const mismatches: string[] = [];
         // A malformed packet has no trusted fields to compare. Name only its
@@ -1656,12 +2389,12 @@ export function registerRotta(
           (artifact && artifact.revision !== params.operationRevision)) mismatches.push("operationRevision");
         if (!params.action?.trim() || (artifact && artifact.action !== params.action)) mismatches.push("action");
         if (!params.command?.trim() || (artifact && artifact.command !== params.command)) mismatches.push("command");
-        if (!target || !(target === workspace || target.startsWith(workspace + path.sep)) ||
-          (artifact && artifact.target !== target)) mismatches.push("target");
+        if (!target || (artifact && artifact.target !== target.path)) mismatches.push("target");
         if (!params.effect || (artifact && artifact.effect !== params.effect)) mismatches.push("effect");
         if (mismatches.length) return fail(`safe stop: incomplete exact operation binding (${mismatches.join(", ")})`);
       }
-      const bindingTarget = executable ? existingCanonical(params.target!) : undefined;
+      const bindingIdentity = executable ? operationTarget(workspace, params.target) : undefined;
+      const bindingTarget = bindingIdentity?.path;
       const operationArtifact = executable ? currentOperation(workspace, params.operationPath) : undefined;
       const options = executable
         ? ["Approve the exact rendered operation once", params.safeOutcome]
@@ -1727,15 +2460,18 @@ export function registerRotta(
         operationDigest: bindingDigest,
       });
       active.set(key, binding);
-      const aborted = new Promise<null>((resolve) =>
-        signal.addEventListener("abort", () => resolve(null), { once: true })
-      );
+      let resolveAbort!: (value: null) => void;
+      const aborted = new Promise<null>((resolve) => { resolveAbort = resolve; });
+      const onAbort = () => resolveAbort(null);
+      signal.addEventListener("abort", onAbort, { once: true });
       let choice: string | null | undefined;
       let uiFailed = false;
-      pi.events.emit("herdr:blocked", {
-        active: true,
-        label: decision,
-      });
+      pi.events.emit("herdr:blocked", { active: true, label: decision });
+      if ((ctx as any).mode === "tui" && !notifiedDecisions.has(params.requestId) && typeof (ctx.ui as any).notify === "function") {
+        notifiedDecisions.add(params.requestId);
+        if (notifiedDecisions.size > 32) notifiedDecisions.delete(notifiedDecisions.values().next().value!);
+        (ctx.ui as any).notify("Rotta decision needs your answer", "info");
+      }
       try {
         try {
           choice = await Promise.race([
@@ -1746,36 +2482,32 @@ export function registerRotta(
           uiFailed = true;
         }
         if (uiFailed) {
-          return fail(signal.aborted
-            ? "safe stop: cancelled, stale, or invalid decision"
-            : "safe stop: question UI failed");
+          return fail(signal.aborted ? "safe stop: decision cancelled" : "safe stop: question UI failed");
         }
-        if (
-          signal.aborted || active.get(key) !== binding || !choice ||
-          ctx.sessionManager.getSessionId() !== session ||
-          existingCanonical(ctx.cwd) !== workspace ||
-          (executable &&
-            (existingCanonical(params.target!) !== bindingTarget ||
-              params.operationDigest !== bindingDigest ||
-              (() => { const latest = currentOperation(workspace, params.operationPath);
-                return !latest || latest.path !== operationArtifact?.path ||
-                  latest.digest !== bindingDigest || latest.revision !== params.operationRevision ||
-                  latest.action !== params.action || latest.command !== params.command ||
-                  latest.target !== bindingTarget || latest.effect !== params.effect;
-              })())) ||
-          !options.includes(choice) ||
-          (contract && (() => {
-            const latest = currentContract(workspace, params.contractPath);
-            return !latest || latest.path !== binding.contractPath ||
-              latest.digest !== binding.contractDigest ||
-              latest.revision !== binding.contractRevision;
-          })())
-        ) {
-          return fail("safe stop: cancelled, stale, or invalid decision");
+        if (signal.aborted || !choice) return fail("safe stop: decision cancelled");
+        if (active.get(key) !== binding || ctx.sessionManager.getSessionId() !== session || selectedWorkspace(ctx.cwd, params.workspace) !== workspace) {
+          return fail("safe stop: stale decision session or workspace");
+        }
+        if (!options.includes(choice)) return fail("safe stop: invalid decision selection");
+        if (executable) {
+          const latest = currentOperation(workspace, params.operationPath);
+          const latestTarget = operationTarget(workspace, params.target);
+          if (!latestTarget || latestTarget.path !== bindingTarget || latestTarget.ancestor !== bindingIdentity?.ancestor || latestTarget.exists !== bindingIdentity?.exists || latestTarget.chain !== bindingIdentity?.chain || params.operationDigest !== bindingDigest ||
+            !latest || latest.path !== operationArtifact?.path || latest.digest !== bindingDigest ||
+            latest.revision !== params.operationRevision || latest.action !== params.action ||
+            latest.command !== params.command || latest.target !== bindingTarget || latest.targetAncestor !== bindingIdentity?.ancestor || latest.targetExists !== bindingIdentity?.exists || latest.targetChain !== bindingIdentity?.chain || latest.effect !== params.effect) {
+            return fail("safe stop: stale operation identity");
+          }
+        }
+        if (contract) {
+          const latest = currentContract(workspace, params.contractPath);
+          if (!latest || latest.path !== binding.contractPath || latest.digest !== binding.contractDigest ||
+            latest.revision !== binding.contractRevision) return fail("safe stop: stale contract identity");
         }
         if (executable && choice === "Approve the exact rendered operation once") {
           pendingOperations.set(params.requestId, {
-            session, workspace, command: params.command!, target: existingCanonical(params.target!),
+            session, workspace, command: params.command!, target: bindingTarget!,
+            targetAncestor: bindingIdentity!.ancestor, targetExists: bindingIdentity!.exists, targetChain: bindingIdentity!.chain,
             revision: params.operationRevision!, digest: params.operationDigest!,
             artifactPath: operationArtifact!.path, action: params.action, effect: params.effect!,
           });
@@ -1789,6 +2521,7 @@ export function registerRotta(
           decision,
         });
       } finally {
+        signal.removeEventListener("abort", onAbort);
         pi.events.emit("herdr:blocked", {
           active: false,
           label: decision,

@@ -1,0 +1,44 @@
+auth_enabled: false
+server:
+  http_listen_port: 3100
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+ingester:
+  max_chunk_age: 2h
+  chunk_idle_period: 10m
+  flush_check_period: 1m
+  wal:
+    checkpoint_duration: 5m
+storage_config:
+  tsdb_shipper:
+    cache_ttl: 1h
+    resync_interval: 1m
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+limits_config:
+  retention_period: 12h
+  reject_old_samples: true
+  reject_old_samples_max_age: 12h
+  max_query_lookback: 12h
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  apply_retention_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 10m
+  delete_request_store: filesystem

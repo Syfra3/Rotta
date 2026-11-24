@@ -24,6 +24,11 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	writeConfirmValue(b, "Ancora memory:", confirmSetupLabel(m.SetupAncora))
 	writeConfirmValue(b, "Vela graph:", confirmSetupLabel(m.SetupVela))
 	writeConfirmValue(b, "Context7 docs:", confirmSetupLabel(m.SetupContext7))
+	if m.SetupTelemetry {
+		writeConfirmValue(b, "Local telemetry:", "OPT IN: loopback metrics, persistent Docker volumes (Prometheus 7 days), selected Pi/OpenCode integration; no upload to Rotta")
+	} else {
+		writeConfirmValue(b, "Local telemetry:", "off (no telemetry setup)")
+	}
 	if targetIncludesOpenCode(m.Target) {
 		writeConfirmValue(b, "OpenCode model routing:", confirmRoutingLabel(m.ModelRouting))
 		if m.ModelRouting == installer.ModelRoutingCustom {
@@ -34,6 +39,17 @@ func (m Model) writeConfirmSummary(b *strings.Builder) {
 	}
 	if m.Target == TargetPi || m.Target == TargetAll {
 		writeConfirmValue(b, "Pi model routing:", confirmRoutingLabel(m.PiModelRouting))
+		if m.PiModelRouting == installer.ModelRoutingEnabled || m.PiModelRouting == installer.ModelRoutingUnset {
+			writeConfirmValue(b, "  Default selection:", "pinned preset; offline catalog checked at install, provider access not verified")
+			writeConfirmValue(b, "  Orchestrator:", installer.DefaultPiOrchestratorModel()+" ("+installer.DefaultPiOrchestratorEffort()+")")
+			roles, efforts := installer.DefaultPiRouting(), installer.DefaultPiRoutingEfforts()
+			for _, role := range piRoutingRoles {
+				writeConfirmValue(b, "  "+role.label+":", roles[role.key]+" ("+efforts[role.key]+")")
+			}
+			if m.PiModelDiscoveryDone && m.PiModelDiscoveryError == "" && !installer.PiDefaultsInCatalog(m.PiAvailableModels) {
+				writeConfirmValue(b, "  Availability:", "pinned defaults not all present in offline catalog")
+			}
+		}
 		if m.PiModelRouting == installer.ModelRoutingCustom {
 			writeConfirmValue(b, "  Orchestrator:", m.PiOrchestratorModel+" ("+m.PiOrchestratorEffort+")")
 			for _, role := range piRoutingRoles {
@@ -107,7 +123,7 @@ func (m Model) writeConfirmHostFiles(b *strings.Builder) {
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/mcp.json  (selected MCP services)")
 		if m.PiModelRouting != installer.ModelRoutingDisabled {
 			writeConfirmFile(b, "  ~/.pi/agent/settings.json  (orchestrator default model and effort)")
-			writeConfirmFile(b, "  ~/.pi/agent/models.json  (openai-codex/gpt-6-sol and gpt-6-luna context windows: 1000000)")
+			writeConfirmFile(b, "  ~/.pi/agent/models.json  (selected gpt-6-sol / gpt-6-luna context windows: 1000000)")
 		}
 		writeConfirmFile(b, "  ~/.pi/agent/rotta-next/model-routing.json  (four delegated-role models and efforts)")
 	}

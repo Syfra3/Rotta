@@ -1,0 +1,421 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  filter/opencode_metadata:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd" and metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_sessions" and metric.name != "ai_cli_opencode_runs" and metric.name != "ai_cli_opencode_compactions"'
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double or Len(exemplars) > 0'
+        - 'resource.attributes["ai_cli_source"] == "fixture"'
+        - '(metric.name == "ai_cli_opencode_model_tokens" or metric.name == "ai_cli_opencode_model_cost_usd") and (not IsString(attributes["model"]) or not IsMatch(attributes["model"], "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"))'
+        - '(metric.name == "ai_cli_opencode_model_tokens" or metric.name == "ai_cli_opencode_model_cost_usd") and attributes["role"] != "build" and attributes["role"] != "plan" and attributes["role"] != "exploration" and attributes["role"] != "implementation" and attributes["role"] != "reviewer" and attributes["role"] != "operations" and attributes["role"] != "orchestrator" and attributes["role"] != "unknown"'
+        - 'metric.name == "ai_cli_opencode_model_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_opencode_tool_calls" and (attributes["category"] != "unknown" and attributes["category"] != "tool" or attributes["status"] != "ok" and attributes["status"] != "error")'
+        - 'metric.name == "ai_cli_opencode_sessions" and attributes["category"] != "main" and attributes["category"] != "subagent"'
+        - 'metric.name == "ai_cli_opencode_runs" and attributes["status"] != "ok" and attributes["status"] != "error" and attributes["status"] != "interrupted"'
+        - 'metric.name == "ai_cli_opencode_compactions" and attributes["category"] != "auto" and attributes["category"] != "manual" and attributes["category"] != "unknown"'
+  transform/opencode_metadata:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'set(cache["instance"], "")'
+          - 'set(cache["instance"], resource.attributes["service.instance.id"]) where IsString(resource.attributes["service.instance.id"])'
+          - 'set(attributes["counter.id"], SHA256(Concat([String(start_time_unix_nano), cache["instance"]], ":")))'
+          - 'keep_keys(attributes, ["counter.id", "model", "role", "type", "category", "status"])'
+          - 'delete_key(attributes, "model") where metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd"'
+          - 'delete_key(attributes, "role") where metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd"'
+          - 'delete_key(attributes, "type") where metric.name != "ai_cli_opencode_model_tokens"'
+          - 'delete_key(attributes, "category") where metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_sessions" and metric.name != "ai_cli_opencode_compactions"'
+          - 'delete_key(attributes, "status") where metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_runs"'
+          - 'set(attributes["client"], "opencode")'
+          - 'set(attributes["source"], "native")'
+      - context: resource
+        statements:
+          - 'keep_keys(attributes, [])'
+      - context: scope
+        statements:
+          - 'set(name, "local")'
+          - 'set(version, "")'
+          - 'keep_keys(attributes, [])'
+  filter/allow:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double'
+        - 'Len(exemplars) > 0'
+        - 'metric.name != "ai_cli_opencode_tokens" and metric.name != "ai_cli_opencode_estimated_cost_usd" and metric.name != "ai_cli_fixture_canonical_tokens" and metric.name != "ai_cli_fixture_run_marker" and metric.name != "ai_cli_sample_tokens" and metric.name != "ai_cli_fixture_claude_tokens" and metric.name != "ai_cli_fixture_claude_cost_usd" and metric.name != "ai_cli_fixture_pi_marker" and metric.name != "claude_code.token.usage" and metric.name != "claude_code.cost.usage" and metric.name != "ai_cli_pi_agent_runs" and metric.name != "ai_cli_pi_tokens" and metric.name != "ai_cli_pi_estimated_cost_usd" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd" and metric.name != "ai_cli_pi_tool_call" and metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd" and metric.name != "ai_cli_fixture_copilot_tokens" and metric.name != "gen_ai.client.inference.usage.input_tokens" and metric.name != "gen_ai.client.inference.usage.output_tokens" and metric.name != "gen_ai.client.inference.usage.cache_read.input_tokens" and metric.name != "gen_ai.client.inference.usage.cache_write.input_tokens" and metric.name != "github.copilot.tool.call.count" and metric.name != "github.copilot.code.lines_added" and metric.name != "github.copilot.code.lines_removed"'
+        - 'metric.name == "claude_code.token.usage" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cacheRead" and attributes["type"] != "cacheCreation"'
+        - 'metric.name == "ai_cli_fixture_canonical_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_opencode_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_model_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - '(metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_child_response_tokens") and (not IsString(attributes["model"]) or not IsMatch(attributes["model"], "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"))'
+        - '(metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["query_source"] != "subagent"'
+        - '(metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["role"] != "exploration" and attributes["role"] != "implementation" and attributes["role"] != "reviewer" and attributes["role"] != "operations" and attributes["role"] != "unknown"'
+        - 'metric.name == "ai_cli_pi_child_events" and attributes["status"] != "started" and attributes["status"] != "success" and attributes["status"] != "timeout" and attributes["status"] != "cancelled" and attributes["status"] != "start_failed" and attributes["status"] != "invalid_result" and attributes["status"] != "child_error"'
+        - '(metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["query_source"] != "subagent"'
+        - 'metric.name == "ai_cli_pi_child_response_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_tool_call" and attributes["category"] != "tool" and attributes["category"] != "mcp"'
+        - 'metric.name == "ai_cli_pi_tool_call" and attributes["status"] != "ok" and attributes["status"] != "error"'
+        - 'metric.name == "ai_cli_fixture_claude_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cacheRead" and attributes["type"] != "cacheCreation"'
+        - '(metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd" or metric.name == "claude_code.token.usage" or metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed") and resource.attributes["ai_cli_source"] == "fixture"'
+  transform/safe:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(cache["origin"], "")
+          - set(cache["instance"], "")
+          - set(cache["model"], "")
+          - set(cache["query"], "")
+          - set(cache["origin"], resource.attributes["session.id"]) where IsString(resource.attributes["session.id"])
+          - set(cache["origin"], attributes["session.id"]) where IsString(attributes["session.id"])
+          - set(cache["instance"], resource.attributes["service.instance.id"]) where IsString(resource.attributes["service.instance.id"])
+          - set(cache["model"], attributes["model"]) where IsString(attributes["model"])
+          - set(cache["query"], attributes["query_source"]) where IsString(attributes["query_source"])
+          - set(attributes["counter.id"], SHA256(Concat([String(start_time_unix_nano), cache["origin"], cache["instance"], cache["model"], cache["query"]], ":")))
+          - delete_key(attributes, "counter.id") where IsMatch(metric.name, "^ai_cli_(fixture_|sample_)")
+          - keep_keys(attributes, ["client", "type", "category", "status", "model", "role", "query_source", "counter.id"])
+          - set(attributes["source"], "fixture") where metric.name == "ai_cli_fixture_run_marker" or metric.name == "ai_cli_sample_tokens" or metric.name == "ai_cli_fixture_claude_tokens" or metric.name == "ai_cli_fixture_claude_cost_usd" or metric.name == "ai_cli_fixture_pi_marker" or metric.name == "ai_cli_fixture_copilot_tokens"
+          - set(attributes["source"], "fixture") where metric.name == "ai_cli_fixture_canonical_tokens"
+          - set(attributes["source"], "native") where metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd" or metric.name == "claude_code.token.usage" or metric.name == "claude_code.cost.usage" or metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed"
+          - set(attributes["client"], "opencode") where metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd"
+          - set(attributes["client"], "claude") where metric.name == "claude_code.token.usage" or metric.name == "claude_code.cost.usage" or metric.name == "ai_cli_fixture_claude_tokens" or metric.name == "ai_cli_fixture_claude_cost_usd"
+          - set(attributes["client"], "copilot") where metric.name == "ai_cli_fixture_copilot_tokens" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed"
+          - set(attributes["client"], "pi") where metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "ai_cli_fixture_pi_marker"
+          - set(attributes["client"], "unknown") where attributes["client"] != "claude" and attributes["client"] != "opencode" and attributes["client"] != "copilot" and attributes["client"] != "pi"
+          - set(attributes["type"], "input") where metric.name == "gen_ai.client.inference.usage.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "input")
+          - set(attributes["type"], "output") where metric.name == "gen_ai.client.inference.usage.output_tokens"
+          - set(attributes["type"], "cache_read") where metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "cacheRead")
+          - set(attributes["type"], "cache_write") where metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "cacheCreation")
+          - delete_key(attributes, "model") where metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd" and metric.name != "ai_cli_pi_child_response_tokens"
+          - set(attributes["query_source"], "main") where metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd"
+          - delete_key(attributes, "role") where metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd"
+          - delete_key(attributes, "query_source") where metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd"
+          - delete_key(attributes, "category") where metric.name != "ai_cli_pi_tool_call"
+          - delete_key(attributes, "status") where metric.name != "ai_cli_pi_tool_call" and metric.name != "ai_cli_pi_child_events"
+          - delete_key(attributes, "type") where metric.name != "ai_cli_opencode_tokens" and metric.name != "ai_cli_pi_tokens" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "claude_code.token.usage" and metric.name != "ai_cli_fixture_claude_tokens" and metric.name != "ai_cli_fixture_canonical_tokens" and metric.name != "gen_ai.client.inference.usage.input_tokens" and metric.name != "gen_ai.client.inference.usage.output_tokens" and metric.name != "gen_ai.client.inference.usage.cache_read.input_tokens" and metric.name != "gen_ai.client.inference.usage.cache_write.input_tokens"
+      - context: metric
+        statements:
+          - set(unit, "")
+          - set(unit, "{token}") where name == "ai_cli_pi_tokens" or name == "ai_cli_pi_model_tokens" or name == "ai_cli_pi_child_response_tokens"
+          - set(unit, "USD") where name == "ai_cli_pi_model_estimated_cost_usd" or name == "ai_cli_pi_child_response_estimated_cost_usd" or name == "ai_cli_fixture_claude_cost_usd"
+          - set(unit, "tokens") where name == "ai_cli_fixture_claude_tokens"
+          - set(unit, "{token}") where name == "ai_cli_fixture_copilot_tokens"
+          - set(name, "ai_cli_tokens_v1") where name == "ai_cli_opencode_tokens" or name == "claude_code.token.usage" or name == "gen_ai.client.inference.usage.input_tokens" or name == "gen_ai.client.inference.usage.output_tokens" or name == "gen_ai.client.inference.usage.cache_read.input_tokens" or name == "gen_ai.client.inference.usage.cache_write.input_tokens" or name == "ai_cli_fixture_canonical_tokens"
+          - set(unit, "{token}") where name == "ai_cli_tokens_v1"
+          - set(name, "ai_cli_estimated_cost_usd_v1") where name == "ai_cli_opencode_estimated_cost_usd" or name == "claude_code.cost.usage" or name == "ai_cli_pi_estimated_cost_usd"
+          - set(unit, "USD") where name == "ai_cli_estimated_cost_usd_v1"
+          - set(description, "")
+      - context: resource
+        statements:
+          - keep_keys(attributes, [])
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  filter/claude_native:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'attributes["data_source"] != nil and attributes["data_source"] != "native"'
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double'
+        - 'Len(exemplars) > 0'
+        - 'resource.attributes["service.name"] != "claude-code" or (metric.name != "claude_code.token.usage" and metric.name != "claude_code.cost.usage" and metric.name != "claude_code.code_edit_tool.decision")'
+  transform/claude_native:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(cache["origin"], "")
+          - set(cache["instance"], "")
+          - set(cache["model"], "")
+          - set(cache["query"], "")
+          - set(cache["origin"], resource.attributes["session.id"]) where IsString(resource.attributes["session.id"])
+          - set(cache["origin"], attributes["session.id"]) where IsString(attributes["session.id"])
+          - set(cache["instance"], resource.attributes["service.instance.id"]) where IsString(resource.attributes["service.instance.id"])
+          - set(cache["model"], attributes["model"]) where IsString(attributes["model"])
+          - set(cache["query"], attributes["query_source"]) where IsString(attributes["query_source"])
+          - set(attributes["counter.id"], SHA256(Concat([String(start_time_unix_nano), cache["origin"], cache["instance"], cache["model"], cache["query"]], ":")))
+          - keep_keys(attributes, ["type", "model", "query_source", "decision", "source", "counter.id"])
+          # Match JavaScript String.trim whitespace; preserve the raw model in counter.id above.
+          - replace_pattern(attributes["model"], "^[[:space:]   - \\x{2028}\\x{2029}  　﻿]+|[[:space:]   - \\x{2028}\\x{2029}  　﻿]+$", "") where IsString(attributes["model"])
+          - set(attributes["model"], "unknown") where not IsString(attributes["model"])
+          - set(attributes["decision"], "unknown") where metric.name == "claude_code.code_edit_tool.decision" and attributes["decision"] != "accept" and attributes["decision"] != "reject"
+          - set(attributes["source"], "unknown") where metric.name == "claude_code.code_edit_tool.decision" and attributes["source"] != "config" and attributes["source"] != "hook" and attributes["source"] != "user_temporary" and attributes["source"] != "user_permanent" and attributes["source"] != "user_reject" and attributes["source"] != "user_abort"
+          - delete_key(attributes, "decision") where metric.name != "claude_code.code_edit_tool.decision"
+          - delete_key(attributes, "source") where metric.name != "claude_code.code_edit_tool.decision"
+          - set(attributes["model"], "unknown") where not IsMatch(attributes["model"], "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+          - delete_key(attributes, "model") where metric.name == "claude_code.code_edit_tool.decision"
+          - set(attributes["type"], "unknown") where attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cacheRead" and attributes["type"] != "cacheCreation"
+          - set(attributes["query_source"], "unknown") where attributes["query_source"] != "main" and attributes["query_source"] != "subagent"
+          - set(attributes["data_source"], "native")
+          - set(attributes["user"], "local-user")
+      - context: metric
+        statements:
+          - set(description, "")
+          - set(unit, "") where name == "claude_code.code_edit_tool.decision"
+          - set(unit, "tokens") where name == "claude_code.token.usage"
+          - set(unit, "USD") where name == "claude_code.cost.usage"
+      - context: resource
+        statements:
+          - keep_keys(attributes, [])
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  filter/claude_metrics:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double'
+        - 'Len(exemplars) > 0'
+        - 'resource.attributes["service.name"] != "claude-code" or (metric.name != "claude_code.session.count" and metric.name != "claude_code.context.size" and metric.name != "claude_code.context.utilization" and metric.name != "claude_code.tool.count" and metric.name != "claude_code.tool.result.count" and metric.name != "claude_code.code_edit_tool.decision" and metric.name != "claude_code.context.drop.count" and metric.name != "claude_code.git_action.count")'
+        - 'attributes["data_source"] != "transcript"'
+  transform/claude_metrics:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["counter.id"], SHA256(String(start_time_unix_nano))) where start_time_unix_nano > 0
+          - delete_key(attributes, "counter.id") where start_time_unix_nano <= 0
+          - keep_keys(attributes, ["data_source", "user", "query_source", "model", "tool_name", "success", "decision", "source", "git_action", "branch_class", "branch_id", "counter.id"])
+          - set(attributes["model"], "unknown") where attributes["model"] != "opus" and attributes["model"] != "sonnet" and attributes["model"] != "haiku"
+          - set(attributes["tool_name"], "other") where attributes["tool_name"] != "Read" and attributes["tool_name"] != "Edit" and attributes["tool_name"] != "Write" and attributes["tool_name"] != "MultiEdit" and attributes["tool_name"] != "NotebookEdit" and attributes["tool_name"] != "Bash" and attributes["tool_name"] != "Grep" and attributes["tool_name"] != "Glob" and attributes["tool_name"] != "Task"
+          - set(attributes["user"], "local-user")
+          - set(attributes["branch_class"], "unknown") where attributes["branch_class"] != "default" and attributes["branch_class"] != "feature"
+          - set(attributes["branch_id"], "none") where attributes["branch_id"] != "none" and not IsMatch(attributes["branch_id"], "^[0-9a-f]{8}$")
+          - set(attributes["git_action"], "unknown") where attributes["git_action"] != "commit" and attributes["git_action"] != "push" and attributes["git_action"] != "pr_create" and attributes["git_action"] != "branch_switch" and attributes["git_action"] != "gh_other"
+          - set(attributes["query_source"], "unknown") where attributes["query_source"] != "main" and attributes["query_source"] != "subagent"
+          - set(attributes["success"], "unknown") where attributes["success"] != "true" and attributes["success"] != "false"
+          - set(attributes["decision"], "unknown") where attributes["decision"] != "accept" and attributes["decision"] != "reject"
+          - set(attributes["data_source"], "transcript")
+          - set(attributes["source"], "derived") where metric.name != "claude_code.code_edit_tool.decision"
+          - set(attributes["source"], "unknown") where metric.name == "claude_code.code_edit_tool.decision" and attributes["source"] != "config" and attributes["source"] != "user_temporary" and attributes["source"] != "user_permanent" and attributes["source"] != "hook" and attributes["source"] != "user_reject"
+      - context: metric
+        statements:
+          - set(description, "")
+          - set(unit, "tokens") where name == "claude_code.context.size"
+          - set(unit, "1") where name == "claude_code.context.utilization"
+          - set(unit, "") where name != "claude_code.context.size" and name != "claude_code.context.utilization"
+      - context: resource
+        statements:
+          - keep_keys(attributes, [])
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  filter/claude_logs:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] != "claude-code"'
+        - 'attributes["event.name"] != "api_request" and attributes["event.name"] != "tool_result" and attributes["event.name"] != "user_prompt" and attributes["event.name"] != "tool_decision" and attributes["event.name"] != "api_error" and attributes["event.name"] != "session_start" and attributes["event.name"] != "tool_use"'
+  filter/claude_traces:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["service.name"] != "claude-code"'
+        - 'name != "claude_code.interaction" and name != "claude_code.llm_request" and name != "claude_code.tool"'
+  filter/native_log_scope:
+    error_mode: propagate
+    logs:
+      log_record:
+        - 'attributes["data_source"] != "transcript" and attributes["event.name"] != "api_request"'
+        - 'attributes["cost_usd"] != nil and not IsMatch(String(attributes["cost_usd"]), "^[0-9]{1,9}([.][0-9]{1,15})?([eE][+-]?[0-9]{1,2})?$")'
+  transform/native_cost:
+    error_mode: propagate
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["data_source"], "native") where attributes["data_source"] != "transcript"
+          - set(attributes["session.id"], resource.attributes["session.id"]) where attributes["data_source"] == "native" and attributes["session.id"] == nil and IsString(resource.attributes["session.id"])
+          - set(attributes["session.id"], SHA256(attributes["session.id"])) where attributes["data_source"] == "native" and IsString(attributes["session.id"])
+          - set(attributes["session.id"], "unknown") where attributes["data_source"] == "native" and not IsString(attributes["session.id"])
+          - set(attributes["user.id"], "local-user") where attributes["data_source"] == "native"
+          - delete_key(attributes, "prompt.id") where attributes["data_source"] == "native"
+          - set(attributes["event.id"], SHA256(Concat([attributes["session.id"], attributes["event.name"], String(time_unix_nano)], ":"))) where attributes["data_source"] == "native"
+          - set(attributes["event.id"], SHA256(Concat([attributes["event.id"], attributes["request_id"]], ":"))) where attributes["data_source"] == "native" and IsString(attributes["request_id"])
+          - set(attributes["event.id"], SHA256(Concat([attributes["event.id"], attributes["tool_use_id"]], ":"))) where attributes["data_source"] == "native" and IsString(attributes["tool_use_id"])
+          - set(attributes["event.id"], SHA256(Concat([attributes["event.id"], String(attributes["event.sequence"])], ":"))) where attributes["data_source"] == "native" and IsInt(attributes["event.sequence"])
+          - set(attributes["model"], "unknown") where attributes["data_source"] == "native" and not IsString(attributes["model"])
+          - set(attributes["model"], "sonnet") where attributes["data_source"] == "native" and IsString(attributes["model"]) and IsMatch(attributes["model"], "sonnet")
+          - set(attributes["model"], "opus") where attributes["data_source"] == "native" and IsString(attributes["model"]) and IsMatch(attributes["model"], "opus")
+          - set(attributes["model"], "haiku") where attributes["data_source"] == "native" and IsString(attributes["model"]) and IsMatch(attributes["model"], "haiku")
+          - set(attributes["model"], "unknown") where attributes["data_source"] == "native" and attributes["model"] != "sonnet" and attributes["model"] != "opus" and attributes["model"] != "haiku"
+          - set(attributes["query_source"], "main") where attributes["data_source"] == "native" and attributes["query_source"] == "repl_main_thread"
+          - set(attributes["query_source"], "unknown") where attributes["data_source"] == "native" and attributes["query_source"] != "main" and attributes["query_source"] != "subagent"
+          - set(attributes["event.name"], "api_cost") where attributes["data_source"] == "native"
+          - keep_keys(attributes, ["event.name", "event.id", "data_source", "session.id", "user.id", "model", "query_source", "cost_usd", "duration_ms", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"]) where attributes["data_source"] == "native"
+          - set(body, "claude_code.metadata") where attributes["data_source"] == "native"
+          - set(attributes["cost_usd"], Double(attributes["cost_usd"])) where attributes["cost_usd"] != nil
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name"])
+  filter/claude_values:
+    error_mode: propagate
+    logs:
+      log_record:
+        - 'attributes["data_source"] != nil and attributes["data_source"] != "transcript" and attributes["data_source"] != "native"'
+        - 'attributes["cost_usd"] != nil and (attributes["cost_usd"] < 0.0 or attributes["cost_usd"] > 1000000000.0 or attributes["cost_usd"] != attributes["cost_usd"])'
+        - 'attributes["success"] != nil and attributes["success"] != "true" and attributes["success"] != "false"'
+        - 'attributes["query_source"] != nil and attributes["query_source"] != "main" and attributes["query_source"] != "subagent"'
+        - 'attributes["decision"] != nil and attributes["decision"] != "accept" and attributes["decision"] != "reject"'
+        - 'attributes["outcome"] != nil and attributes["outcome"] != "failed" and attributes["outcome"] != "retry"'
+        - 'attributes["data_source"] == "transcript" and attributes["session.id"] != nil and not IsMatch(attributes["session.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["data_source"] == "transcript" and attributes["user.id"] != nil and not IsMatch(attributes["user.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["data_source"] == "transcript" and attributes["branch_id"] != nil and attributes["branch_id"] != "none" and not IsMatch(attributes["branch_id"], "^[0-9a-f]{8}$")'
+        - 'attributes["prompt.id"] != nil and not IsMatch(attributes["prompt.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["event.id"] != nil and not IsMatch(attributes["event.id"], "^([0-9a-f]{16}|[0-9a-f]{64})$")'
+        - 'attributes["tool_parameters"] != nil and not IsMatch(attributes["tool_parameters"], "^\\{\\\"path_hash\\\": \\\"[0-9a-f]{16}\\\"\\}$")'
+        - 'attributes["source"] != nil and not IsMatch(attributes["source"], "^(config|user_temporary|user_permanent|hook|user_reject|unknown)$")'
+        - 'attributes["model"] != nil and attributes["model"] != "opus" and attributes["model"] != "sonnet" and attributes["model"] != "haiku" and attributes["model"] != "unknown"'
+        - 'attributes["tool_name"] != nil and not IsMatch(attributes["tool_name"], "^(Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Grep|Glob|Task|other)$")'
+        - 'attributes["command_class"] != nil and not IsMatch(attributes["command_class"], "^(git|gh|make|pytest|python|python3|pip|uv|npm|npx|node|go|cargo|docker|kubectl|curl|jq|ls|cat|grep|rg|find|sed|awk|echo|mkdir|rm|cp|mv|bash|sh|other)$")'
+        - 'attributes["git_action"] != nil and not IsMatch(attributes["git_action"], "^(commit|push|pr_create|branch_switch|gh_other)(,(commit|push|pr_create|branch_switch|gh_other))*$")'
+        - 'attributes["branch_class"] != nil and attributes["branch_class"] != "default" and attributes["branch_class"] != "feature" and attributes["branch_class"] != "unknown"'
+        - 'attributes["context_drop"] != nil and attributes["context_drop"] != "true" and attributes["context_drop"] != "false"'
+        - 'attributes["outcome"] != nil and attributes["outcome"] != "failed" and attributes["outcome"] != "retry"'
+        - 'attributes["event.name"] != nil and not IsMatch(attributes["event.name"], "^(api_request|api_cost|tool_result|user_prompt|tool_decision|api_error|session_start|tool_use)$")'
+        - 'attributes["duration_ms"] != nil and not IsMatch(String(attributes["duration_ms"]), "^[0-9]{1,9}(\\.[0-9]{1,3})?$")'
+        - 'attributes["context_pct"] != nil and not IsMatch(String(attributes["context_pct"]), "^(0(\\.[0-9]{1,6})?|1(\\.0{1,6})?)$")'
+        - 'attributes["context_tokens"] != nil and not IsMatch(String(attributes["context_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["context_window"] != nil and not IsMatch(String(attributes["context_window"]), "^[0-9]{1,9}$")'
+        - 'attributes["context_previous_tokens"] != nil and not IsMatch(String(attributes["context_previous_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["input_tokens"] != nil and not IsMatch(String(attributes["input_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["output_tokens"] != nil and not IsMatch(String(attributes["output_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["cache_read_tokens"] != nil and not IsMatch(String(attributes["cache_read_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["cache_creation_tokens"] != nil and not IsMatch(String(attributes["cache_creation_tokens"]), "^[0-9]{1,9}$")'
+        - 'attributes["attempt"] != nil and not IsMatch(String(attributes["attempt"]), "^[0-9]{1,3}$")'
+        - 'attributes["max_retries"] != nil and not IsMatch(String(attributes["max_retries"]), "^[0-9]{1,3}$")'
+        - 'attributes["retry_in_ms"] != nil and not IsMatch(String(attributes["retry_in_ms"]), "^[0-9]{1,9}$")'
+  transform/claude_logs:
+    error_mode: propagate
+    log_statements:
+      - context: log
+        statements:
+          - keep_keys(attributes, ["event.name", "event.id", "data_source", "success", "query_source", "decision", "source", "outcome", "session.id", "user.id", "prompt.id", "model", "tool_name", "tool_parameters", "duration_ms", "context_tokens", "context_pct", "context_window", "context_drop", "context_previous_tokens", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "command_class", "git_action", "branch_class", "branch_id", "attempt", "max_retries", "retry_in_ms", "cost_usd"])
+          - set(attributes["event.name"], "unknown") where attributes["event.name"] != "api_cost" and attributes["event.name"] != "api_request" and attributes["event.name"] != "tool_result" and attributes["event.name"] != "user_prompt" and attributes["event.name"] != "tool_decision" and attributes["event.name"] != "api_error" and attributes["event.name"] != "session_start" and attributes["event.name"] != "tool_use"
+          - set(attributes["session.id"], "unknown") where attributes["session.id"] == nil
+          - set(attributes["user.id"], "local-user") where attributes["data_source"] == "native"
+          - set(attributes["branch_id"], "none") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "prompt.id") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "tool_parameters") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "command_class") where attributes["data_source"] != "transcript"
+          - set(attributes["command_class"], "other") where attributes["command_class"] != nil and not IsMatch(attributes["command_class"], "^(git|gh|make|pytest|python|python3|pip|uv|npm|npx|node|go|cargo|docker|kubectl|curl|jq|ls|cat|grep|rg|find|sed|awk|echo|mkdir|rm|cp|mv|bash|sh|other)$")
+          - set(attributes["source"], "unknown") where attributes["source"] != nil and not IsMatch(attributes["source"], "^(config|user_temporary|user_permanent|hook|user_reject|unknown)$")
+          - set(attributes["git_action"], "unknown") where attributes["git_action"] != nil and not IsMatch(attributes["git_action"], "^(commit|push|pr_create|branch_switch|gh_other)(,(commit|push|pr_create|branch_switch|gh_other))*$")
+          - set(attributes["model"], "unknown") where attributes["model"] != "opus" and attributes["model"] != "sonnet" and attributes["model"] != "haiku"
+          - set(attributes["tool_name"], "other") where attributes["tool_name"] != "Read" and attributes["tool_name"] != "Edit" and attributes["tool_name"] != "Write" and attributes["tool_name"] != "MultiEdit" and attributes["tool_name"] != "NotebookEdit" and attributes["tool_name"] != "Bash" and attributes["tool_name"] != "Grep" and attributes["tool_name"] != "Glob" and attributes["tool_name"] != "Task"
+          - delete_key(attributes, "context_tokens") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "context_pct") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "context_window") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "context_drop") where attributes["data_source"] != "transcript"
+          - delete_key(attributes, "context_previous_tokens") where attributes["data_source"] != "transcript"
+          - set(attributes["branch_class"], "unknown") where attributes["branch_class"] != "default" and attributes["branch_class"] != "feature"
+          - set(attributes["success"], "unknown") where attributes["success"] != "true" and attributes["success"] != "false"
+          - set(attributes["query_source"], "unknown") where attributes["query_source"] != "main" and attributes["query_source"] != "subagent"
+          - set(attributes["decision"], "unknown") where attributes["decision"] != "accept" and attributes["decision"] != "reject"
+          - set(attributes["outcome"], "unknown") where attributes["outcome"] != "failed" and attributes["outcome"] != "retry"
+          - set(body, "claude_code.metadata")
+          - set(body, Concat(["claude_code.metadata:", attributes["event.name"]], ""))
+          - set(body, Concat([body, ":", attributes["event.id"]], "")) where attributes["event.id"] != nil
+          - set(severity_text, "")
+          - set(severity_number, 0)
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name"])
+          - set(attributes["service.name"], "claude-code")
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  filter/claude_trace_values:
+    error_mode: propagate
+    traces:
+      span:
+        - 'Len(events) > 0 or Len(links) > 0'
+        - 'attributes["data_source"] != nil and attributes["data_source"] != "transcript"'
+        - 'attributes["query_source"] != nil and attributes["query_source"] != "main" and attributes["query_source"] != "subagent"'
+        - 'attributes["success"] != nil and attributes["success"] != "true" and attributes["success"] != "false"'
+        - 'attributes["data_source"] == "transcript" and attributes["session.id"] != nil and not IsMatch(attributes["session.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["data_source"] == "transcript" and attributes["user.id"] != nil and not IsMatch(attributes["user.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["prompt.id"] != nil and not IsMatch(attributes["prompt.id"], "^[0-9a-f]{16}$")'
+        - 'attributes["model"] != nil and attributes["model"] != "opus" and attributes["model"] != "sonnet" and attributes["model"] != "haiku" and attributes["model"] != "unknown"'
+        - 'attributes["tool_name"] != nil and not IsMatch(attributes["tool_name"], "^(Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Grep|Glob|Task|other)$")'
+  transform/claude_traces:
+    error_mode: propagate
+    trace_statements:
+      - context: span
+        statements:
+          - keep_keys(attributes, ["data_source", "query_source", "success", "session.id", "user.id", "prompt.id", "model", "tool_name"])
+          - set(name, "claude_code.interaction") where name == "claude_code.interaction"
+          - set(attributes["session.id"], "unknown") where attributes["data_source"] != "transcript"
+          - set(attributes["user.id"], "unknown") where attributes["data_source"] != "transcript"
+          - set(attributes["model"], "unknown") where attributes["model"] != "opus" and attributes["model"] != "sonnet" and attributes["model"] != "haiku"
+          - set(attributes["tool_name"], "other") where attributes["tool_name"] != "Read" and attributes["tool_name"] != "Edit" and attributes["tool_name"] != "Write" and attributes["tool_name"] != "MultiEdit" and attributes["tool_name"] != "NotebookEdit" and attributes["tool_name"] != "Bash" and attributes["tool_name"] != "Grep" and attributes["tool_name"] != "Glob" and attributes["tool_name"] != "Task"
+          - set(attributes["data_source"], "transcript") where attributes["data_source"] != nil
+          - set(attributes["query_source"], "unknown") where attributes["query_source"] != "main" and attributes["query_source"] != "subagent"
+          - set(attributes["success"], "unknown") where attributes["success"] != "true" and attributes["success"] != "false"
+          - set(attributes["data_source"], "native") where attributes["data_source"] == nil
+          - set(status.code, 0)
+          - set(status.message, "")
+          - set(trace_state, "")
+      - context: resource
+        statements:
+          - keep_keys(attributes, ["service.name"])
+          - set(attributes["service.name"], "claude-code")
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  batch: {}
+exporters:
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: false
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/claude_logs, filter/native_log_scope, transform/native_cost, filter/claude_values, transform/claude_logs, batch]
+      exporters: [otlphttp/loki]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/claude_traces, filter/claude_trace_values, transform/claude_traces, batch]
+      exporters: [otlphttp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/allow, transform/safe, batch]
+      exporters: [prometheus]
+    metrics/opencode_metadata:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/opencode_metadata, transform/opencode_metadata, batch]
+      exporters: [prometheus]
+    metrics/claude_native:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/claude_native, transform/claude_native, batch]
+      exporters: [prometheus]
+    metrics/claude_derived:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/claude_metrics, transform/claude_metrics, batch]
+      exporters: [prometheus]

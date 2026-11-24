@@ -1,5 +1,7 @@
 // Managed MCP bridge. It is loaded explicitly by the parent and isolated Pi children.
 import { spawn as nodeSpawn } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -693,7 +695,7 @@ export function registerMCPBridge(
   // Only the parent extension omits the child environment; the child launcher sets it.
   const env = deps.env ?? ((key) => process.env[key]);
   const requested = deps.role ?? (env("ROTTA_CHILD_ROLE") || "parent");
-  const knownRole = requested in allow;
+  const knownRole = Object.hasOwn(allow, requested);
   const role: Role = (knownRole ? requested : "operations") as Role;
   const permitted = knownRole ? allow[role] : {
     ancora: new Set<string>(),
@@ -706,7 +708,12 @@ export function registerMCPBridge(
     ) as any;
   const clients = new Map<Service, any>();
   const registered = new Set<string>();
-  let active: Promise<void> | undefined, velaCalls = 0;
+  let active: Promise<void> | undefined, velaCalls = 0, closed = false;
+  const discovery = new Map<Service, Promise<Tool[]>>();
+  let nativeServer: Server | undefined;
+  let nativeSetup: Promise<void> | undefined;
+  const nativeNames: string[] = [];
+  let nativeDiagnostic = "native MCP registration unavailable; legacy bridge active";
   const current = () => config(deps);
   const enabled = (s: Service) =>
     !!current()?.services[s].enabled && permitted[s].size > 0;
@@ -764,7 +771,151 @@ export function registerMCPBridge(
       throw error;
     }
   };
+  // Native and compatibility calls share discovery, transport ownership and budget.
+  const discover = (service: Service, signal?: AbortSignal): Promise<Tool[]> => {
+    if (closed || !enabled(service)) return Promise.reject(err("Service disabled or bridge closed"));
+    let pending = discovery.get(service);
+    if (!pending) {
+      pending = (async () => {
+        try {
+          const tools = await list(await clientFor(service, signal), signal);
+          const names = new Set<string>();
+          for (const tool of tools) {
+            if (names.has(tool.name)) throw err("Duplicate upstream tool name");
+            names.add(tool.name);
+          }
+          if (closed) throw err("Bridge closed");
+          statuses[service] = { state: "healthy", reason: "initialize and tools/list observed" };
+          return tools.filter((tool) => permitted[service].has(original(service, tool.name)));
+        } catch (e) {
+          await clients.get(service)?.close?.();
+          clients.delete(service);
+          discovery.delete(service);
+          statuses[service] = { state: "unavailable", reason: clean(e instanceof Error ? e.message : e) };
+          throw e;
+        }
+      })();
+      discovery.set(service, pending);
+    }
+    return pending;
+  };
+  const invoke = async (service: Service, name: string, args: unknown, signal?: AbortSignal) => {
+    if (closed || !enabled(service) || !permitted[service].has(original(service, name))) {
+      throw err("Tool denied: service disabled or role not permitted");
+    }
+    const tools = await discover(service, signal);
+    if (!tools.some((tool) => tool.name === name)) throw err("Tool denied: unknown exact name");
+    if (service === "vela" && ++velaCalls > 2) throw err("Vela call denied: capsule limit is two");
+    try {
+      return await clients.get(service).request("tools/call", { name, arguments: args }, signal);
+    } catch (e) {
+      await clients.get(service)?.close?.();
+      clients.delete(service);
+      discovery.delete(service);
+      statuses[service] = { state: "unavailable", reason: clean(e instanceof Error ? e.message : e) };
+      throw err(e);
+    }
+  };
+  const setupNative = (): Promise<void> => nativeSetup ??= (async () => {
+    if (closed || typeof (pi as any).registerMcpServer !== "function") return;
+    const token = randomBytes(32).toString("hex"), suffix = randomBytes(12).toString("hex");
+    const server = nativeServer = createServer(async (request, response) => {
+      const send = (status: number, body?: unknown) => {
+        if (response.destroyed || response.writableEnded) return;
+        response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+        response.end(body === undefined ? undefined : JSON.stringify(body));
+      };
+      if (request.headers.authorization !== `Bearer ${token}`) { request.resume(); send(401); return; }
+      // No browser origins, cross-host routing, streaming, resources or prompts.
+      const address = server.address();
+      const host = typeof address === "object" && address ? `127.0.0.1:${address.port}` : "";
+      if (request.headers.origin || request.headers.host !== host) { request.resume(); send(403); return; }
+      const service = request.url?.slice(1) as Service;
+      if (!SERVICES.includes(service)) { request.resume(); send(404); return; }
+      if (request.method !== "POST") { request.resume(); send(405); return; }
+      if (!request.headers["content-type"]?.includes("application/json")) { request.resume(); send(415); return; }
+      let message: any;
+      try {
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        for await (const chunk of request) {
+          bytes += chunk.length;
+          if (bytes > LIMIT) { send(413); request.destroy(); return; }
+          chunks.push(Buffer.from(chunk));
+        }
+        message = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (message?.jsonrpc !== "2.0" || typeof message.method !== "string" ||
+          (message.id !== undefined && typeof message.id !== "string" && typeof message.id !== "number")) {
+          throw err("Invalid JSON-RPC request");
+        }
+      } catch { send(400, { error: "Invalid request" }); return; }
+      if (message.id === undefined) {
+        if (message.method === "notifications/initialized" || message.method === "notifications/cancelled") send(202);
+        else send(400);
+        return;
+      }
+      try {
+        if (closed || !enabled(service)) throw err("Service disabled or role not permitted");
+        let result: unknown;
+        switch (message.method) {
+          case "initialize":
+            await discover(service);
+            result = { protocolVersion: PROTOCOL, capabilities: { tools: {} }, serverInfo: { name: `rotta-${service}`, version: "1" } };
+            break;
+          case "tools/list": result = { tools: await discover(service) }; break;
+          case "tools/call":
+            if (typeof message.params?.name !== "string") throw err("Invalid tool name");
+            result = await invoke(service, message.params.name, message.params.arguments ?? {});
+            // An MCP error is a successful RPC envelope containing isError.
+            // Never serialize its raw content/structured fields into native errors.
+            if ((result as any)?.isError) throw err("Upstream tool failed");
+            break;
+          case "ping": result = {}; break;
+          default:
+            send(200, { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
+            return;
+        }
+        send(200, { jsonrpc: "2.0", id: message.id, result });
+      } catch {
+        // Upstream errors may contain secrets. Native errors deliberately omit them.
+        send(200, { jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "Rotta service request failed or denied" } });
+      }
+    });
+    server.requestTimeout = TIMEOUT;
+    server.headersTimeout = TIMEOUT;
+    server.maxConnections = PENDING;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => { server.removeListener("error", reject); resolve(); });
+      });
+      if (closed) { server.close(); return; }
+      const address = server.address();
+      if (!address || typeof address === "string") throw err("Native adapter address unavailable");
+      for (const service of SERVICES) {
+        const name = `rotta_${service}_${suffix}`;
+        const reason = !current() ? "invalid or missing managed config" :
+          !current()!.services[service].enabled ? "disabled by config" :
+          !permitted[service].size ? "role not permitted" : "managed adapter; shared upstream connection";
+        (pi as any).registerMcpServer(name, {
+          url: `http://127.0.0.1:${address.port}/${service}`,
+          headers: { Authorization: `Bearer ${token}` },
+          exposure: "hidden", enabled: enabled(service),
+          description: `Rotta ${service}: ${reason}. Use rotta_${service}_* compatibility tools.`,
+        });
+        nativeNames.push(name);
+      }
+      nativeDiagnostic = "native MCP adapters registered; connection state is shown in /mcp";
+    } catch {
+      for (const name of nativeNames.splice(0)) (pi as any).unregisterMcpServer?.(name);
+      server.close();
+      nativeServer = undefined;
+      nativeDiagnostic = "native MCP registration failed; legacy bridge active";
+    }
+  })();
   const activate = async (signal?: AbortSignal) => {
+    if (closed) return;
+    await setupNative();
     if (active) return active;
     active = (async () => {
       await Promise.all(SERVICES.map(async (service) => {
@@ -787,8 +938,7 @@ export function registerMCPBridge(
           return;
         }
         try {
-          const client = await clientFor(service, signal);
-          for (const remote of await list(client, signal)) {
+          for (const remote of await discover(service, signal)) {
             const name = original(service, remote.name),
               mapped = exposed(service, name);
             if (!permitted[service].has(name) || registered.has(mapped)) {
@@ -812,29 +962,7 @@ export function registerMCPBridge(
                 params: unknown,
                 callSignal: AbortSignal,
               ) {
-                if (!enabled(service)) {
-                  throw err(`${service} disabled or no longer permitted`);
-                }
-                if (service === "vela" && ++velaCalls > 2) {
-                  throw err("Vela call denied: capsule limit is two");
-                }
-                try {
-                  return toolResult(
-                    await (await clientFor(service, callSignal)).request(
-                      "tools/call",
-                      { name: remote.name, arguments: params },
-                      callSignal,
-                    ),
-                  );
-                } catch (e) {
-                  await clients.get(service)?.close?.();
-                  clients.delete(service);
-                  statuses[service] = {
-                    state: "unavailable",
-                    reason: clean(e instanceof Error ? e.message : e),
-                  };
-                  throw err(e);
-                }
+                return toolResult(await invoke(service, remote.name, params, callSignal));
               },
             });
           }
@@ -864,16 +992,25 @@ export function registerMCPBridge(
     }
   };
   const close = async () => {
+    closed = true;
+    await nativeSetup;
+    for (const name of nativeNames.splice(0)) (pi as any).unregisterMcpServer?.(name);
+    if (nativeServer) {
+      const server = nativeServer;
+      nativeServer = undefined;
+      await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+    }
     await Promise.all([...clients.values()].map((client) => client.close?.()));
     clients.clear();
-    velaCalls = 0;
+    discovery.clear();
     active = undefined;
   };
+  pi.on("session_start", setupNative as any);
   pi.on("before_agent_start", async (event: any) => {
     await activate();
     return event;
   });
   pi.on("session_shutdown", close as any);
-  return { activate, close, status: () => structuredClone(statuses) };
+  return { start: setupNative, activate, close, status: () => structuredClone(statuses), nativeStatus: () => nativeDiagnostic };
 }
 export default registerMCPBridge;

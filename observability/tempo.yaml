@@ -1,0 +1,25 @@
+server:
+  http_listen_port: 3200
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+ingester:
+  max_block_duration: 10m
+  complete_block_timeout: 10m
+storage:
+  trace:
+    blocklist_poll: 1m
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+compactor:
+  compaction:
+    block_retention: 12h
+    compacted_block_retention: 10m
+    compaction_cycle: 1m
+    compaction_window: 10m

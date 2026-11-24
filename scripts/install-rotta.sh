@@ -138,11 +138,10 @@ download_and_install() {
   local url="https://github.com/${REPO}/releases/download/${VERSION}/${archive}"
   local tmp_dir="$(mktemp -d)"
 
-  cleanup() {
-    rm -rf "${tmp_dir}"
-  }
-
-  trap cleanup EXIT
+  # Expand the disposable path now: EXIT runs after this function's locals expire.
+  local cleanup_command
+  printf -v cleanup_command 'rm -rf -- %q' "${tmp_dir}"
+  trap "${cleanup_command}" EXIT
   local archive_path="${tmp_dir}/${archive}"
 
   log_info "Downloading ${archive}"
@@ -163,17 +162,44 @@ download_and_install() {
     exit 1
   fi
 
+  # Validate optional payload before mutating an existing binary installation.
+  if [ ! -f "${tmp_dir}/observability/install.py" ] || [ ! -f "${tmp_dir}/assets/pi/rotta-extension.ts" ]; then
+    log_error "Release archive lacks optional telemetry assets"
+    exit 1
+  fi
+
   if [ ! -d "${INSTALL_DIR}" ]; then
     log_warn "Install directory does not exist. Creating ${INSTALL_DIR}"
     mkdir -p "${INSTALL_DIR}"
   fi
 
-  log_info "Installing ${INSTALL_BIN_NAME} to ${INSTALL_DIR}"
-  if ! mv "${source_binary}" "${INSTALL_DIR}/${INSTALL_BIN_NAME}"; then
-    log_error "Install failed. Try setting ROTTA_INSTALL_DIR to a writable location."
+  # Refuse foreign or stale assets; do not replace a working binary until the
+  # complete asset tree has been staged and checked in the destination filesystem.
+  local asset_dir="${INSTALL_DIR}/rotta-assets"
+  local staged="${INSTALL_DIR}/.rotta-assets-stage-$$"
+  if [ -e "${asset_dir}" ] || [ -L "${asset_dir}" ]; then
+    log_error "Existing telemetry assets at ${asset_dir}; inspect/remove them before reinstalling"
     exit 1
   fi
-
+  if [ -e "${staged}" ] || [ -L "${staged}" ]; then
+    log_error "Telemetry staging path already exists"
+    exit 1
+  fi
+  mkdir -p "${staged}/assets/pi"
+  if ! cp -R "${tmp_dir}/observability" "${staged}/observability" ||
+     ! cp "${tmp_dir}/assets/pi/rotta-extension.ts" "${staged}/assets/pi/rotta-extension.ts" ||
+     ! cmp -s "${tmp_dir}/observability/install.py" "${staged}/observability/install.py" ||
+     ! cmp -s "${tmp_dir}/assets/pi/rotta-extension.ts" "${staged}/assets/pi/rotta-extension.ts"; then
+    rm -rf "${staged}"
+    log_error "Telemetry asset staging failed; binary unchanged"
+    exit 1
+  fi
+  mv "${staged}" "${asset_dir}"
+  log_info "Installing ${INSTALL_BIN_NAME} to ${INSTALL_DIR}"
+  if ! mv "${source_binary}" "${INSTALL_DIR}/${INSTALL_BIN_NAME}"; then
+    log_error "Binary install failed; staged assets at ${asset_dir} require inspection"
+    exit 1
+  fi
   chmod +x "${INSTALL_DIR}/${INSTALL_BIN_NAME}"
   log_success "Installed ${PACKAGE} ${VERSION}"
 }

@@ -254,7 +254,14 @@ func TestDeliveryFirstInstalledConsumersAndTools(t *testing.T) {
 					// Host bindings are inserted between frontmatter and body.
 					// Require both original sections without rejecting that binding.
 					for _, section := range strings.SplitN(policy, "\n\n", 2) {
-						assertRottaNextFileContains(t, path, section)
+						if host == "opencode" {
+							installed := readRottaNextInstalledAsset(t, path)
+							if !strings.Contains(strings.ReplaceAll(installed, "\n", " "), strings.ReplaceAll(section, "\n", " ")) {
+								t.Fatalf("installed OpenCode policy lost source section: %s", path)
+							}
+						} else {
+							assertRottaNextFileContains(t, path, section)
+						}
 					}
 				}
 			}

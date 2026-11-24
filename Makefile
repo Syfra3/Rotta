@@ -119,7 +119,29 @@ reset-opencode:
 	@rm -rf "$$HOME/.config/opencode" "$$HOME/.local/share/opencode" "$$HOME/.cache/opencode"
 	@curl -fsSL https://opencode.ai/install | bash
 
+TELEMETRY_SCRIPT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/observability/install.py)
+.PHONY: telemetry-test telemetry-up telemetry-down telemetry-status telemetry-logs telemetry-smoke telemetry-check-dashboard telemetry-pi telemetry-install telemetry-uninstall telemetry-claude-up telemetry-claude-export telemetry-claude
+telemetry-test:
+	@python3 observability/fixture.py
+	@python3 observability/test_policy.py
+	@node observability/test_opencode_events.mjs
+	@node observability/test_opencode_metadata.mjs
+	@python3 -m json.tool observability/grafana/dashboards/opencode.json >/dev/null
+	@python3 -m unittest discover -s observability -p 'test*.py'
+	@python3 -m json.tool observability/grafana/dashboards/samples.json >/dev/null
+	@docker compose -f observability/compose.yaml config --quiet
+telemetry-claude-up:
+	@docker compose -f observability/compose.yaml -f observability/compose.claude.yaml up -d
+telemetry-claude-export:
+	@test -n "$(strip $(CLAUDE_PROJECTS_DIR))" -a -n "$(strip $(CLAUDE_STATE_DIR))" || { printf '%s\n' 'Set explicit CLAUDE_PROJECTS_DIR and CLAUDE_STATE_DIR paths.'; exit 2; }
+	@python3 observability/claude_exporter.py --projects-dir "$(CLAUDE_PROJECTS_DIR)" --state-dir "$(CLAUDE_STATE_DIR)"
+telemetry-claude:
+	@bash observability/claude-local $(CLAUDE_ARGS)
+telemetry-up telemetry-down telemetry-status telemetry-logs telemetry-smoke telemetry-check-dashboard telemetry-pi telemetry-install telemetry-uninstall:
+	@python3 $(TELEMETRY_SCRIPT) $(patsubst telemetry-%,%,$@)
+
 help:
+	@echo "  telemetry-test/up/down/status/logs/smoke/pi/install/uninstall - local opt-in telemetry (see observability/README.md)"
 	@echo "Available targets:"
 	@echo "  build          - Build rotta"
 	@echo "  install        - Install binary to $${GOPATH}/bin"

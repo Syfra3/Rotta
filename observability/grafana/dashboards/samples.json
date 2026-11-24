@@ -1,0 +1,612 @@
+{
+  "uid": "ai-cli-samples",
+  "title": "AI CLI | Pi-first lab layout (unsupported \u2260 zero)",
+  "schemaVersion": 40,
+  "version": 6,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "agent",
+        "label": "Agents",
+        "type": "custom",
+        "query": "Claude Code : claude,OpenCode (native opt-in; synthetic example separate) : opencode,GitHub Copilot CLI : copilot,Pi : pi",
+        "options": [],
+        "multi": true,
+        "includeAll": true,
+        "allValue": "claude|opencode|copilot|pi",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Cost and tokens",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Estimated cost",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (client) (increase(ai_cli_estimated_cost_usd_v1_USD_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\"}[$__range]))",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "description": "Pi and Claude estimated cost over the selected range, not billing. Missing cost is not zero."
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Cost by model",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 9,
+        "h": 8
+      },
+      "description": "Main Pi responses only; provider estimates are not billing. Child cost appears separately in Cost by source. Missing cost is not zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model) (increase(ai_cli_pi_model_estimated_cost_usd_USD_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\",client=\"pi\"}[$__range]))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cost by source",
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 9,
+        "h": 8
+      },
+      "description": "Child cost covers only the final assistant response, not child session total; main response cost is separate. Missing child responses are absent, not zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (query_source) (increase(ai_cli_pi_model_estimated_cost_usd_USD_total{job=\"collector\",source=\"native\",client=\"pi\",client=~\"${agent:regex}\"}[$__range]))",
+          "legendFormat": "{{query_source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (query_source) (increase(ai_cli_pi_child_response_estimated_cost_usd_USD_total{job=\"collector\",source=\"native\",client=\"pi\",client=~\"${agent:regex}\"}[$__range]))",
+          "legendFormat": "{{query_source}} \u00b7 final"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Tokens by model and source",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 10
+      },
+      "description": "Child models are shown when the final response supplies a valid model ID; otherwise unknown. Child values cover final assistant response only, not child session total.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model,type,query_source) (increase(ai_cli_pi_model_tokens_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\",client=\"pi\"}[$__range]))",
+          "legendFormat": "{{model}} \u00b7 {{type}} \u00b7 {{query_source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (model,type,query_source) (increase(ai_cli_pi_child_response_tokens_total{job=\"collector\",source=\"native\",client=\"pi\",client=~\"${agent:regex}\"}[$__range]))",
+          "legendFormat": "{{model}} \u00b7 {{type}} \u00b7 {{query_source}} \u00b7 final"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "width": 250
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "Tools and MCP",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "Tool calls",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (client,category,status) (increase(ai_cli_pi_tool_call_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\"}[$__range]))",
+          "legendFormat": "{{client}} \u00b7 {{category}} \u00b7 {{status}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Pi completed tool calls by category and status over the selected range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Tool failure share",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (sum by (client,category) (increase(ai_cli_pi_tool_call_total{job=\"collector\",source=\"native\",status=\"error\",client=~\"${agent:regex}\"}[$__range])) or on (client,category) (0 * sum by (client,category) (increase(ai_cli_pi_tool_call_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\"}[$__range])))) / sum by (client,category) (increase(ai_cli_pi_tool_call_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\"}[$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Observed completed Pi calls only; not prompt or loop attribution. Missing or zero-denominator series remain absent."
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "MCP call rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (client,status) (rate(ai_cli_pi_tool_call_total{job=\"collector\",source=\"native\",category=\"mcp\",client=~\"${agent:regex}\"}[5m]))",
+          "legendFormat": "{{client}} \u00b7 {{status}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Pi native MCP calls per second, by status.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        }
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Additional native metrics",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Cache read share",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "100 * sum by (client) (increase(ai_cli_tokens_v1_total{job=\"collector\",source=\"native\",type=\"cache_read\",client=~\"${agent:regex}\"}[$__range])) / on (client) sum by (client) (increase(ai_cli_tokens_v1_total{job=\"collector\",source=\"native\",type=~\"input|cache_read|cache_write\",client=~\"${agent:regex}\"}[$__range]))",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "options": {
+            "graphMode": "none",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            }
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 36,
+            "w": 24,
+            "h": 4
+          },
+          "description": "Native cache read share over the selected range; missing categories or a zero denominator produce no value."
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Token rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (client,type) (rate(ai_cli_tokens_v1_total{job=\"collector\",source=\"native\",client=~\"${agent:regex}\"}[5m]))",
+              "legendFormat": "{{client}} \u00b7 {{type}}"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Native token rate per second; availability varies by client.",
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 8,
+                "showPoints": "never"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Unavailable metrics",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Cost per edit \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 37,
+            "w": 24,
+            "h": 4
+          },
+          "description": "No edit decision event is exported."
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Sessions \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 41,
+            "w": 24,
+            "h": 4
+          },
+          "description": "Shutdown delivery is not guaranteed; durable session counts are unavailable."
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Cache hit rate \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 45,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Incomplete category coverage prevents a reliable cache hit rate over time."
+        },
+        {
+          "id": 10,
+          "type": "barchart",
+          "title": "Edit decisions \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Tool invocation is not edit acceptance."
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Edit decisions over time \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 59,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Edit decision events are not exported."
+        },
+        {
+          "id": 12,
+          "type": "table",
+          "title": "Failures per prompt \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Prompt IDs are not exported."
+        },
+        {
+          "id": 13,
+          "type": "table",
+          "title": "Repeated paths \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 73,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Paths are forbidden."
+        },
+        {
+          "id": 14,
+          "type": "logs",
+          "title": "Tool results \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 80,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Content is forbidden and no safe log backend is enabled."
+        },
+        {
+          "id": 17,
+          "type": "bargauge",
+          "title": "MCP servers \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 87,
+            "w": 24,
+            "h": 7
+          },
+          "description": "Server names are withheld."
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Traces unavailable",
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Trace explorer \u2014 unavailable",
+          "gridPos": {
+            "x": 0,
+            "y": 38,
+            "w": 24,
+            "h": 7
+          },
+          "description": "No provider trace or retention-enforced safe backend is available."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Process-local opt-in; never enable prompt or tool detail logging.
+for name in ${!OTEL_@}; do unset "$name"; done
+export CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=otlp OTEL_LOGS_EXPORTER=otlp
+export OTEL_TRACES_EXPORTER=none OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318
+export OTEL_LOG_USER_PROMPTS=0 OTEL_LOG_TOOL_DETAILS=0
+exec claude "$@"

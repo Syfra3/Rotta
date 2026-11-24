@@ -1,0 +1,142 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  filter/opencode_metadata:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd" and metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_sessions" and metric.name != "ai_cli_opencode_runs" and metric.name != "ai_cli_opencode_compactions"'
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double or Len(exemplars) > 0'
+        - 'resource.attributes["ai_cli_source"] == "fixture"'
+        - '(metric.name == "ai_cli_opencode_model_tokens" or metric.name == "ai_cli_opencode_model_cost_usd") and (not IsString(attributes["model"]) or not IsMatch(attributes["model"], "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"))'
+        - '(metric.name == "ai_cli_opencode_model_tokens" or metric.name == "ai_cli_opencode_model_cost_usd") and attributes["role"] != "build" and attributes["role"] != "plan" and attributes["role"] != "exploration" and attributes["role"] != "implementation" and attributes["role"] != "reviewer" and attributes["role"] != "operations" and attributes["role"] != "orchestrator" and attributes["role"] != "unknown"'
+        - 'metric.name == "ai_cli_opencode_model_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_opencode_tool_calls" and (attributes["category"] != "unknown" and attributes["category"] != "tool" or attributes["status"] != "ok" and attributes["status"] != "error")'
+        - 'metric.name == "ai_cli_opencode_sessions" and attributes["category"] != "main" and attributes["category"] != "subagent"'
+        - 'metric.name == "ai_cli_opencode_runs" and attributes["status"] != "ok" and attributes["status"] != "error" and attributes["status"] != "interrupted"'
+        - 'metric.name == "ai_cli_opencode_compactions" and attributes["category"] != "auto" and attributes["category"] != "manual" and attributes["category"] != "unknown"'
+  transform/opencode_metadata:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'set(cache["instance"], "")'
+          - 'set(cache["instance"], resource.attributes["service.instance.id"]) where IsString(resource.attributes["service.instance.id"])'
+          - 'set(attributes["counter.id"], SHA256(Concat([String(start_time_unix_nano), cache["instance"]], ":")))'
+          - 'keep_keys(attributes, ["counter.id", "model", "role", "type", "category", "status"])'
+          - 'delete_key(attributes, "model") where metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd"'
+          - 'delete_key(attributes, "role") where metric.name != "ai_cli_opencode_model_tokens" and metric.name != "ai_cli_opencode_model_cost_usd"'
+          - 'delete_key(attributes, "type") where metric.name != "ai_cli_opencode_model_tokens"'
+          - 'delete_key(attributes, "category") where metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_sessions" and metric.name != "ai_cli_opencode_compactions"'
+          - 'delete_key(attributes, "status") where metric.name != "ai_cli_opencode_tool_calls" and metric.name != "ai_cli_opencode_runs"'
+          - 'set(attributes["client"], "opencode")'
+          - 'set(attributes["source"], "native")'
+      - context: resource
+        statements:
+          - 'keep_keys(attributes, [])'
+      - context: scope
+        statements:
+          - 'set(name, "local")'
+          - 'set(version, "")'
+          - 'keep_keys(attributes, [])'
+  filter/allow:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'value_int < 0 or value_double < 0 or value_int > 1000000000000000 or value_double > 1000000000000000.0 or value_double != value_double'
+        - 'Len(exemplars) > 0'
+        - 'metric.name != "ai_cli_opencode_tokens" and metric.name != "ai_cli_opencode_estimated_cost_usd" and metric.name != "ai_cli_fixture_canonical_tokens" and metric.name != "ai_cli_fixture_run_marker" and metric.name != "ai_cli_sample_tokens" and metric.name != "ai_cli_fixture_claude_tokens" and metric.name != "ai_cli_fixture_claude_cost_usd" and metric.name != "ai_cli_fixture_pi_marker" and metric.name != "claude_code.token.usage" and metric.name != "claude_code.cost.usage" and metric.name != "ai_cli_pi_agent_runs" and metric.name != "ai_cli_pi_tokens" and metric.name != "ai_cli_pi_estimated_cost_usd" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd" and metric.name != "ai_cli_pi_tool_call" and metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd" and metric.name != "ai_cli_fixture_copilot_tokens" and metric.name != "gen_ai.client.inference.usage.input_tokens" and metric.name != "gen_ai.client.inference.usage.output_tokens" and metric.name != "gen_ai.client.inference.usage.cache_read.input_tokens" and metric.name != "gen_ai.client.inference.usage.cache_write.input_tokens" and metric.name != "github.copilot.tool.call.count" and metric.name != "github.copilot.code.lines_added" and metric.name != "github.copilot.code.lines_removed"'
+        - 'metric.name == "claude_code.token.usage" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cacheRead" and attributes["type"] != "cacheCreation"'
+        - 'metric.name == "ai_cli_fixture_canonical_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_opencode_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_model_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - '(metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_child_response_tokens") and (not IsString(attributes["model"]) or not IsMatch(attributes["model"], "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"))'
+        - '(metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["query_source"] != "subagent"'
+        - '(metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["role"] != "exploration" and attributes["role"] != "implementation" and attributes["role"] != "reviewer" and attributes["role"] != "operations" and attributes["role"] != "unknown"'
+        - 'metric.name == "ai_cli_pi_child_events" and attributes["status"] != "started" and attributes["status"] != "success" and attributes["status"] != "timeout" and attributes["status"] != "cancelled" and attributes["status"] != "start_failed" and attributes["status"] != "invalid_result" and attributes["status"] != "child_error"'
+        - '(metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd") and attributes["query_source"] != "subagent"'
+        - 'metric.name == "ai_cli_pi_child_response_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cache_read" and attributes["type"] != "cache_write"'
+        - 'metric.name == "ai_cli_pi_tool_call" and attributes["category"] != "tool" and attributes["category"] != "mcp"'
+        - 'metric.name == "ai_cli_pi_tool_call" and attributes["status"] != "ok" and attributes["status"] != "error"'
+        - 'metric.name == "ai_cli_fixture_claude_tokens" and attributes["type"] != "input" and attributes["type"] != "output" and attributes["type"] != "cacheRead" and attributes["type"] != "cacheCreation"'
+        - '(metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd" or metric.name == "claude_code.token.usage" or metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed") and resource.attributes["ai_cli_source"] == "fixture"'
+  transform/safe:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(cache["origin"], "")
+          - set(cache["instance"], "")
+          - set(cache["model"], "")
+          - set(cache["query"], "")
+          - set(cache["origin"], resource.attributes["session.id"]) where IsString(resource.attributes["session.id"])
+          - set(cache["origin"], attributes["session.id"]) where IsString(attributes["session.id"])
+          - set(cache["instance"], resource.attributes["service.instance.id"]) where IsString(resource.attributes["service.instance.id"])
+          - set(cache["model"], attributes["model"]) where IsString(attributes["model"])
+          - set(cache["query"], attributes["query_source"]) where IsString(attributes["query_source"])
+          - set(attributes["counter.id"], SHA256(Concat([String(start_time_unix_nano), cache["origin"], cache["instance"], cache["model"], cache["query"]], ":")))
+          - delete_key(attributes, "counter.id") where IsMatch(metric.name, "^ai_cli_(fixture_|sample_)")
+          - keep_keys(attributes, ["client", "type", "category", "status", "model", "role", "query_source", "counter.id"])
+          - set(attributes["source"], "fixture") where metric.name == "ai_cli_fixture_run_marker" or metric.name == "ai_cli_sample_tokens" or metric.name == "ai_cli_fixture_claude_tokens" or metric.name == "ai_cli_fixture_claude_cost_usd" or metric.name == "ai_cli_fixture_pi_marker" or metric.name == "ai_cli_fixture_copilot_tokens"
+          - set(attributes["source"], "fixture") where metric.name == "ai_cli_fixture_canonical_tokens"
+          - set(attributes["source"], "native") where metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd" or metric.name == "claude_code.token.usage" or metric.name == "claude_code.cost.usage" or metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed"
+          - set(attributes["client"], "opencode") where metric.name == "ai_cli_opencode_tokens" or metric.name == "ai_cli_opencode_estimated_cost_usd"
+          - set(attributes["client"], "claude") where metric.name == "claude_code.token.usage" or metric.name == "claude_code.cost.usage" or metric.name == "ai_cli_fixture_claude_tokens" or metric.name == "ai_cli_fixture_claude_cost_usd"
+          - set(attributes["client"], "copilot") where metric.name == "ai_cli_fixture_copilot_tokens" or metric.name == "gen_ai.client.inference.usage.input_tokens" or metric.name == "gen_ai.client.inference.usage.output_tokens" or metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or metric.name == "github.copilot.tool.call.count" or metric.name == "github.copilot.code.lines_added" or metric.name == "github.copilot.code.lines_removed"
+          - set(attributes["client"], "pi") where metric.name == "ai_cli_pi_agent_runs" or metric.name == "ai_cli_pi_tokens" or metric.name == "ai_cli_pi_estimated_cost_usd" or metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd" or metric.name == "ai_cli_pi_tool_call" or metric.name == "ai_cli_pi_child_events" or metric.name == "ai_cli_pi_child_response_tokens" or metric.name == "ai_cli_pi_child_response_estimated_cost_usd" or metric.name == "ai_cli_fixture_pi_marker"
+          - set(attributes["client"], "unknown") where attributes["client"] != "claude" and attributes["client"] != "opencode" and attributes["client"] != "copilot" and attributes["client"] != "pi"
+          - set(attributes["type"], "input") where metric.name == "gen_ai.client.inference.usage.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "input")
+          - set(attributes["type"], "output") where metric.name == "gen_ai.client.inference.usage.output_tokens"
+          - set(attributes["type"], "cache_read") where metric.name == "gen_ai.client.inference.usage.cache_read.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "cacheRead")
+          - set(attributes["type"], "cache_write") where metric.name == "gen_ai.client.inference.usage.cache_write.input_tokens" or (metric.name == "claude_code.token.usage" and attributes["type"] == "cacheCreation")
+          - delete_key(attributes, "model") where metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd" and metric.name != "ai_cli_pi_child_response_tokens"
+          - set(attributes["query_source"], "main") where metric.name == "ai_cli_pi_model_tokens" or metric.name == "ai_cli_pi_model_estimated_cost_usd"
+          - delete_key(attributes, "role") where metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd"
+          - delete_key(attributes, "query_source") where metric.name != "ai_cli_pi_child_events" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "ai_cli_pi_child_response_estimated_cost_usd" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_model_estimated_cost_usd"
+          - delete_key(attributes, "category") where metric.name != "ai_cli_pi_tool_call"
+          - delete_key(attributes, "status") where metric.name != "ai_cli_pi_tool_call" and metric.name != "ai_cli_pi_child_events"
+          - delete_key(attributes, "type") where metric.name != "ai_cli_opencode_tokens" and metric.name != "ai_cli_pi_tokens" and metric.name != "ai_cli_pi_model_tokens" and metric.name != "ai_cli_pi_child_response_tokens" and metric.name != "claude_code.token.usage" and metric.name != "ai_cli_fixture_claude_tokens" and metric.name != "ai_cli_fixture_canonical_tokens" and metric.name != "gen_ai.client.inference.usage.input_tokens" and metric.name != "gen_ai.client.inference.usage.output_tokens" and metric.name != "gen_ai.client.inference.usage.cache_read.input_tokens" and metric.name != "gen_ai.client.inference.usage.cache_write.input_tokens"
+      - context: metric
+        statements:
+          - set(description, "")
+          - set(unit, "")
+          - set(unit, "{token}") where name == "ai_cli_pi_tokens" or name == "ai_cli_pi_model_tokens" or name == "ai_cli_pi_child_response_tokens"
+          - set(unit, "USD") where name == "ai_cli_pi_model_estimated_cost_usd" or name == "ai_cli_pi_child_response_estimated_cost_usd" or name == "ai_cli_fixture_claude_cost_usd"
+          - set(unit, "tokens") where name == "ai_cli_fixture_claude_tokens"
+          - set(unit, "{token}") where name == "ai_cli_fixture_copilot_tokens"
+          - set(name, "ai_cli_tokens_v1") where name == "ai_cli_opencode_tokens" or name == "claude_code.token.usage" or name == "gen_ai.client.inference.usage.input_tokens" or name == "gen_ai.client.inference.usage.output_tokens" or name == "gen_ai.client.inference.usage.cache_read.input_tokens" or name == "gen_ai.client.inference.usage.cache_write.input_tokens" or name == "ai_cli_fixture_canonical_tokens"
+          - set(unit, "{token}") where name == "ai_cli_tokens_v1"
+          - set(name, "ai_cli_estimated_cost_usd_v1") where name == "ai_cli_opencode_estimated_cost_usd" or name == "claude_code.cost.usage" or name == "ai_cli_pi_estimated_cost_usd"
+          - set(unit, "USD") where name == "ai_cli_estimated_cost_usd_v1"
+      - context: resource
+        statements:
+          - keep_keys(attributes, [])
+      - context: scope
+        statements:
+          - set(name, "local")
+          - set(version, "")
+          - keep_keys(attributes, [])
+  batch: {}
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: false
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/allow, transform/safe, batch]
+      exporters: [prometheus]
+    metrics/opencode_metadata:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/opencode_metadata, transform/opencode_metadata, batch]
+      exporters: [prometheus]

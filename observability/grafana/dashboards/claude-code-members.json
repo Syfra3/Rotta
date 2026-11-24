@@ -1,0 +1,1060 @@
+{
+  "uid": "claude-code-members-sessions",
+  "title": "Claude Code \u2014 Members & Sessions",
+  "description": "Per-member and per-session view. Requires team agreement: see the README privacy notes. INCOMPLETE local coverage: see SOURCE_SUPPORT.md and RETENTION.md.",
+  "tags": [
+    "claude-code",
+    "otel",
+    "members"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Team Retro (aggregate)",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/claude-code-telemetry-lab",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "data_source",
+        "label": "Data source",
+        "type": "custom",
+        "description": "Local wiring: native supplies usage/cost; transcript supplies sanitized session/tool/context metadata without duplicate usage counters. All combines these disjoint signals. Synthetic values are test-only. Monthly coverage is incomplete with seven-day metrics retention.",
+        "query": "transcript : transcript, real-otel : native|^$, all : .*, synthetic : synthetic, transcript-fixture : transcript-fixture",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "all",
+          "value": ".*"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "transcript",
+            "value": "transcript"
+          },
+          {
+            "selected": false,
+            "text": "real-otel",
+            "value": "native|^$"
+          },
+          {
+            "selected": true,
+            "text": "all",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "synthetic",
+            "value": "synthetic"
+          },
+          {
+            "selected": false,
+            "text": "transcript-fixture",
+            "value": "transcript-fixture"
+          }
+        ]
+      },
+      {
+        "name": "topn",
+        "label": "Top N sessions",
+        "type": "custom",
+        "query": "5,10,25",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "10",
+          "value": "10"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "5",
+            "value": "5"
+          },
+          {
+            "selected": true,
+            "text": "10",
+            "value": "10"
+          },
+          {
+            "selected": false,
+            "text": "25",
+            "value": "25"
+          }
+        ]
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Per member",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 50,
+      "type": "bargauge",
+      "title": "Cost by member (USD)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Per-user view. Transcript data uses the user label set with --user; real OTel joins user.email from target_info (last value over the range) on job and instance. If two emails share a job and instance, one of them is picked and gets both people's usage (unverified against real data). Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "displayName": "${__field.labels.user}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "refId": "A",
+          "expr": "sort_desc((sum by (user) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\"))))",
+          "legendFormat": "{{user}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "bargauge",
+      "title": "Cache hit rate by member",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "local-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "displayName": "${__field.labels.user}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "refId": "A",
+          "expr": "sort_desc((sum by (user) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\"))) / (sum by (user) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\"))))",
+          "legendFormat": "{{user}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": " Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention."
+    },
+    {
+      "id": 53,
+      "type": "bargauge",
+      "title": "Max context % of window by member",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Transcript data only: real OTel has no context window signal. Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.6
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "displayName": "${__field.labels.user}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max by (user) (max_over_time({service_name=\"claude-code\"} | event_name=\"api_request\" | data_source=~\"${data_source:raw}\" | event_id!=\"\" | context_pct!=\"\" | label_format user=\"local-user\" | unwrap context_pct [$__range]))",
+          "legendFormat": "{{user}}",
+          "instant": true,
+          "range": false,
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "bargauge",
+      "title": "Tool failure rate by member",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Share of tool_result events with success=false, per user.id attribute. Real OTel logs may carry the user under another attribute name (unverified). Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "displayName": "${__field.labels.user_id}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sort_desc(avg_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"${data_source:raw}\" | label_format failed=`{{ if eq .success \"false\" }}1{{ else }}0{{ end }}` | unwrap failed [$__range]) by (user_id))",
+          "queryType": "instant",
+          "legendFormat": "{{user_id}}"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "table",
+      "title": "Member overview",
+      "datasource": {
+        "type": "mixed",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 9
+      },
+      "description": "One row per member: cost, sessions, peak context and cache hit rate. Requires team agreement before sharing; see the README privacy notes. Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sessions"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "peak context %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.6
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.8
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cache hit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "cost",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "user",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value #A": "cost",
+              "Value #B": "sessions",
+              "Value #C": "peak context %",
+              "Value #D": "cache hit"
+            },
+            "indexByName": {
+              "user": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "refId": "A",
+          "expr": "(sum by (user) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "refId": "B",
+          "expr": "(sum by (user) ((last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) - (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) - (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"${data_source:raw}\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "max by (user) (max_over_time({service_name=\"claude-code\"} | event_name=\"api_request\" | data_source=~\"${data_source:raw}\" | event_id!=\"\" | context_pct!=\"\" | label_format user=\"local-user\" | unwrap context_pct [$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "local-prometheus"
+          },
+          "refId": "D",
+          "expr": "(sum by (user) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=\"cacheRead\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\"))) / (sum by (user) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user!=\"\"}[$__range]) * 0)))) or sum by (user) (label_replace(sum by (user_email) (sum by (job, instance) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"${data_source:raw}\",type=~\"input|cacheRead|cacheCreation\",user=\"\"}[$__range]) * 0)))) * on (job, instance) group_left (user_email) topk by (job, instance) (1, max by (job, instance, user_email) (last_over_time(target_info{user_email!=\"\"}[$__range])))), \"user\", \"$1\", \"user_email\", \"(.*)\")))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 201,
+      "type": "row",
+      "title": "Top sessions (bounded by Top N)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 56,
+      "type": "table",
+      "title": "Top sessions by cost",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 10
+      },
+      "description": "session_id is queried from Loki logs and limited to the top N; it is never a metric label. Needs cost_usd on api_request (transcripts need ccline pricing). Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention. Native api_cost events supply per-request estimates grouped by pseudonymous session; transcript-only history has no bundled pricing estimator.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "cost",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value": "cost",
+              "Value #A": "cost"
+            },
+            "indexByName": {
+              "session_id": 0,
+              "user_id": 1,
+              "cost": 2
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk($topn, sum by (session_id, user_id) (sum_over_time({service_name=\"claude-code\"} | event_name =~ \"api_request|api_cost\" | data_source =~ \"${data_source:raw}\" | cost_usd != \"\" | unwrap cost_usd [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "table",
+      "title": "Top sessions by context growth",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 10
+      },
+      "description": "Peak and lowest context per session, growth as the difference, and peak share of the model window. Top N by peak context. Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "peak tokens"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "min tokens"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "growth"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "peak %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.6
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.8
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "growth",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "session_id",
+            "mode": "inner"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value #A": "peak tokens",
+              "Value #B": "min tokens",
+              "Value #C": "peak %"
+            },
+            "indexByName": {
+              "session_id": 0,
+              "user_id": 1,
+              "peak tokens": 2,
+              "min tokens": 3,
+              "peak %": 4
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "peak tokens",
+              "operator": "-",
+              "right": "min tokens"
+            },
+            "alias": "growth",
+            "replaceFields": false
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk($topn, max by (session_id, user_id) (max_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"${data_source:raw}\" | context_tokens != \"\" | unwrap context_tokens [$__range])))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "min by (session_id) (min_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"${data_source:raw}\" | context_tokens != \"\" | unwrap context_tokens [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "max by (session_id) (max_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"${data_source:raw}\" | context_pct != \"\" | unwrap context_pct [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "type": "table",
+      "title": "Sessions with context drops (top N)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Sessions where the context fell sharply between consecutive requests, which usually means a compaction. Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "drops"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "drops",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value": "drops",
+              "Value #A": "drops"
+            },
+            "indexByName": {
+              "session_id": 0,
+              "user_id": 1,
+              "drops": 2
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk($topn, sum by (session_id, user_id) (count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"${data_source:raw}\" | context_drop = \"true\" [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Tool failures and loops (Loki)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Failed tool_result events per prompt_id",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "topk(20, sum by (prompt_id) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"${data_source:raw}\" | success = \"false\" [$__range])))"
+        }
+      ],
+      "description": " Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention."
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Repeated path-based tool calls per prompt_id",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "topk(20, sum by (prompt_id, tool_name, tool_parameters) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"${data_source:raw}\" | tool_parameters != \"\" [$__range])))"
+        }
+      ],
+      "description": " Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention."
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "tool_result events",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 10
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"${data_source:raw}\""
+        }
+      ],
+      "description": " Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention."
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Traces (Tempo, beta)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Trace explorer: claude_code.interaction",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 24,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ name = \"claude_code.interaction\" && span.data_source =~ \"${data_source:raw}\" }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ],
+      "description": "Transcript spans carry data_source; real OTel spans have no such attribute, so the query treats a missing attribute as empty, the same way the Prometheus and Loki panels do. Local sanitized metadata; missing data is not zero. Monthly values incomplete beyond seven-day retention."
+    }
+  ]
+}
