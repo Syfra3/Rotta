@@ -12,7 +12,7 @@ func TestTUISelectedOpenCodeTelemetryHost(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", bin)
 	marker := filepath.Join(home, "called")
 	t.Setenv("TELEMETRY_MARKER", marker)
 	if err := os.WriteFile(filepath.Join(bin, "python3"), []byte("#!/bin/sh\nprintf '%s' \"$*\" > \"$TELEMETRY_MARKER\"\n"), 0700); err != nil {
@@ -30,6 +30,8 @@ func TestTUISelectedOpenCodeTelemetryHost(t *testing.T) {
 	t.Chdir(root)
 	m := New()
 	m.Target, m.ProjectPath, m.SetupTelemetry = "opencode", home, true
+	// Test the telemetry handoff without running unrelated host integrations.
+	m.SetupAncora, m.SetupVela, m.SetupContext7 = false, false, false
 	m.ModelRouting = "disabled"
 	result := runInstall(m)().(installDoneMsg)
 	if result.err != nil {
