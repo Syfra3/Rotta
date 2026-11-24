@@ -1036,9 +1036,11 @@ async function loadMCPBridge(
       1024,
     );
     return {
+      start: async () => {},
       activate: async () => {},
       close: async () => {},
       status: () => ({ bridge: { state: "unavailable", reason } }),
+      nativeStatus: () => "native MCP bridge unavailable",
     };
   }
 }
@@ -1135,6 +1137,11 @@ function childResultForLine(line: string): ChildResult | null | undefined {
   return undefined;
 }
 
+function reportChildTelemetry(event: { phase: string; role: string; reason?: string; responseUsage?: UsageSummary; responseModel?: string }) {
+  // Telemetry is optional and must never change child dispatch or its result.
+  try { (globalThis as any)[Symbol.for("rotta.pi.child.telemetry")]?.(event); } catch { /* optional observer */ }
+}
+
 async function runChild(
   cwd: string,
   home: string,
@@ -1210,6 +1217,12 @@ async function runChild(
       const finish = (text: string, error = false, reason?: string) => {
         if (!done) {
           done = true;
+          reportChildTelemetry({ phase: "finished", role,
+            reason: reason ?? (error ? "child_error" : "success"),
+            responseUsage: reason === "timeout" || reason === "cancelled" || reason === "invalid_result"
+              ? undefined : childResult?.responseUsage,
+            responseModel: childResult?.responseModel,
+          });
           if (timer) clearTimeout(timer);
           signal.removeEventListener("abort", cancel);
           resolve(toolResult(trimUtf8(error ? rolePrefix + text : text), {
@@ -1287,6 +1300,7 @@ async function runChild(
         return;
       }
       stage = "spawned; no JSON session startup evidence";
+      reportChildTelemetry({ phase: "started", role });
       if (signal.aborted) cancel();
       else signal.addEventListener("abort", cancel, { once: true });
       const effectiveTimeout = Math.min(
@@ -1296,6 +1310,7 @@ async function runChild(
           timeoutMs && timeoutMs > 0 ? timeoutMs : limits.defaultTimeoutMs,
         ),
       );
+      if (done) return;
       onUpdate(toolResult("child running", {
         role,
         ...(routing ?? {}),
@@ -2097,6 +2112,9 @@ export function registerRotta(
     : process.env.HOME ?? os.homedir();
   const bridge = loadMCPBridge(pi, bridgeHome, dependencies);
   pi.on("session_start", async (_event: unknown, ctx: any) => {
+    // Await dynamic bridge loading: its own session_start hook may be registered
+    // after dispatch has already begun. Native rows must exist before a prompt.
+    await (await bridge).start();
     if (ctx.mode !== "tui") return;
     const session = ctx.sessionManager?.getSessionId?.() ?? "";
     if (session !== currentSession) {
@@ -2165,6 +2183,7 @@ export function registerRotta(
       try {
         return toolResult(JSON.stringify((await bridge).status()), {
           status: (await bridge).status(),
+          native: (await bridge).nativeStatus(),
         });
       } catch (error) {
         return toolResult("MCP bridge unavailable", {

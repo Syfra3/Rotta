@@ -264,7 +264,7 @@ func assertPiSolContextWindow(t *testing.T, home string, want int) {
 	if err := json.Unmarshal(data, &models); err != nil {
 		t.Fatalf("parse models: %v %s", err, data)
 	}
-	for _, name := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, name := range []string{"gpt-6-luna"} {
 		if got := models.Providers["openai-codex"].ModelOverrides[name].ContextWindow; got != want {
 			t.Fatalf("%s context window = %d, want %d: %s", name, got, want, data)
 		}

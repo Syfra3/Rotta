@@ -84,7 +84,7 @@ func (m Model) keyHandler() (func(tea.KeyMsg) (tea.Model, tea.Cmd), bool) {
 	handlers := map[Screen]func(tea.KeyMsg) (tea.Model, tea.Cmd){
 		ScreenWelcome: m.updateWelcome, ScreenTargetSelect: m.updateTargetSelect, ScreenProjectPath: m.updateProjectPath,
 		ScreenModeSelect: m.updateModeSelect, ScreenModelRouting: m.updateModelRouting, ScreenCustomModelRouting: m.updateCustomModelRouting, ScreenModelPicker: m.updateModelPicker, ScreenPiModelRouting: m.updatePiModelRouting, ScreenPiCustomModelRouting: m.updatePiCustomModelRouting, ScreenPiModelPicker: m.updatePiModelPicker, ScreenQualityGates: m.updateQualityGates, ScreenAncora: m.updateAncora,
-		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenConfirm: m.updateConfirm,
+		ScreenVela: m.updateVela, ScreenContext7: m.updateContext7, ScreenTelemetry: m.updateTelemetry, ScreenConfirm: m.updateConfirm,
 		ScreenSuccess: m.updateDone, ScreenError: m.updateDone, ScreenRecoveryList: m.updateRecoveryList,
 		ScreenRecoveryPreview: m.updateRecoveryPreview, ScreenRecoveryConfirm: m.updateRecoveryConfirm,
 	}
@@ -396,7 +396,8 @@ func (m Model) updatePiModelPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.PiCustomRoutingCursor == 0 {
 				m.PiOrchestratorModel = models[m.PiModelPickerCursor]
 			} else {
-				m.PiCustomRouting[piRoutingRoles[m.PiCustomRoutingCursor-1].key] = models[m.PiModelPickerCursor]
+				role := piRoutingRoles[m.PiCustomRoutingCursor-1].key
+				m.PiCustomRouting[role] = models[m.PiModelPickerCursor]
 			}
 			m.Screen = ScreenPiCustomModelRouting
 		}
@@ -600,9 +601,24 @@ func (m Model) updateContext7(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", " ":
 		m.SetupContext7 = m.Context7Cursor == 0
 		m.PrevScreen = ScreenContext7
-		m.Screen = ScreenConfirm
+		m.Screen = ScreenTelemetry
 	case "esc", "b":
 		m.Screen = ScreenVela
+	}
+	return m, nil
+}
+
+func (m Model) updateTelemetry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.TelemetryCursor = 1
+	case "k", "up":
+		m.TelemetryCursor = 0
+	case "enter", " ":
+		m.SetupTelemetry = m.TelemetryCursor == 0
+		m.Screen = ScreenConfirm
+	case "esc", "b":
+		m.Screen = ScreenContext7
 	}
 	return m, nil
 }
@@ -625,7 +641,7 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Screen = ScreenInstalling
 		return m, tea.Batch(m.InstallSpinner.Tick, runInstall(m))
 	case "esc", "b":
-		m.Screen = ScreenContext7
+		m.Screen = ScreenTelemetry
 	}
 	return m, nil
 }
@@ -664,6 +680,11 @@ func runInstall(m Model) tea.Cmd {
 			CommandStderr:         io.Discard,
 		}
 		result, err := installer.Install(opts)
+		if err == nil && m.SetupTelemetry {
+			if telemetryErr := installer.InstallLocalTelemetry(m.Target); telemetryErr != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("optional local telemetry setup failed; core installation succeeded: %v", telemetryErr))
+			}
+		}
 		return installDoneMsg{result: result, err: err}
 	}
 }

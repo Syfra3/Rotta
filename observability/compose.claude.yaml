@@ -1,0 +1,22 @@
+# Optional overlay: docker compose -f observability/compose.yaml -f observability/compose.claude.yaml up -d
+services:
+  collector:
+    volumes:
+      - ./collector.claude.yaml:/etc/otel/config.yaml:ro
+  loki:
+    image: grafana/loki:3.1.0
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks: [telemetry]
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: -config.file=/etc/tempo/config.yaml
+    volumes:
+      - ./tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    networks: [telemetry]
+volumes:
+  loki-data:
+  tempo-data:

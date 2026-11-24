@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Syfra3/Rotta/internal/installer"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -35,6 +36,7 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenAncora:               m.viewAncora,
 		ScreenVela:                 m.viewVela,
 		ScreenContext7:             m.viewContext7,
+		ScreenTelemetry:            m.viewTelemetry,
 		ScreenConfirm:              m.viewConfirm,
 		ScreenInstalling:           m.viewInstalling,
 		ScreenSuccess:              m.viewSuccess,
@@ -43,6 +45,35 @@ func (m Model) screenViews() map[Screen]func() string {
 		ScreenRecoveryPreview:      m.viewRecoveryPreview,
 		ScreenRecoveryConfirm:      m.viewRecoveryConfirm,
 	}
+}
+
+func (m Model) viewTelemetry() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Optional local telemetry") + "\n\n")
+	b.WriteString(sectionStyle.Render("What local telemetry does") + "\n")
+	b.WriteString(menuItemStyle.Render("  Collects local loopback usage, model, tool and cost metrics for diagnostics/product improvement") + "\n")
+	b.WriteString(menuItemStyle.Render("  No prompts, transcripts or secrets collected; no metrics uploaded to Rotta") + "\n")
+	b.WriteString(menuItemStyle.Render("  No marketing or third-party sharing by Rotta") + "\n\n")
+	b.WriteString(sectionStyle.Render("What gets configured") + "\n")
+	b.WriteString(menuItemStyle.Render("  Persistent Docker volumes; Prometheus retains metrics 7 days") + "\n")
+	b.WriteString(menuItemStyle.Render("  Selected Pi/OpenCode integrations are managed; other hosts are unsupported") + "\n")
+	b.WriteString(menuItemStyle.Render("  The local Docker stack may make its own network requests") + "\n")
+	b.WriteString(menuItemStyle.Render("  Remove with observability/install.py uninstall --host pi|opencode") + "\n\n")
+
+	options := []struct{ label, desc string }{
+		{"Accept local telemetry (default)", "Propose local telemetry setup; installation requires final confirmation"},
+		{"Decline", "Continue with core installation without telemetry setup"},
+	}
+	for i, opt := range options {
+		if m.TelemetryCursor == i {
+			b.WriteString(menuSelectedStyle.Render("▸ "+opt.label) + "\n")
+			b.WriteString("    " + inputHintStyle.Render(opt.desc) + "\n\n")
+		} else {
+			b.WriteString(menuItemStyle.Render("  "+opt.label) + "\n\n")
+		}
+	}
+	b.WriteString(helpStyle.Render("j/k to move · Enter to select · Esc to go back"))
+	return appStyle.Render(b.String())
 }
 
 func (m Model) viewWelcome() string {
@@ -276,7 +307,9 @@ func (m Model) viewPiCustomModelRouting() string {
 	if !m.PiModelDiscoveryDone {
 		b.WriteString(menuItemStyle.Render("Discovering offline Pi models…") + "\n\n")
 	} else if m.PiModelDiscoveryError != "" {
-		b.WriteString(errorStyle.Render(m.PiModelDiscoveryError) + "\n\n")
+		b.WriteString(errorStyle.Render(m.PiModelDiscoveryError+"; existing defaults retained, availability unknown") + "\n\n")
+	} else if !installer.PiDefaultsInCatalog(m.PiAvailableModels) {
+		b.WriteString(errorStyle.Render("Pinned defaults not all present in offline catalog; selections retained, provider access not verified") + "\n\n")
 	}
 	style, prefix := menuItemStyle, "  "
 	if m.PiCustomRoutingCursor == 0 {

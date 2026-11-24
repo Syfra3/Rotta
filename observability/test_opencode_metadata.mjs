@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import definition, { createMetadataTelemetry } from './opencode-telemetry.mjs';
+
+const snapshots = [];
+const handle = createMetadataTelemetry(metrics => snapshots.push(structuredClone(metrics)));
+const event = (type, id, data) => ({ type, id, created: 100, data });
+handle(event('session.created', 'e1', { sessionID: 'PRIVATE-SESSION', parentID: 'PRIVATE-PARENT' }));
+handle(event('session.created', 'e1', { sessionID: 'PRIVATE-SESSION', parentID: 'PRIVATE-PARENT' }));
+handle(event('session.step.started', 'e2', { sessionID: 'PRIVATE-SESSION', assistantMessageID: 'PRIVATE-MSG', model: { id: 'gpt-6', providerID: 'openai' }, agent: 'build' }));
+handle(event('session.step.ended', 'e3', { sessionID: 'PRIVATE-SESSION', assistantMessageID: 'PRIVATE-MSG', tokens: { input: 10, output: 3, cache: { read: 2, write: 0 } }, cost: 0.25 }));
+handle(event('session.tool.input.started', 'e4', { sessionID: 'PRIVATE-SESSION', assistantMessageID: 'PRIVATE-MSG', id: 'PRIVATE-CALL', name: 'mcp__x' }));
+handle(event('session.tool.success', 'e5', { sessionID: 'PRIVATE-SESSION', assistantMessageID: 'PRIVATE-MSG', id: 'PRIVATE-CALL', content: [{ text: 'PRIVATE-CONTENT' }] }));
+handle(event('session.execution.failed', 'e6', { sessionID: 'PRIVATE-SESSION', error: { message: 'PRIVATE-ERROR' } }));
+handle(event('session.compaction.ended', 'e7', { sessionID: 'PRIVATE-SESSION', reason: 'auto', text: 'PRIVATE-SUMMARY' }));
+const metrics = snapshots.at(-1);
+const point = (name, attrs) => metrics.find(m => m.name === name)?.sum.dataPoints.find(p => Object.entries(attrs).every(([k,v]) => p.attributes.some(a => a.key === k && a.value.stringValue === v)))?.asDouble;
+assert.equal(point('ai_cli_opencode_sessions', { category: 'subagent' }), 1);
+assert.equal(point('ai_cli_opencode_model_tokens', { model: 'openai/gpt-6', role: 'build', type: 'input' }), 10);
+assert.equal(point('ai_cli_opencode_model_cost_usd', { model: 'openai/gpt-6', role: 'build' }), 0.25);
+assert.equal(point('ai_cli_opencode_tool_calls', { category: 'unknown', status: 'ok' }), 1);
+assert.equal(point('ai_cli_opencode_runs', { status: 'error' }), 1);
+assert.equal(point('ai_cli_opencode_compactions', { category: 'auto' }), 1);
+for (const secret of ['PRIVATE-SESSION', 'PRIVATE-PARENT', 'PRIVATE-MSG', 'PRIVATE-CALL', 'PRIVATE-CONTENT', 'PRIVATE-ERROR', 'PRIVATE-SUMMARY']) assert.ok(!JSON.stringify(metrics).includes(secret));
+// Check the actual plugin wrapper exports metadata, not just the pure mapper.
+const posts = [];
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async (_url, request) => { posts.push(JSON.parse(request.body)); return { ok: true }; };
+let done;
+const donePromise = new Promise(resolve => { done = resolve; });
+const stop = definition.setup({ location: { directory: '/test' }, event: { subscribe: () => (async function* () {
+  yield { ...event('session.created', 'wrapper-event', { sessionID: 'PRIVATE-SESSION' }), location: { directory: '/test' } };
+  done();
+})() } });
+await donePromise;
+assert.equal(posts.length, 1);
+assert.equal(posts[0].resourceMetrics[0].scopeMetrics[0].metrics[0].name, 'ai_cli_opencode_sessions');
+assert.ok(!JSON.stringify(posts).includes('PRIVATE-SESSION'));
+stop();
+globalThis.fetch = oldFetch;
+console.log('OpenCode metadata events and privacy: pass');

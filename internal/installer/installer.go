@@ -199,6 +199,11 @@ func install(opts Options) (*Result, error) {
 	if routingNoOp {
 		opts.skipOpenCodeRouting = true
 	}
+	if (opts.Target == "pi" || opts.Target == "all") && (opts.PiModelRouting == ModelRoutingUnset || opts.PiModelRouting == ModelRoutingEnabled) {
+		if err := CheckPiDefaultAvailability(); err != nil {
+			result.Warnings = append(result.Warnings, err.Error()+"; retaining pinned Pi defaults without verified availability")
+		}
+	}
 	// All later preflight/status consumers must observe the same canonical
 	// project path used by installation (including empty and ~/ input).
 	opts.ProjectPath = projectPath

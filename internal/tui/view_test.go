@@ -323,8 +323,8 @@ func TestSCN111_TUIContext7CanBeDeselectedBeforeInstall(t *testing.T) {
 	if updated.SetupContext7 {
 		t.Fatal("expected Context7 to be deselected")
 	}
-	if updated.Screen != ScreenConfirm {
-		t.Fatalf("expected deselection to continue to confirmation, got screen %v", updated.Screen)
+	if updated.Screen != ScreenTelemetry {
+		t.Fatalf("expected deselection to continue to telemetry choice, got screen %v", updated.Screen)
 	}
 	confirm := updated.viewConfirm()
 	if !strings.Contains(context7SummaryLine(confirm), "skip") {
@@ -387,8 +387,8 @@ func TestSCN101_Context7NavigationBackAndRecoveryFormatting(t *testing.T) {
 
 	context7Screen.Screen = ScreenConfirm
 	confirmBack, _ := context7Screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if confirmBack.(Model).Screen != ScreenContext7 {
-		t.Fatalf("expected confirmation back navigation to return to Context7, got %v", confirmBack.(Model).Screen)
+	if confirmBack.(Model).Screen != ScreenTelemetry {
+		t.Fatalf("expected confirmation back navigation to return to telemetry, got %v", confirmBack.(Model).Screen)
 	}
 
 	formatted := formatRecoveryIntegrations(recoveryOptionalIntegrations{Ancora: true, Vela: true, Context7: true})

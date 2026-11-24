@@ -1,0 +1,2151 @@
+{
+  "uid": "claude-code-telemetry-lab",
+  "title": "Claude Code — Team Retro (aggregate)",
+  "description": "Team-level view only: no user or session labels. Per-member and per-session detail lives in Members & Sessions.",
+  "tags": [
+    "claude-code",
+    "otel",
+    "team"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Members & Sessions",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/claude-code-members-sessions",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false
+    },
+    {
+      "title": "Budget (calendar month)",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/claude-code-budget",
+      "keepTime": false,
+      "includeVars": true,
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "data_source",
+        "label": "Data source",
+        "type": "custom",
+        "description": "transcript: derived from local transcripts. real-otel: Claude Code's own OTel, which carries no data_source label (matches the empty label). all: both, which double counts a machine that exports both. The built-in All (URL value $__all, kept so old bookmarks work) is the same as all (may double count). The Budget dashboard always excludes synthetic and transcript-fixture, so those two options leave its panels empty.",
+        "query": "transcript : transcript, real-otel : ^$, all (may double count) : .*, synthetic : synthetic, transcript-fixture : transcript-fixture",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "transcript",
+          "value": "transcript"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "transcript",
+            "value": "transcript"
+          },
+          {
+            "selected": false,
+            "text": "real-otel",
+            "value": "^$"
+          },
+          {
+            "selected": false,
+            "text": "all (may double count)",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "synthetic",
+            "value": "synthetic"
+          },
+          {
+            "selected": false,
+            "text": "transcript-fixture",
+            "value": "transcript-fixture"
+          }
+        ]
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Cost and tokens",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Cost in range (USD)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "legendFormat": "cost",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Cache hit rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[$__range]) * 0)))) / sum((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[$__range]) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[$__range]) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[$__range]) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[400d] offset $__range) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[$__range]) * 0))))",
+          "legendFormat": "cache hit rate",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Cost per accepted edit (USD)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0)))) / (sum((last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[$__range]) - (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[400d] offset $__range) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[$__range]) * 0) * (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[$__range]) >= bool (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[400d] offset $__range) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\",decision=\"accept\"}[$__range]) * 0)))) > 0)",
+          "legendFormat": "cost per accepted edit",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Sessions in range",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_session_count_total{data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "legendFormat": "sessions",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Cost by model",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{model}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cost by query_source",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (query_source) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{query_source}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Tokens by type",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "percent",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (type) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{type}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Tokens by model and query_source",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model, query_source) ((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{model}} / {{query_source}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Cache hit rate over time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 8,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[1d] offset -1d) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[1d] offset -1d) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=\"cacheRead\"}[1d] offset -1d) * 0)))) / sum((last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[1d] offset -1d) - (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[1d] offset -1d) >= bool (last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[400d]) or last_over_time(claude_code_token_usage_tokens_total{data_source=~\"$data_source\",type=~\"input|cacheRead|cacheCreation\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "cache hit rate",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 107,
+      "type": "row",
+      "title": "Context pressure",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 30,
+      "type": "bargauge",
+      "title": "Max context % of window by model",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Highest context size (input + cacheRead + cacheCreation) seen in the range, as a share of the window configured in config/model-windows.json. Fed by transcript data; real OTel has no window signal.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.6
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "displayName": "${__field.labels.model}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sort_desc(max by (model) (max_over_time(claude_code_context_utilization_ratio{data_source=~\"$data_source\"}[$__range])))",
+          "legendFormat": "{{model}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Sessions above 80% of window",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 6,
+        "h": 8
+      },
+      "description": "Number of sessions whose peak context exceeded 80% of the model window. Answered from Loki; session ids are never shown here. See the Members & Sessions dashboard for which sessions.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "count(max_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | unwrap context_pct [$__range]) by (session_id) > 0.8)",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Context drops in range",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 31,
+        "w": 6,
+        "h": 8
+      },
+      "description": "Compaction detector: a main-thread request whose context fell below the configured ratio of the previous request in the same session. Heuristic: it cannot tell a compaction from a /clear-like reset.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum((last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "legendFormat": "drops",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "bargauge",
+      "title": "Requests by context % of window",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Distribution of per-request context size against the model window. Most requests should sit in the lower buckets; a heavy right tail means long, unmanaged sessions.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | context_pct < 0.25 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "<25%"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "sum(count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | context_pct >= 0.25 | context_pct < 0.5 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "25-50%"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "sum(count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | context_pct >= 0.5 | context_pct < 0.75 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "50-75%"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "D",
+          "expr": "sum(count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | context_pct >= 0.75 | context_pct < 0.9 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "75-90%"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "E",
+          "expr": "sum(count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_pct != \"\" | context_pct >= 0.9 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": ">=90%"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Context size per request (p95, tokens)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "description": "A comes from the transcript exporter. B derives the same size from the real api_request event fields input_tokens, cache_read_tokens and cache_creation_tokens; those names are unverified against real output, so B may stay empty. Each bar or point summarises the 24 hours ending at its timestamp (UTC). Loki labels a window by its end, so today's point is stamped at the next UTC midnight.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 8,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_tokens != \"\" | unwrap context_tokens [1d]) by (model)",
+          "queryType": "range",
+          "legendFormat": "{{model}}",
+          "step": "1d"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "quantile_over_time(0.95, {service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | context_tokens = \"\" | label_format context_tokens=`{{ add (add (int .input_tokens) (int .cache_read_tokens)) (int .cache_creation_tokens) }}` | unwrap context_tokens [1d]) by (model)",
+          "queryType": "range",
+          "legendFormat": "otel {{model}}",
+          "step": "1d"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Context drops over time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (model) ((last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_context_drop_count_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{model}}",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "type": "row",
+      "title": "Model and subagent mix",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 36,
+      "type": "bargauge",
+      "title": "Cost share by model and query_source",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "displayName": "${__field.labels.model} / ${__field.labels.query_source}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sort_desc(sum by (model, query_source) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0)))))",
+          "legendFormat": "{{model}} / {{query_source}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "Subagent share of cost",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 55,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\",query_source=\"subagent\"}[$__range]) * 0)))) / sum((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "legendFormat": "subagent share",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Edit decisions",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "bargauge",
+      "title": "Edit decisions by source",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "displayName": "${__field.labels.decision} / ${__field.labels.source}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sort_desc(sum by (decision, source) ((last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[$__range]) * 0)))))",
+          "legendFormat": "{{decision}} / {{source}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Edit decisions over time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (decision, source) ((last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_code_edit_tool_decision_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "legendFormat": "{{decision}} / {{source}}",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "Tool and MCP usage",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 132,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "Top tools by calls",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 133,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [],
+          "values": true,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sort_desc(topk(10, sum by (tool_name) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" [$__range]))))",
+          "legendFormat": "{{tool_name}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "bargauge",
+      "title": "MCP servers by calls",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 133,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [],
+          "values": true,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sort_desc(topk(10, sum by (mcp_server) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | tool_name =~ \"mcp__.+\" | line_format \"{{.tool_name}}\" | regexp \"^mcp__(?P<mcp_server>.+?)__.+\" [$__range]))))",
+          "legendFormat": "{{mcp_server}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "MCP calls over time",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 142,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": -1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "range",
+          "expr": "topk(10, sum by (mcp_server) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | tool_name =~ \"mcp__.+\" | line_format \"{{.tool_name}}\" | regexp \"^mcp__(?P<mcp_server>.+?)__.+\" [1d])))",
+          "legendFormat": "{{mcp_server}}",
+          "step": "1d"
+        }
+      ],
+      "description": "Each bar or point summarises the 24 hours ending at its timestamp (UTC). Loki labels a window by its end, so today's point is stamped at the next UTC midnight."
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Tool reliability",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 151,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "calls"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failures %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.1
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.3
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "calls",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "tool_name",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true
+            },
+            "renameByName": {
+              "Value #A": "calls",
+              "Value #B": "failures %",
+              "Value #C": "p95 ms"
+            },
+            "indexByName": {
+              "tool_name": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum by (tool_name) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" [$__range]))"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "queryType": "instant",
+          "expr": "avg_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | label_format failed=`{{ if eq .success \"false\" }}1{{ else }}0{{ end }}` | unwrap failed [$__range]) by (tool_name)"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "queryType": "instant",
+          "expr": "quantile_over_time(0.95, {service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | duration_ms != \"\" | unwrap duration_ms [$__range]) by (tool_name)"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Bash command classes",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 24,
+        "h": 10
+      },
+      "description": "First token of each Bash command, allowlisted by the exporter (anything else is bucketed as other). Command text and arguments are never exported. Real OTel does not emit command_class, so this is transcript data only.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "calls"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failures %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.1
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.3
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "calls",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "command_class",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value #A": "calls",
+              "Value #B": "failures %"
+            },
+            "indexByName": {
+              "command_class": 0,
+              "Value #A": 1,
+              "Value #B": 2
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (command_class) (count_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | tool_name = \"Bash\" | command_class != \"\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "avg_over_time({service_name=\"claude-code\"} | event_name = \"tool_result\" | data_source =~ \"$data_source\" | tool_name = \"Bash\" | command_class != \"\" | label_format failed=`{{ if eq .success \"false\" }}1{{ else }}0{{ end }}` | unwrap failed [$__range]) by (command_class)",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "type": "row",
+      "title": "API health (api_request)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 161,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 38,
+      "type": "table",
+      "title": "API requests by model",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 162,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Requests, failed requests, retries and p95 latency per model. Transcript errors take the model of the preceding request in the same thread; errors before any request in the thread appear under unknown. Latency is wall time between transcript records. Real OTel api_error events are counted as failures; their field names are unverified.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "requests"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "errors"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "noValue",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retries"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "noValue",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "requests",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "model",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true
+            },
+            "renameByName": {
+              "Value #A": "requests",
+              "Value #B": "errors",
+              "Value #C": "retries",
+              "Value #D": "p95 ms"
+            },
+            "indexByName": {
+              "model": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (model) (count_over_time({service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "sum by (model) (count_over_time({service_name=\"claude-code\"} | event_name = \"api_error\" | data_source =~ \"$data_source\" | outcome != \"retry\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "sum by (model) (count_over_time({service_name=\"claude-code\"} | event_name = \"api_error\" | data_source =~ \"$data_source\" | outcome = \"retry\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "D",
+          "expr": "quantile_over_time(0.95, {service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | duration_ms != \"\" | unwrap duration_ms [$__range]) by (model)",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "API latency by model (p95 ms)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 170,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 8,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {service_name=\"claude-code\"} | event_name = \"api_request\" | data_source =~ \"$data_source\" | duration_ms != \"\" | unwrap duration_ms [1d]) by (model)",
+          "queryType": "range",
+          "legendFormat": "{{model}}",
+          "step": "1d"
+        }
+      ],
+      "description": "Each bar or point summarises the 24 hours ending at its timestamp (UTC). Loki labels a window by its end, so today's point is stamped at the next UTC midnight."
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "API errors and retries over time",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 170,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": -1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (outcome) (count_over_time({service_name=\"claude-code\"} | event_name = \"api_error\" | data_source =~ \"$data_source\" | label_format outcome=`{{ if .outcome }}{{ .outcome }}{{ else }}failed{{ end }}` [1d]))",
+          "queryType": "range",
+          "legendFormat": "{{outcome}}",
+          "step": "1d"
+        }
+      ],
+      "description": "Each bar or point summarises the 24 hours ending at its timestamp (UTC). Loki labels a window by its end, so today's point is stamped at the next UTC midnight."
+    },
+    {
+      "id": 105,
+      "type": "row",
+      "title": "Git activity and cost per branch",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 178,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Git actions over time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 179,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (git_action) ((last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[1d] offset -1d) - (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0) * (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[1d] offset -1d) >= bool (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[400d]) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\"}[1d] offset -1d) * 0))))",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{git_action}}",
+          "interval": "1d"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "bargauge",
+      "title": "Cost by branch (anonymous)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 179,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sort_desc(topk(10, sum by (branch_class, branch_id) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0))))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{branch_class}} {{branch_id}}"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Branch efficiency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 188,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "commits"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PRs created"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost per commit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "cost",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "branch_id",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true
+            },
+            "renameByName": {
+              "Value #A": "cost",
+              "Value #B": "commits",
+              "Value #C": "PRs created",
+              "Value #D": "cost per commit"
+            },
+            "indexByName": {
+              "branch_class": 0,
+              "branch_id": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (branch_class, branch_id) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (branch_id) ((last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) - (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) * 0) * (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) >= bool (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) * 0))))",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (branch_id) ((last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[$__range]) - (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[$__range]) * 0) * (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[$__range]) >= bool (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"pr_create\",success=\"true\"}[$__range]) * 0))))",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (branch_id) ((last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source=~\"$data_source\"}[$__range]) * 0)))) / (sum by (branch_id) ((last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) - (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) * 0) * (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) >= bool (last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[400d] offset $__range) or last_over_time(claude_code_git_action_count_total{data_source=~\"$data_source\",git_action=\"commit\",success=\"true\"}[$__range]) * 0)))) > 0)",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

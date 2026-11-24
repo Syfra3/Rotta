@@ -70,6 +70,30 @@ function stdio(
   }) as any;
   return { spawn, calls };
 }
+function nativeHost() {
+  const mocked = host();
+  const servers = new Map<string, any>();
+  const removed: string[] = [];
+  return { ...mocked, servers, removed, pi: {
+    ...mocked.pi,
+    registerMcpServer(name: string, value: any) { servers.set(name, value); },
+    unregisterMcpServer(name: string) { removed.push(name); servers.delete(name); },
+  } };
+}
+async function nativeRPC(server: any, method: string, params?: unknown, auth = true) {
+  const response = await fetch(server.url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(auth ? server.headers : {}) },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const raw = await response.text();
+  return { status: response.status, body: raw ? JSON.parse(raw) : undefined };
+}
+function nativeConfig(mocked: ReturnType<typeof nativeHost>, service: string) {
+  const pair = [...mocked.servers].find(([name]) => name.startsWith(`rotta_${service}_`));
+  assert(pair, `no native ${service} row`);
+  return pair[1];
+}
 function config(enabled = { ancora: true, vela: false, context7: false }) {
   return JSON.stringify({
     version: 1,
@@ -546,4 +570,115 @@ Deno.test("tool results preserve unsupported MCP detail and throw sanitized isEr
     },
     (e: Error) => assert(!e.message.includes("private-key")),
   );
+});
+
+Deno.test("native rows register before prompts, authenticate loopback, share upstream and exact permissions", async () => {
+  const mocked = nativeHost(), transport = stdio([[{ name: "ancora_search", inputSchema: { type: "object" } }, { name: "ancora_delete" }]]);
+  let spawns = 0;
+  const bridge = registerMCPBridge(mocked.pi as any, {
+    ...deps(transport), spawn: ((...args: any[]) => { spawns++; return transport.spawn(...args); }) as any,
+  });
+  let url = "";
+  try {
+    await bridge.start();
+    assert(Number(mocked.servers.size) === 3 && Number(spawns) === 0, "startup must not independently connect upstream");
+    const server = nativeConfig(mocked, "ancora");
+    url = server.url;
+    assert(server.enabled && server.exposure === "hidden" && url.startsWith("http://127.0.0.1:"));
+    assert(!nativeConfig(mocked, "vela").enabled && !nativeConfig(mocked, "context7").enabled);
+    assert((await nativeRPC(server, "initialize", {}, false)).status === 401);
+    const forbiddenOrigin = await fetch(url, { method: "POST", headers: { ...server.headers, origin: "https://example.com" }, body: "{}" });
+    assert(forbiddenOrigin.status === 403); await forbiddenOrigin.text();
+    const get = await fetch(url, { headers: server.headers });
+    assert(get.status === 405); await get.text();
+    const [init] = await Promise.all([nativeRPC(server, "initialize", {}), bridge.activate()]);
+    assert(init.body.result.protocolVersion === "2025-06-18" && spawns === 1);
+    assert(transport.calls.filter((c) => c.method === "initialize").length === 1);
+    assert(transport.calls.filter((c) => c.method === "tools/list").length === 1);
+    const listed = await nativeRPC(server, "tools/list");
+    assert(listed.body.result.tools.length === 1 && listed.body.result.tools[0].name === "ancora_search");
+    for (const name of ["ancora_delete", "search_code", "ancora_search_extra"]) {
+      assert((await nativeRPC(server, "tools/call", { name })).body.error);
+    }
+    assert((await nativeRPC(server, "resources/list")).body.error.code === -32601);
+    assert((await nativeRPC(server, "prompts/list")).body.error.code === -32601);
+    assert((await nativeRPC(server, "tools/call", { name: "ancora_search", arguments: {} })).body.result.content[0].text === "ok");
+    await mocked.tools[0].execute("compat", {}, new AbortController().signal);
+    assert(transport.calls.filter((c) => c.method === "tools/call").length === 2);
+    const disabled = await nativeRPC(nativeConfig(mocked, "vela"), "initialize");
+    assert(disabled.body.error && spawns === 1);
+    assert(bridge.nativeStatus().includes("registered"));
+  } finally { await bridge.close(); }
+  assert(mocked.removed.length === 3 && mocked.servers.size === 0);
+  await fetch(url).then(() => { throw Error("listener survived shutdown"); }, () => {});
+  await bridge.close(); // idempotent
+});
+
+Deno.test("native tool error results cannot expose upstream error content or structured secrets", async () => {
+  const mocked = nativeHost();
+  const transport = stdio([[{ name: "ancora_search", inputSchema: { type: "object" } }]], {
+    isError: true,
+    content: [{ type: "text", text: "Bearer private-key denied" }],
+    structuredContent: { token: "structured-private-key" },
+  });
+  const bridge = registerMCPBridge(mocked.pi as any, deps(transport));
+  try {
+    await bridge.start();
+    const result = await nativeRPC(nativeConfig(mocked, "ancora"), "tools/call", { name: "ancora_search" });
+    assert(result.body.error && !result.body.result);
+    assert(!JSON.stringify(result).includes("private-key") && !JSON.stringify(result).includes("structuredContent"));
+  } finally { await bridge.close(); }
+});
+
+Deno.test("native and compatibility Vela calls share budget across native reconnect", async () => {
+  const mocked = nativeHost(), transport = stdio([[{ name: "vela_explore", inputSchema: { type: "object" } }]]);
+  const bridge = registerMCPBridge(mocked.pi as any, deps(transport, "exploration", config({ ancora: false, vela: true, context7: false })));
+  try {
+    await bridge.start();
+    const server = nativeConfig(mocked, "vela");
+    assert((await nativeRPC(server, "initialize")).body.result);
+    await bridge.activate();
+    await mocked.tools[0].execute("compat", {}, new AbortController().signal);
+    assert((await nativeRPC(server, "tools/call", { name: "vela_explore" })).body.result);
+    assert((await nativeRPC(server, "initialize")).body.result, "native reconnect initialize");
+    assert((await nativeRPC(server, "tools/call", { name: "vela_explore" })).body.error, "reconnect reset budget");
+    await mocked.tools[0].execute("third", {}, new AbortController().signal).then(() => { throw Error("compat bypassed budget"); }, () => {});
+    assert(transport.calls.filter((c) => c.method === "tools/call").length === 2);
+  } finally { await bridge.close(); }
+});
+
+Deno.test("native initialize failure is an RPC failure, disabled and unknown roles cannot activate", async () => {
+  const mocked = nativeHost();
+  const bridge = registerMCPBridge(mocked.pi as any, { ...deps(stdio([[]])), exists: () => false });
+  try {
+    await bridge.start();
+    const initialized = await nativeRPC(nativeConfig(mocked, "ancora"), "initialize");
+    assert(initialized.body.error && !initialized.body.result);
+    assert(bridge.status().ancora.state === "unavailable");
+  } finally { await bridge.close(); }
+  for (const role of ["parent", "unknown", "toString", "__proto__"]) {
+    const host = nativeHost(), transport = stdio([[]]);
+    const denied = registerMCPBridge(host.pi as any, deps(transport, role, config({ ancora: false, vela: true, context7: false })));
+    try {
+      await denied.start();
+      assert(!nativeConfig(host, "vela").enabled);
+      assert((await nativeRPC(nativeConfig(host, "vela"), "initialize")).body.error);
+      assert(transport.calls.length === 0);
+    } finally { await denied.close(); }
+  }
+});
+
+Deno.test("native managed names isolate user configuration and malformed/oversized requests fail closed", async () => {
+  const a = nativeHost(), b = nativeHost();
+  const first = registerMCPBridge(a.pi as any, deps(stdio([[]])));
+  const second = registerMCPBridge(b.pi as any, deps(stdio([[]])));
+  try {
+    await Promise.all([first.start(), second.start()]);
+    assert([...a.servers.keys()].every((key) => !b.servers.has(key)));
+    const server = nativeConfig(a, "ancora");
+    const invalid = await fetch(server.url, { method: "POST", headers: { ...server.headers, "content-type": "application/json" }, body: "[]" });
+    assert(invalid.status === 400); await invalid.text();
+    const large = await fetch(server.url, { method: "POST", headers: { ...server.headers, "content-type": "application/json" }, body: JSON.stringify({ data: "x".repeat(70_000) }) });
+    assert(large.status === 413); await large.text();
+  } finally { await Promise.all([first.close(), second.close()]); }
 });

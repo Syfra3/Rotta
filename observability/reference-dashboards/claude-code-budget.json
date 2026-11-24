@@ -1,0 +1,423 @@
+{
+  "uid": "claude-code-budget",
+  "title": "Claude Code — Budget (calendar month)",
+  "description": "Monthly budget against spend. The time range is fixed to the whole calendar month in UTC (day 1 to the last day), so the chart shows the month at a glance; the stats cover the month so far.",
+  "tags": [
+    "claude-code",
+    "otel",
+    "budget"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "",
+  "time": {
+    "from": "now/M",
+    "to": "now/M"
+  },
+  "timepicker": {
+    "hidden": true
+  },
+  "links": [
+    {
+      "title": "Team Retro (aggregate)",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/claude-code-telemetry-lab",
+      "keepTime": false,
+      "includeVars": true,
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "data_source",
+        "label": "Data source",
+        "type": "custom",
+        "description": "transcript: derived from local transcripts. real-otel: Claude Code's own OTel, which carries no data_source label (matches the empty label). all: both, which double counts a machine that exports both. The built-in All (URL value $__all, kept so old bookmarks work) is the same as all (may double count). The Budget dashboard always excludes synthetic and transcript-fixture, so those two options leave its panels empty.",
+        "query": "transcript : transcript, real-otel : ^$, all (may double count) : .*, synthetic : synthetic, transcript-fixture : transcript-fixture",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "transcript",
+          "value": "transcript"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "transcript",
+            "value": "transcript"
+          },
+          {
+            "selected": false,
+            "text": "real-otel",
+            "value": "^$"
+          },
+          {
+            "selected": false,
+            "text": "all (may double count)",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "synthetic",
+            "value": "synthetic"
+          },
+          {
+            "selected": false,
+            "text": "transcript-fixture",
+            "value": "transcript-fixture"
+          }
+        ]
+      },
+      {
+        "name": "budget",
+        "label": "Monthly budget (USD)",
+        "type": "textbox",
+        "query": "1200",
+        "current": {
+          "selected": false,
+          "text": "1200",
+          "value": "1200"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "1200",
+            "value": "1200"
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 106,
+      "type": "row",
+      "title": "Budget",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Month to date (USD)",
+      "description": "Month to date: this panel ignores the time picker and always covers the current month so far (panel relative time now/M). Fake data is excluded (data_source synthetic and transcript-fixture); the Data source variable applies, so keep it on one source: all counts a machine that exports both real OTel and transcripts twice.",
+      "timeFrom": "now/M",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0))))",
+          "legendFormat": "Month to date (USD)",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Projected month end (USD)",
+      "description": "Linear projection: month to date * days in month / days elapsed (UTC). Unstable in the first days of the month and ignores weekends. Month to date: this panel ignores the time picker and always covers the current month so far (panel relative time now/M). Fake data is excluded (data_source synthetic and transcript-fixture); the Data source variable applies, so keep it on one source: all counts a machine that exports both real OTel and transcripts twice.",
+      "timeFrom": "now/M",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0)))) * days_in_month() * 86400 / ((day_of_month() - 1) * 86400 + time() % 86400)",
+          "legendFormat": "Projected month end (USD)",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Budget used",
+      "description": "Month to date: this panel ignores the time picker and always covers the current month so far (panel relative time now/M). Fake data is excluded (data_source synthetic and transcript-fixture); the Data source variable applies, so keep it on one source: all counts a machine that exports both real OTel and transcripts twice. Month to date divided by the budget variable.",
+      "timeFrom": "now/M",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0)))) / $budget",
+          "legendFormat": "Budget used",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Projected vs budget",
+      "description": "Projected month end divided by the budget variable. Linear projection: month to date * days in month / days elapsed (UTC). Unstable in the first days of the month and ignores weekends. Month to date: this panel ignores the time picker and always covers the current month so far (panel relative time now/M). Fake data is excluded (data_source synthetic and transcript-fixture); the Data source variable applies, so keep it on one source: all counts a machine that exports both real OTel and transcripts twice.",
+      "timeFrom": "now/M",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "red",
+                "value": 1.0
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) - (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] offset $__range) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[$__range]) * 0)))) * days_in_month() * 86400 / ((day_of_month() - 1) * 86400 + time() % 86400) / $budget",
+          "legendFormat": "Projected vs budget",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Cumulative cost vs budget",
+      "description": "Running total of cost for the calendar month in UTC, from day 1 to the last day: the dashboard range is the whole month. The cost line stops at the last day with data and the budget line spans the whole month. Fake data is excluded (data_source synthetic and transcript-fixture); the Data source variable applies, so keep it on one source: all counts a machine that exports both real OTel and transcripts twice.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "budget"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum((last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[31d] offset -1d) - (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] @ start()) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[31d] offset -1d) * 0) * (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[31d] offset -1d) >= bool (last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[400d] @ start()) or last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[31d] offset -1d) * 0))) and on() group(last_over_time(claude_code_cost_usage_USD_total{data_source!~\"synthetic|transcript-fixture\",data_source=~\"$data_source\"}[31d] offset -31d)))",
+          "legendFormat": "cumulative cost",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vector($budget)",
+          "legendFormat": "budget",
+          "refId": "B",
+          "instant": false,
+          "range": true,
+          "interval": "1d"
+        }
+      ]
+    }
+  ]
+}

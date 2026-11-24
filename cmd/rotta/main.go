@@ -126,6 +126,7 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 	projectPath := flags.String("project", "", "project path")
 	setupAncora := flags.Bool("ancora", false, "set up Ancora integration")
 	setupVela := flags.Bool("vela", false, "set up Vela integration")
+	telemetry := flags.Bool("local-telemetry", false, "opt in to local Docker telemetry for selected Pi/OpenCode hosts (7-day Prometheus retention; no upload to Rotta)")
 	routing := flags.String("model-routing", "", "OpenCode model routing: enabled, custom, or disabled")
 	var openCodeModels, openCodeEfforts repeatedFlag
 	flags.Var(&openCodeModels, "model", "OpenCode custom role=model assignment (repeat for all seven roles)")
@@ -186,6 +187,14 @@ func runInstallCommand(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "OpenCode policy loading: %s\n%s\n%s\n", capability.Status, capability.Reason, capability.Remediation)
 	}
 	fmt.Fprintln(stdout, "Restart the coding agent to load the installed policy bundle.")
+	if *telemetry {
+		fmt.Fprintln(stdout, "Local telemetry requested for selected supported hosts: loopback metrics and persistent Docker volumes; no metrics uploaded to Rotta.")
+		if err := installer.InstallLocalTelemetry(*target); err != nil {
+			fmt.Fprintf(stderr, "Warning: optional local telemetry setup failed; core installation succeeded: %v\n", err)
+		} else {
+			fmt.Fprintln(stdout, "Local telemetry installed.")
+		}
+	}
 	return nil
 }
 

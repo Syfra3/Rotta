@@ -1,0 +1,66 @@
+{
+  "uid": "ai-cli-opencode",
+  "title": "AI CLI | OpenCode telemetry",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Coverage and limitations",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": { "mode": "markdown", "content": "Local opt-in metadata only; no prompt, tool content or original session IDs. Counts begin when the updated plugin is loaded. Tool classification is best effort; subagent means a newly observed session with a parent. Values are not billing, may miss events or be duplicated after replay, and require the updated collector. Existing historical OpenCode data may contain duplicates. No data is not zero." }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Tokens by model, agent and type",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (model,role,type) (increase(ai_cli_opencode_model_tokens_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{model}} {{role}} {{type}}", "range": true, "instant": false }],
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Estimated cost by model and agent | not billing",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (model,role) (increase(ai_cli_opencode_model_cost_usd_USD_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{model}} {{role}}", "range": true, "instant": false }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 }
+    },
+    {
+      "id": 4,
+      "type": "bargauge",
+      "title": "Completed tools by category and outcome",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (category,status) (increase(ai_cli_opencode_tool_calls_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{category}} {{status}}", "range": false, "instant": true }],
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 }
+    },
+    {
+      "id": 5,
+      "type": "bargauge",
+      "title": "Execution outcomes | runs, not sessions",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (status) (increase(ai_cli_opencode_runs_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{status}}", "range": false, "instant": true }],
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 }
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Newly observed sessions by parent relationship",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (category) (increase(ai_cli_opencode_sessions_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{category}}", "range": false, "instant": true }],
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 7 }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Completed compactions by reason",
+      "datasource": { "type": "prometheus", "uid": "local-prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (category) (increase(ai_cli_opencode_compactions_total{job=\"collector\",source=\"native\",client=\"opencode\"}[$__range]))", "legendFormat": "{{category}}", "range": false, "instant": true }],
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 7 }
+    }
+  ]
+}

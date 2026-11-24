@@ -1045,10 +1045,10 @@ Deno.test("Pi routing profile applies complete roles, but explicit and inheritan
   const profile: any = {
     version: 1,
     roles: {
-      implementation: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
-      reviewer: { model: "openai-codex/gpt-5.6-sol", effort: "medium" },
-      exploration: { model: "openai-codex/gpt-5.6-sol", effort: "high" },
-      operations: { model: "openai-codex/gpt-5.6-sol", effort: "low" },
+      implementation: { model: "openai-codex/gpt-6.1-sol", effort: "low" },
+      reviewer: { model: "openai-codex/gpt-6.1-sol", effort: "medium" },
+      exploration: { model: "openai-codex/gpt-6.1-luna", effort: "high" },
+      operations: { model: "openai-codex/gpt-6.1-luna", effort: "low" },
     },
   };
   try {
@@ -1475,8 +1475,11 @@ Deno.test("parent activation injects only exact installed core and orchestrator 
 Deno.test("default parent entrypoint loads the installed bridge once and reports observed failure", async () => {
   const home = Deno.makeTempDirSync();
   const events: Record<string, any[]> = {}, tools: any[] = [];
+  const native = new Map<string, any>();
   let spawns = 0;
   const pi = {
+    registerMcpServer: (name: string, value: any) => native.set(name, value),
+    unregisterMcpServer: (name: string) => native.delete(name),
     registerTool: (entry: any) => tools.push(entry),
     registerCommand: () => {},
     registerShortcut: () => {},
@@ -1551,6 +1554,10 @@ Deno.test("default parent entrypoint loads the installed bridge once and reports
       spawn,
       mcp: { exists: () => true, env: (key) => key === "PATH" ? "/bin" : "" },
     });
+    // Snapshot dispatch deliberately excludes the dynamically imported bridge's
+    // later hook, matching Pi's startup race. The parent must await bridge.start.
+    for (const handler of [...events.session_start]) await handler({}, { mode: "json" });
+    assert(native.size === 3 && Number(spawns) === 0, "native rows missing before first prompt");
     const event = { systemPrompt: "BASE" };
     await events.before_agent_start[0](event);
     await Promise.all(
@@ -1572,6 +1579,7 @@ Deno.test("default parent entrypoint loads the installed bridge once and reports
         !observed.content[0].text.includes("synthetic-key"),
     );
   } finally {
+    for (const handler of events.session_shutdown ?? []) await handler();
     Deno.removeSync(home, { recursive: true });
   }
 });

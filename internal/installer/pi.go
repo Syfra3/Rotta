@@ -139,15 +139,15 @@ func piModelsPath(home string) string {
 }
 
 var immutablePiRouting = map[string]string{
-	"implementation": "openai-codex/gpt-6-sol",
-	"reviewer":       "openai-codex/gpt-6-sol",
+	"implementation": "openai-codex/gpt-6.1-terra",
+	"reviewer":       "openai-codex/gpt-6.1-sol",
 	"exploration":    "openai-codex/gpt-6-luna",
 	"operations":     "openai-codex/gpt-6-luna",
 }
 
 var immutablePiRoutingEffort = map[string]string{
-	"implementation": "low",
-	"reviewer":       "low",
+	"implementation": "high",
+	"reviewer":       "medium",
 	"exploration":    "medium",
 	"operations":     "medium",
 }
@@ -189,7 +189,7 @@ func defaultPiRoutingAssignments() map[string]PiRoutingAssignment {
 	return roles
 }
 
-func DefaultPiOrchestratorModel() string  { return "openai-codex/gpt-6-sol" }
+func DefaultPiOrchestratorModel() string  { return "openai-codex/gpt-6.1-sol" }
 func DefaultPiOrchestratorEffort() string { return "low" }
 
 type resolvedPiOrchestratorRouting struct {
