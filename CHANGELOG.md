@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.21.0](https://github.com/Syfra3/Rotta/compare/v1.20.0...v1.21.0) (2026-11-24)
+
+
+### Features
+
+* add local AI CLI telemetry and update Pi integration ([3a23f66](https://github.com/Syfra3/Rotta/commit/3a23f6624c2a10a712ca287739e391865369c4fc))
+
+
+### Bug Fixes
+
+* agent installer errors ([158edea](https://github.com/Syfra3/Rotta/commit/158edea8c08831a7d55260819ef6f2d59ad711a0))
+* format installer test for CI ([2dfa74b](https://github.com/Syfra3/Rotta/commit/2dfa74b0d8131d49c91b715c4fa7bf9c16c853cc))
+
 ## [1.20.0](https://github.com/Syfra3/Rotta/compare/v1.19.2...v1.20.0) (2026-10-08)
 
 
