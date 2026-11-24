@@ -42,9 +42,9 @@ func TestGenericLocalTierPolicyInstalledAcrossHosts(t *testing.T) {
 
 func TestEngineerConsentPolicySurvivesHostInstallation(t *testing.T) {
 	for _, host := range []struct {
-		name string
+		name    string
 		install func(Options, string) ([]string, error)
-		root string
+		root    string
 	}{
 		{"pi", installPi, filepath.Join(".pi", "agent", "rotta-next")},
 		{"opencode", installOpenCode, filepath.Join(".config", "opencode", "skills", "rotta-next")},
